@@ -1,0 +1,177 @@
+# VPN paths
+
+Two independent VPNs, both optional, both separate Compose projects so a
+mistake in either cannot touch the main stack.
+
+| | AmneziaWG | 3x-ui |
+|---|---|---|
+| Protocol | Obfuscated WireGuard (UDP) | VLESS/Reality, Hysteria2, Shadowsocks, more |
+| Transport | UDP on its own port | TCP, can ride :443 by SNI |
+| Client | AmneziaWG app (stock WireGuard will **not** work) | Any Xray client (Hiddify, Happ, v2rayN) |
+| Config delivery | `.conf` file or QR | Subscription URL |
+| Managed by | `awg-client.sh` + web UI | Its own web panel |
+
+Run each from inside its own directory:
+
+```bash
+cd amneziawg && docker compose up -d
+cd 3xpanel   && docker compose up -d
+```
+
+---
+
+## AmneziaWG
+
+### Setup
+
+```bash
+cd amneziawg
+./awg-init.sh            # once: server keypair + server-side obfuscation
+docker compose up -d
+./awg-client.sh add alice
+```
+
+`awg-init.sh` refuses to run twice. The values it writes into
+`config/params.env` — `S1-S4` and `H1-H4` — must be byte-identical on the
+server and every client. Regenerating them invalidates every config already
+handed out, which is why it is a one-time operation and why that file is the
+most important thing to back up.
+
+Forward `AWG_PORT` (default 20443/udp) on the router.
+
+### Managing peers
+
+```bash
+./awg-client.sh add <name>      # create, apply live, print config + QR
+./awg-client.sh list            # peers with handshake and transfer
+./awg-client.sh show <name>     # re-print an existing config
+./awg-client.sh remove <name>   # revoke, live
+```
+
+Changes are applied with `awg set` over the UAPI socket, so adding or revoking
+a peer **never disconnects anyone else**.
+
+There is also a web UI at `https://<domain>/<AWG_ADMIN_PATH>/`, behind basic
+auth as `AWG_ADMIN_USER`. Password is in `secrets/awg-admin-password`. It and
+the CLI share `awg0.conf` under an `flock`, so they cannot corrupt each other.
+
+### Obfuscation: which settings are free, and which are a flag day
+
+AmneziaWG splits its parameters into two classes, and the split governs
+everything about how you roll out changes:
+
+| Class | Parameters | Must match? |
+|---|---|---|
+| **server-side** | `S1-S4`, `H1-H4`, `HeaderProtectionKey` | **yes, byte-identical** |
+| **client-side** | `Jc/Jmin/Jmax`, `I1-I5`, `ContentPaddingAddition`, `Rekey*`, `Reject*`, `Keepalive*`, `MaxHandshakeAttempts` | no |
+
+Client-side parameters can differ per peer and the server neither needs nor
+notices them. That means you can hand one user an upgraded config without
+touching the server and without breaking anyone still on an old one.
+
+Server-side parameters are the opposite: adding `HeaderProtectionKey` to a
+running server drops every existing peer at once. If you want it, stand up a
+*second* instance on another port and migrate people one at a time.
+
+`config/awg31.py` generates the client-side block, fresh per client. Both the
+CLI and the web UI import it, so they cannot drift. The per-client randomisation
+is deliberate: with one shared set every peer emits an identical flow signature,
+and a signature burned on one user describes all of them.
+
+### Signature packets (I1/I2)
+
+`I1`/`I2` imitate a QUIC v1 client Initial — a real 1200-byte datagram shape
+with correct `Length` field, with the connection IDs and ciphertext supplied by
+`<r N>` random tags. Sent before each handshake, they make the opening of a
+session look like ordinary QUIC rather than an unclassifiable UDP blob.
+
+`Jc` is set to 0 alongside them on purpose: junk packets are small random blobs,
+and "QUIC Initial + N random blobs" is less coherent than either alone.
+
+To re-roll signatures after one is blocked, regenerate the client configs. No
+server change is needed and old configs keep working until each user switches.
+
+### QR codes have a size limit
+
+Configs are minified before being encoded — comments and alignment stripped —
+because the full file needs a much denser QR than phone cameras reliably scan.
+A partial decode does not report itself as a scan failure: the app receives a
+config starting mid-file and complains about an *unknown section*, which sends
+you hunting through the config text for a problem that isn't there.
+
+`qr_payload()` in `config/awg31.py` handles this. If you add fields to the
+config template, check the QR still scans.
+
+### Client apps
+
+The **AmneziaWG** app, not stock WireGuard — the obfuscation is a protocol
+change WireGuard cannot parse. Signature packets need app **v3.0.1 or newer**;
+older builds reject a config containing `I1`.
+
+---
+
+## 3x-ui
+
+A general Xray panel: VLESS/Reality, Hysteria2, Shadowsocks, AmneziaWG and
+others, with subscription links.
+
+```bash
+cd 3xpanel && docker compose up -d
+docker compose logs 3xui | head    # first-run credentials
+```
+
+Host networking, on purpose: Xray binds many ports and Reality inbounds need
+real source addresses. It is therefore **not** behind Caddy and serves its own
+HTTPS on `XUI_PANEL_PORT`.
+
+### Certificates
+
+The panel cannot renew its own certificate, because Caddy owns 80/443 and ACME
+needs one of them. `scripts/3xui-cert-sync.sh` copies Caddy's auto-renewed cert
+into the panel and restarts it only when it changed:
+
+```bash
+crontab -e
+17 4 * * * /path/to/meowstack/scripts/3xui-cert-sync.sh >> /path/to/meowstack/scripts/cert-sync.log 2>&1
+```
+
+Because the certificate is issued for the domain, reach the panel by hostname —
+`https://<domain>:<port>/<path>/` — not by raw IP, or it will not validate.
+
+### Riding :443
+
+Inbounds can share port 443 with the web stack. Caddy's layer4 router matches
+on SNI and passes the raw TLS stream through — no termination, because Reality
+does its own TLS. Enable in `.env`:
+
+```ini
+VPN_PASSTHROUGH=true
+VPN_SNI_A=www.icloud.com
+VPN_PORT_A=57971
+```
+
+then `./bootstrap.sh && docker compose restart caddy`. The SNI names must match
+what the panel is configured with, and must be names nothing else here serves.
+This is worth doing because many networks block outbound to non-standard ports.
+
+The subscription endpoint is also served on 443 at `/sub/*` for the same reason.
+
+---
+
+## Host tuning
+
+Install once:
+
+```bash
+sudo cp scripts/host-tuning.conf /etc/sysctl.d/99-meowstack.conf
+sudo sysctl --system
+```
+
+This shortens the conntrack established timeout. VPN clients leak post-handshake
+sockets with no TCP timer; with the 5-day default they fill the router's NAT
+table until it is full, at which point existing connections keep working while
+*new* ones are silently dropped. It presents as "the server is down for some
+people" and is genuinely hard to diagnose from the symptom.
+
+It must live in `/etc/sysctl.d/` — a live `sysctl` reverts on reboot and the
+problem reappears weeks later looking like something new.

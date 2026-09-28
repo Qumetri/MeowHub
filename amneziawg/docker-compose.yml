@@ -1,0 +1,80 @@
+# Standalone compose project — deliberately NOT part of the main stack, so a
+# mistake here can never recreate caddy or immich. Run it from THIS directory:
+#   cd amneziawg && docker compose up -d
+#
+# Reads ../.env for its settings. Run ./awg-init.sh once before the first start.
+name: ${AWG_PROJECT_NAME:-meowstack-awg}
+
+services:
+  amneziawg:
+    # Pinned to an immutable tag. Never :latest — a protocol bump would
+    # silently break every client config already handed out.
+    image: ${AWG_IMAGE:-amneziavpn/amneziawg-go:3.1.20260828}
+    container_name: ${AWG_PROJECT_NAME:-meowstack-awg}_tunnel
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.src_valid_mark: "1"
+    ports:
+      - "${AWG_PORT:-20443}:${AWG_PORT:-20443}/udp"
+    volumes:
+      - ./config:/etc/amnezia/amneziawg
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - awg-run:/run/amneziawg          # UAPI socket, shared with the web UI
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "awg show awg0 >/dev/null 2>&1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Peer-management UI. No privileges, no host ports, no docker socket: it
+  # drives the tunnel purely through the shared UAPI socket. Caddy fronts it
+  # with basic_auth on a secret path.
+  amneziawg-web:
+    build:
+      context: ./web
+      args:
+        AWG_IMAGE: ${AWG_IMAGE:-amneziavpn/amneziawg-go:3.1.20260828}
+    image: amneziawg-web:local
+    container_name: ${AWG_PROJECT_NAME:-meowstack-awg}_web
+    restart: unless-stopped
+    depends_on: [amneziawg]
+    environment:
+      # Created configs are chowned to this uid:gid so awg-client.sh, running
+      # as your host user, can still read them.
+      AWG_OWNER_UID: "${PUID:-1000}"
+      AWG_OWNER_GID: "${PGID:-1000}"
+    volumes:
+      - ./config:/etc/amnezia/amneziawg    # rw: peer blocks are appended here
+      - ./clients:/clients
+      - ./web/server.py:/app/server.py:ro
+      - awg-run:/run/amneziawg:ro
+    networks: [default, proxy]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8085/api/state')\""]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  awg-run:
+
+networks:
+  default:
+  # Caddy lives in the main project. Declared external so neither project owns
+  # or deletes it; bootstrap.sh creates it.
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-meowstack-proxy}

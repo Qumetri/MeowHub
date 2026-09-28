@@ -1,0 +1,23 @@
+# LiveKit SFU for Element Call / MatrixRTC. Rendered by bootstrap.sh.
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+rtc:
+  tcp_port: ${LIVEKIT_TCP_PORT}
+  # Single muxed UDP port, kept below the ephemeral range so it cannot collide
+  # with a random outbound socket.
+  udp_port: ${LIVEKIT_UDP_PORT}
+  # Required behind NAT: advertise the public address, not the container's.
+  use_external_ip: true
+logging:
+  level: info
+turn:
+  enabled: true
+  domain: ${TURN_HOST}
+  # Advertised to clients as turns:...:443. Caddy's layer4 router terminates
+  # TLS for this hostname on host :443 and forwards plaintext here, which is
+  # what makes calls work on networks that allow only HTTPS.
+  tls_port: 443
+  external_tls: true
+keys:
+  ${LIVEKIT_KEY}: ${LIVEKIT_SECRET}

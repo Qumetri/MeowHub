@@ -1,0 +1,80 @@
+# Synapse configuration — rendered by bootstrap.sh from this template.
+# Synapse has NO environment-variable substitution of its own, which is why
+# this file exists. Edit the template, not the rendered homeserver.yaml, or
+# your change is lost on the next bootstrap run.
+
+# server_name is baked into every user ID forever. Changing it after the first
+# account exists orphans all of them. Note it is the BARE domain, while the
+# homeserver is SERVED at matrix.<domain> via .well-known delegation.
+server_name: "${BASE_DOMAIN}"
+pid_file: /data/homeserver.pid
+public_baseurl: "https://${MATRIX_HOST}/"
+listeners:
+  - port: 8008
+    resources:
+    - compress: false
+      names:
+      - client
+      - openid
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ['0.0.0.0']
+
+database:
+  name: psycopg2
+  args:
+    user: synapse
+    password: "${MATRIX_DB_PASSWORD}"
+    dbname: synapse
+    host: matrix-db
+    cp_min: 5
+    cp_max: 10
+
+log_config: "/data/synapse.log.config"
+
+# Media goes to the bulk disk (bind-mounted here), not the system disk.
+media_store_path: /media
+max_upload_size: 100M
+
+# --- Registration ---
+enable_registration: ${MATRIX_OPEN_REGISTRATION}
+registration_requires_token: true
+registration_shared_secret: "${SYNAPSE_REGISTRATION_SECRET}"
+macaroon_secret_key: "${SYNAPSE_MACAROON_SECRET}"
+form_secret: "${SYNAPSE_FORM_SECRET}"
+signing_key_path: "/data/signing.key"
+report_stats: false
+
+# --- Federation ---
+# The listener above serves only 'client' and 'openid'. The openid resource
+# exposes ONLY /_matrix/federation/v1/openid/userinfo, which the MatrixRTC JWT
+# service uses to verify callers — no room federation is possible through it.
+allow_public_rooms_over_federation: false
+trusted_key_servers: []
+suppress_key_server_warning: true
+
+# --- Element Call / MatrixRTC ---
+experimental_features:
+  msc3266_enabled: true       # room summary — Element Call requires it
+  msc4222_enabled: true       # sync v2 state-after
+  msc4140_enabled: true       # delayed events (call membership expiry)
+max_event_delay_duration: 24h
+rc_message:
+  per_second: 0.5
+  burst_count: 30
+rc_delayed_event_mgmt:
+  per_second: 1.0
+  burst_count: 20
+
+# --- Legacy 1:1 calls via coturn ---
+# Element X uses LiveKit (above) instead; this is for Element Web's old calls
+# and clients like FluffyChat.
+turn_uris:
+  - "turn:${BASE_DOMAIN}:${COTURN_PORT}?transport=udp"
+  - "turn:${BASE_DOMAIN}:${COTURN_PORT}?transport=tcp"
+turn_shared_secret: "${COTURN_SECRET}"
+turn_user_lifetime: 86400000
+turn_allow_guests: true
+
+# vim:ft=yaml

@@ -1,0 +1,26 @@
+# Secrets and state — never commit these.
+.env
+secrets/
+dashboard/.env.local
+dashboard/dist/
+dashboard/node_modules/
+
+# Rendered from *.template by bootstrap.sh
+caddy/Caddyfile.l4
+matrix/synapse/homeserver.yaml
+matrix/synapse/*.key
+matrix/coturn/turnserver.conf
+matrix/livekit/livekit.yaml
+matrix/element/config.json
+
+# Runtime data
+caddy/data/
+caddy/config/
+nextcloud/
+immich/
+amneziawg/config/awg0.conf
+amneziawg/config/params.env
+amneziawg/clients/
+3xpanel/db/
+3xpanel/cert/
+*.log

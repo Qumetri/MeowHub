@@ -1,0 +1,44 @@
+# Optional GPU overlay. Opt in from .env:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+#
+# Requires the NVIDIA Container Toolkit on the host:
+#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/
+# Verify with: docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+#
+# Without this file the stack runs CPU-only on any machine, which is why the
+# base compose requests no devices.
+#
+# NOTE: a driver upgrade without a reboot leaves the kernel module and userspace
+# out of sync, and every GPU container then fails to start. Hold the driver
+# package or reboot promptly after one.
+services:
+  # NVENC hardware transcoding. Enable it afterwards in the Immich admin UI
+  # under Settings > Video Transcoding — the device alone does nothing.
+  immich-server:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, compute, video]
+
+  # CUDA build of the ML container: face recognition and smart search.
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v3}-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Lets the hub page report GPU usage via nvidia-smi. `utility` is enough —
+  # it needs the management library, not compute.
+  hub-stats:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility

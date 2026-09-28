@@ -1,0 +1,325 @@
+# meowstack — self-hosted cloud, photos, chat and downloader behind one Caddy.
+#
+# Everything configurable lives in .env. Nothing below should need editing to
+# move this stack to a different server.
+#
+#   docker compose up -d          start / apply changes
+#   docker compose ps             status
+#   docker compose logs -f <svc>  follow one service
+#
+# Services with no `profiles:` key always run. The rest are opt-in through
+# COMPOSE_PROFILES in .env.
+name: ${STACK_NAME:-meowstack}
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: '10m', max-file: '3' }
+
+services:
+  # ---------- Reverse proxy ----------
+  # Owns 80/443 and is the only public entry point. Custom image: stock Caddy
+  # plus the layer4 module, so :443 can be SNI-demultiplexed between the web
+  # stack and a TURN-over-TLS relay. Built by bootstrap.sh from ./caddy.
+  caddy:
+    container_name: ${STACK_NAME:-meowstack}_caddy
+    build: ./caddy
+    image: caddy-l4:local
+    <<: [*restart, *logging]
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+    volumes:
+      - ./caddy/Caddyfile.l4:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+      - ./dashboard/dist:/srv/dashboard:ro
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN}
+      CLOUD_HOST: ${CLOUD_HOST}
+      PHOTOS_HOST: ${PHOTOS_HOST}
+      MATRIX_HOST: ${MATRIX_HOST}
+      TURN_HOST: ${TURN_HOST}
+      ACME_EMAIL: ${ACME_EMAIL}
+      CADDY_INTERNAL_HTTPS: ${CADDY_INTERNAL_HTTPS:-9443}
+      DASHBOARD_PATH: ${DASHBOARD_PATH}
+      MATRIXRTC_PATH: ${MATRIXRTC_PATH}
+      METUBE_PATH: ${METUBE_PATH}
+      AWG_ADMIN_PATH: ${AWG_ADMIN_PATH}
+      AWG_ADMIN_USER: ${AWG_ADMIN_USER:-awgadmin}
+      XUI_SUB_PORT: ${XUI_SUB_PORT:-2096}
+    # Reaches host-network services (the 3x-ui VPN inbounds) from inside the
+    # container. Without this the layer4 passthrough routes cannot resolve.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks: [default, proxy]
+
+  # ---------- Hub page backend ----------
+  # Live host metrics for the dashboard. Reads the HOST, not the container:
+  # /proc/1/net/dev is the host root netns, /host/root is the real filesystem.
+  hub-stats:
+    container_name: ${STACK_NAME:-meowstack}_hub_stats
+    image: ${STATS_IMAGE:-python:3.12-slim}
+    <<: [*restart, *logging]
+    command: python /app/server.py
+    volumes:
+      - ./stats/server.py:/app/server.py:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+      - ${DATA_ROOT}:/host/media:ro
+
+  # ---------- Nextcloud ----------
+  nextcloud:
+    container_name: ${STACK_NAME:-meowstack}_nextcloud
+    image: ${NEXTCLOUD_IMAGE:-nextcloud:34-apache}
+    profiles: [nextcloud]
+    <<: [*restart, *logging]
+    depends_on: [nextcloud-db, nextcloud-redis]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${NEXTCLOUD_LOCAL_PORT:-8081}:80'
+    volumes:
+      - ./nextcloud/html:/var/www/html
+      - ${NEXTCLOUD_DATA}:/var/www/html/data
+    environment:
+      MYSQL_HOST: nextcloud-db
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: ${NEXTCLOUD_DB_PASSWORD}
+      REDIS_HOST: nextcloud-redis
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${CLOUD_HOST}
+      # These four are what make redirects and generated URLs correct behind a
+      # reverse proxy. Removing any of them breaks logins and share links.
+      OVERWRITEPROTOCOL: https
+      OVERWRITEHOST: ${CLOUD_HOST}
+      OVERWRITECLIURL: https://${CLOUD_HOST}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+      PHP_UPLOAD_LIMIT: ${NEXTCLOUD_UPLOAD_LIMIT:-16G}
+      PHP_MEMORY_LIMIT: ${NEXTCLOUD_MEMORY_LIMIT:-1G}
+      TZ: ${TZ}
+
+  nextcloud-cron:
+    container_name: ${STACK_NAME:-meowstack}_nextcloud_cron
+    image: ${NEXTCLOUD_IMAGE:-nextcloud:34-apache}
+    profiles: [nextcloud]
+    <<: [*restart, *logging]
+    entrypoint: /cron.sh
+    depends_on: [nextcloud-db, nextcloud-redis]
+    volumes:
+      - ./nextcloud/html:/var/www/html
+      - ${NEXTCLOUD_DATA}:/var/www/html/data
+
+  nextcloud-db:
+    container_name: ${STACK_NAME:-meowstack}_nextcloud_db
+    image: ${NEXTCLOUD_DB_IMAGE:-mariadb:11.4}
+    profiles: [nextcloud]
+    <<: [*restart, *logging]
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    volumes:
+      - ./nextcloud/db:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${NEXTCLOUD_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: ${NEXTCLOUD_DB_PASSWORD}
+      MARIADB_AUTO_UPGRADE: '1'
+
+  nextcloud-redis:
+    container_name: ${STACK_NAME:-meowstack}_nextcloud_redis
+    image: ${NEXTCLOUD_REDIS_IMAGE:-redis:7-alpine}
+    profiles: [nextcloud]
+    <<: [*restart, *logging]
+
+  # ---------- Immich ----------
+  immich-server:
+    container_name: ${STACK_NAME:-meowstack}_immich_server
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-v3}
+    profiles: [immich]
+    <<: [*restart, *logging]
+    depends_on: [immich-redis, immich-db]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${IMMICH_LOCAL_PORT:-2283}:2283'
+    volumes:
+      - ${IMMICH_UPLOAD}:/data
+      - /etc/localtime:/etc/localtime:ro
+      - ${PHOTOS_EXTERNAL}:/mnt/media/Photos:ro
+    env_file: [.env]
+    environment:
+      DB_HOSTNAME: immich-db
+      REDIS_HOSTNAME: immich-redis
+    healthcheck:
+      disable: false
+
+  immich-machine-learning:
+    container_name: ${STACK_NAME:-meowstack}_immich_ml
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v3}
+    profiles: [immich]
+    <<: [*restart, *logging]
+    volumes:
+      - ./immich/model-cache:/cache
+    env_file: [.env]
+    healthcheck:
+      disable: false
+
+  immich-redis:
+    container_name: ${STACK_NAME:-meowstack}_immich_redis
+    image: ${IMMICH_REDIS_IMAGE:-docker.io/valkey/valkey:9}
+    profiles: [immich]
+    <<: [*restart, *logging]
+    healthcheck:
+      test: redis-cli ping || exit 1
+
+  immich-db:
+    container_name: ${STACK_NAME:-meowstack}_immich_db
+    image: ${IMMICH_DB_IMAGE}
+    profiles: [immich]
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - ${IMMICH_DB_DATA}:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      disable: false
+
+  # ---------- Matrix ----------
+  # Runs as uid 1000 so ./matrix/synapse stays editable from the host.
+  matrix-synapse:
+    container_name: ${STACK_NAME:-meowstack}_synapse
+    image: ${SYNAPSE_IMAGE:-ghcr.io/element-hq/synapse:latest}
+    profiles: [matrix]
+    <<: [*restart, *logging]
+    user: '${PUID:-1000}:${PGID:-1000}'
+    depends_on: [matrix-db]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${SYNAPSE_LOCAL_PORT:-8008}:8008'
+    volumes:
+      - ./matrix/synapse:/data
+      - ${MATRIX_MEDIA}:/media
+
+  matrix-db:
+    container_name: ${STACK_NAME:-meowstack}_matrix_db
+    image: ${MATRIX_DB_IMAGE:-postgres:16-alpine}
+    profiles: [matrix]
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${MATRIX_DB_PASSWORD}
+      POSTGRES_DB: synapse
+      # Synapse requires the C locale for its collation. Changing this after
+      # first init means recreating the database.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    volumes:
+      - ${MATRIX_DB_DATA}:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U synapse']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  matrix-element:
+    container_name: ${STACK_NAME:-meowstack}_element
+    image: ${ELEMENT_IMAGE:-vectorim/element-web:latest}
+    profiles: [matrix]
+    <<: [*restart, *logging]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${ELEMENT_LOCAL_PORT:-8082}:80'
+    volumes:
+      - ./matrix/element/config.json:/app/config.json:ro
+
+  # Legacy 1:1 calls only (Element Web old calls, FluffyChat). Element X uses
+  # LiveKit below instead. Host networking because TURN needs the real relay range.
+  matrix-coturn:
+    container_name: ${STACK_NAME:-meowstack}_coturn
+    image: ${COTURN_IMAGE:-coturn/coturn:latest}
+    profiles: [matrix]
+    <<: [*restart, *logging]
+    network_mode: host
+    volumes:
+      - ./matrix/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+  # MatrixRTC / Element Call. Media ports MUST be published — LiveKit's embedded
+  # TURN relays to its own media port, so unpublishing them breaks TURN too.
+  matrix-livekit:
+    container_name: ${STACK_NAME:-meowstack}_livekit
+    image: ${LIVEKIT_IMAGE:-livekit/livekit-server:v1.8}
+    profiles: [matrix]
+    <<: [*restart, *logging]
+    command: --config /etc/livekit.yaml
+    ports:
+      - '${LIVEKIT_TCP_PORT:-7881}:7881'
+      - '${LIVEKIT_UDP_PORT:-7882}:7882/udp'
+    volumes:
+      - ./matrix/livekit/livekit.yaml:/etc/livekit.yaml:ro
+
+  matrix-livekit-jwt:
+    container_name: ${STACK_NAME:-meowstack}_livekit_jwt
+    image: ${LIVEKIT_JWT_IMAGE:-ghcr.io/element-hq/lk-jwt-service:latest}
+    profiles: [matrix]
+    <<: [*restart, *logging]
+    depends_on: [matrix-livekit]
+    environment:
+      LK_JWT_PORT: '8080'
+      LIVEKIT_URL: wss://${MATRIX_HOST}/${MATRIXRTC_PATH}/sfu
+      LIVEKIT_KEY: ${LIVEKIT_KEY}
+      LIVEKIT_SECRET: ${LIVEKIT_SECRET}
+      LIVEKIT_FULL_ACCESS_HOMESERVERS: ${BASE_DOMAIN}
+
+  # ---------- MeTube ----------
+  # URL_PREFIX must match the Caddy path. Caddy uses `handle` (not handle_path)
+  # so the prefix survives — MeTube builds its asset URLs under it.
+  metube:
+    container_name: ${STACK_NAME:-meowstack}_metube
+    image: ${METUBE_IMAGE:-ghcr.io/alexta69/metube:latest}
+    profiles: [metube]
+    <<: [*restart, *logging]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${METUBE_LOCAL_PORT:-8083}:8081'
+    environment:
+      URL_PREFIX: /${METUBE_PATH}/
+      DEFAULT_THEME: dark
+      DOWNLOAD_DIR: /downloads
+      PUID: '${PUID:-1000}'
+      PGID: '${PGID:-1000}'
+      # Ephemeral by default: finished downloads are tap-to-save links, the
+      # trash button deletes the real file, and the janitor purges the root.
+      # Files put in keep/ (via CUSTOM_DIRS) are never purged.
+      DOWNLOAD_DIRS_INDEXABLE: 'true'
+      DELETE_FILE_ON_TRASHCAN: 'true'
+      CUSTOM_DIRS: 'true'
+      CREATE_CUSTOM_DIRS: 'true'
+    volumes:
+      - ${METUBE_DOWNLOADS}:/downloads
+
+  # -maxdepth 1 keeps keep/ and .metube state untouched. In-progress files stay
+  # because their mtime keeps refreshing.
+  metube-janitor:
+    container_name: ${STACK_NAME:-meowstack}_metube_janitor
+    image: alpine:3
+    profiles: [metube]
+    <<: [*restart, *logging]
+    environment:
+      METUBE_TTL_MIN: '${METUBE_TTL_MIN:-720}'
+    command: >
+      sh -c 'while true; do
+        find /downloads -maxdepth 1 -type f -mmin +"$${METUBE_TTL_MIN}" -delete 2>/dev/null || true;
+        sleep 1800;
+      done'
+    volumes:
+      - ${METUBE_DOWNLOADS}:/downloads
+
+networks:
+  default:
+  # Shared with the AmneziaWG project so Caddy can resolve its web UI by name.
+  # Created by bootstrap.sh; external so neither project owns (or deletes) it.
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-meowstack-proxy}

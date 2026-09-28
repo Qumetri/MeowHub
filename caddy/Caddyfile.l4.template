@@ -1,0 +1,187 @@
+# Rendered by bootstrap.sh into Caddyfile.l4. Blocks between #IF:<profile> and
+# #ENDIF are dropped when that profile is not in COMPOSE_PROFILES.
+#
+# {$VAR} is Caddy's own environment substitution, resolved at load time — so
+# changing a secret path in .env needs only `docker compose restart caddy`,
+# not a re-render. Re-run ./bootstrap.sh only when you change WHICH services
+# run, or the hostnames.
+{
+	email {$ACME_EMAIL}
+
+	# Web TLS is terminated by Caddy on an internal port; layer4 owns :443 and
+	# SNI-routes TURN traffic to LiveKit, everything else to the internal port.
+	https_port {$CADDY_INTERNAL_HTTPS}
+
+	servers :{$CADDY_INTERNAL_HTTPS} {
+		# No HTTP/3. Layer4 SNI demux is TCP-only, so h3 can never reach this
+		# server. Left enabled, Caddy advertises alt-svc h3 on the internal
+		# port; browsers then try QUIC against a dead UDP port and fail with
+		# "Secure Connection Failed" — cached for 30 days, so it is a nasty
+		# one to debug. Do not remove this line.
+		protocols h1 h2
+		listener_wrappers {
+			proxy_protocol {
+				allow 127.0.0.1/32
+			}
+			tls
+		}
+	}
+
+	layer4 {
+		:443 {
+#IF:matrix
+			# TURN-over-TLS for Element Call: terminate here, forward plaintext
+			# to LiveKit (which runs with external_tls: true).
+			@turn tls sni {$TURN_HOST}
+			route @turn {
+				tls
+				proxy {
+					upstream matrix-livekit:443
+				}
+			}
+#ENDIF
+#IF:vpn_passthrough
+			# VPN inbounds riding :443 by SNI, so they need no extra router
+			# port-forward. RAW passthrough — no `tls` directive, because
+			# Reality does its own TLS and terminating it here breaks it.
+			# The panel runs in the HOST netns, hence host.docker.internal
+			# rather than the caddy container's own loopback.
+			@vpn_a tls sni {$VPN_SNI_A}
+			route @vpn_a {
+				proxy {
+					upstream host.docker.internal:{$VPN_PORT_A}
+				}
+			}
+			@vpn_b tls sni {$VPN_SNI_B}
+			route @vpn_b {
+				proxy {
+					upstream host.docker.internal:{$VPN_PORT_B}
+				}
+			}
+#ENDIF
+			# Everything else: raw TLS stream to Caddy's own web server,
+			# preserving the client IP via PROXY protocol.
+			route {
+				proxy {
+					proxy_protocol v2
+					upstream 127.0.0.1:{$CADDY_INTERNAL_HTTPS}
+				}
+			}
+		}
+	}
+}
+
+#IF:matrix
+# Dummy site so Caddy provisions and renews the TURN certificate. Real TURN
+# traffic never reaches here — layer4 above intercepts it.
+{$TURN_HOST} {
+	respond 204
+}
+#ENDIF
+
+# Root domain: hub page on a secret path, everything else to Nextcloud.
+{$BASE_DOMAIN} {
+	redir /{$DASHBOARD_PATH} /{$DASHBOARD_PATH}/ 308
+
+	# Live-stats API for the hub page (prefix stripped -> backend sees /stats).
+	handle_path /{$DASHBOARD_PATH}/api/* {
+		reverse_proxy hub-stats:9101
+	}
+
+	handle_path /{$DASHBOARD_PATH}/* {
+		root * /srv/dashboard
+		file_server
+	}
+
+#IF:metube
+	# `handle`, NOT handle_path: the prefix must survive, because MeTube is
+	# configured with URL_PREFIX and builds its asset URLs under it. Stripping
+	# it gives a blank page. reverse_proxy carries the websocket automatically.
+	redir /{$METUBE_PATH} /{$METUBE_PATH}/ 308
+	handle /{$METUBE_PATH}/* {
+		reverse_proxy metube:8081
+	}
+#ENDIF
+#IF:vpn
+	# AmneziaWG peer-management UI, behind basic_auth. handle_path strips the
+	# prefix; the app uses relative URLs so it works under any prefix.
+	# The hash is injected by bootstrap.sh from secrets/awg-admin.hash — it is
+	# kept out of .env because it starts with "$2a$", which shell sourcing and
+	# compose interpolation both mangle. Rotate with:
+	#   docker compose exec caddy caddy hash-password --plaintext '<new>' \
+	#     > secrets/awg-admin.hash && ./bootstrap.sh && docker compose restart caddy
+	redir /{$AWG_ADMIN_PATH} /{$AWG_ADMIN_PATH}/ 308
+	handle_path /{$AWG_ADMIN_PATH}/* {
+		basic_auth {
+			{$AWG_ADMIN_USER} @@AWG_ADMIN_HASH@@
+		}
+		reverse_proxy amneziawg-web:8085
+	}
+
+	# VPN subscription served on :443 as well as its own port. Many networks
+	# (hotel, mobile, corporate) block outbound to non-standard ports, which
+	# makes the high-port URL unreachable. Same content, port nothing blocks.
+	# The path is NOT stripped — the subscription server expects /sub/<id>.
+	handle /sub/* {
+		reverse_proxy https://host.docker.internal:{$XUI_SUB_PORT} {
+			transport http {
+				tls
+				tls_server_name {$BASE_DOMAIN}
+			}
+		}
+	}
+#ENDIF
+#IF:matrix
+	# Matrix client discovery: homeserver + MatrixRTC (Element Call) focus.
+	handle /.well-known/matrix/client {
+		header Content-Type application/json
+		header Access-Control-Allow-Origin *
+		respond `{"m.homeserver":{"base_url":"https://{$MATRIX_HOST}"},"org.matrix.msc4143.rtc_foci":[{"type":"livekit","livekit_service_url":"https://{$MATRIX_HOST}/{$MATRIXRTC_PATH}/jwt"}]}` 200
+	}
+
+	# Server discovery, so the RTC JWT service can reach Synapse's openid
+	# endpoint to verify callers. This is why it works without federation.
+	handle /.well-known/matrix/server {
+		header Content-Type application/json
+		respond `{"m.server":"{$MATRIX_HOST}:443"}` 200
+	}
+#ENDIF
+
+	handle {
+		redir https://{$CLOUD_HOST}{uri} permanent
+	}
+}
+
+#IF:matrix
+{$MATRIX_HOST} {
+	# MatrixRTC (Element Call) on a secret path: JWT auth + LiveKit websocket.
+	handle_path /{$MATRIXRTC_PATH}/jwt/* {
+		reverse_proxy matrix-livekit-jwt:8080
+	}
+	handle_path /{$MATRIXRTC_PATH}/sfu/* {
+		reverse_proxy matrix-livekit:7880
+	}
+	handle /_matrix/* {
+		reverse_proxy matrix-synapse:8008
+	}
+	handle /_synapse/* {
+		reverse_proxy matrix-synapse:8008
+	}
+	handle {
+		reverse_proxy matrix-element:80
+	}
+}
+#ENDIF
+#IF:nextcloud
+{$CLOUD_HOST} {
+	# Required for CardDAV/CalDAV autodiscovery from desktop and phone clients.
+	redir /.well-known/carddav /remote.php/dav/ 301
+	redir /.well-known/caldav /remote.php/dav/ 301
+	reverse_proxy nextcloud:80
+}
+#ENDIF
+#IF:immich
+{$PHOTOS_HOST} {
+	reverse_proxy immich-server:2283
+}
+#ENDIF

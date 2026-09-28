@@ -1,0 +1,22 @@
+# coturn for legacy Matrix 1:1 calls (Element Web old calls, FluffyChat).
+# Element X uses LiveKit instead. Rendered by bootstrap.sh.
+# Auth is by shared secret with Synapse — both sides must match.
+use-auth-secret
+static-auth-secret=${COTURN_SECRET}
+realm=${BASE_DOMAIN}
+
+listening-port=${COTURN_PORT}
+
+# Relay port range — forward these as UDP on the router.
+min-port=${COTURN_RELAY_MIN}
+max-port=${COTURN_RELAY_MAX}
+
+# Lock down relaying. Without these denied-peer rules a TURN server is an open
+# proxy into your LAN.
+no-multicast-peers
+no-tcp-relay
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+no-cli
+log-file=stdout

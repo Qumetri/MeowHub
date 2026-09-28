@@ -1,0 +1,27 @@
+# 3x-ui VPN panel — optional second VPN path (VLESS/Reality, Hysteria2,
+# Shadowsocks, AmneziaWG). Standalone project; run from THIS directory:
+#   cd 3xpanel && docker compose up -d
+#
+# Host networking on purpose: xray binds many ports, and Reality inbounds need
+# the real source addresses. That also means it is NOT behind Caddy — the panel
+# serves its own HTTPS on XUI_PANEL_PORT.
+name: ${XUI_PROJECT_NAME:-meowstack-xui}
+
+services:
+  3xui:
+    # Pinned BY DIGEST, not tag. A panel upgrade migrates its own database and
+    # is not always reversible — pin it, test it, then move the digest.
+    image: ${XUI_IMAGE}
+    container_name: ${XUI_PROJECT_NAME:-meowstack-xui}_panel
+    restart: unless-stopped
+    network_mode: host
+    tty: true
+    volumes:
+      - ./db/:/etc/x-ui/
+      - ./cert/:/root/cert/
+    environment:
+      XRAY_VMESS_AEAD_FORCED: "false"
+      XUI_ENABLE_FAIL2BAN: "true"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
