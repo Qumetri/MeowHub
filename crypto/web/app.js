@@ -4,7 +4,7 @@
 
 const COLORS = {
   BTC:'#f7931a', ETH:'#627eea', ETC:'#3ab83a', RVN:'#6b73b8',
-  TON:'#0098ea', TRX:'#eb0029', SOL:'#14f195',
+  TON:'#0098ea', TRX:'#eb0029', SOL:'#14f195', XMR:'#ff6600',
 };
 const colorFor = t => COLORS[t] || '#7928ca';
 
@@ -95,6 +95,15 @@ function updatePrice(sym, price, ch) {
   if (c) { c.price = price; if (ch != null) c.change24h = ch; }
   if (sym === selected) updateChartHead();
   renderTargetDistances();
+  const row = document.querySelector(`#coinTable tr[data-sym="${sym}"]`);
+  if (row) {
+    const tds = row.querySelectorAll('td');
+    tds[2].textContent = '$' + fmtPrice(price);
+    if (ch != null) {
+      tds[3].textContent = fmtPct(ch);
+      tds[3].style.color = ch > 0 ? 'var(--up)' : ch < 0 ? 'var(--down)' : 'var(--muted)';
+    }
+  }
 }
 
 /* ---------- chart ---------- */
@@ -189,6 +198,36 @@ function renderTargetDistances() {
   });
 }
 
+/* ---------- coin management ---------- */
+function renderCoinManager() {
+  const tb = document.querySelector('#coinTable tbody');
+  if (!tb) return;
+  tb.innerHTML = state.coins.map(c => {
+    const n = state.targets.filter(t => t.symbol === c.symbol).length;
+    return `<tr data-sym="${c.symbol}">
+      <td><span class="tickBadge" style="background:${colorFor(c.ticker)}">${esc(c.ticker)}</span>
+          <span class="nm" style="margin-left:8px">${esc(c.name)}</span></td>
+      <td class="num" style="color:var(--muted)">${esc(c.symbol)}
+          <span class="pill ${c.source === 'kraken' ? 'kraken' : ''}">${esc(c.source || 'binance')}</span></td>
+      <td class="num">${c.price != null ? '$' + fmtPrice(c.price) : '—'}</td>
+      <td class="num ${cls(c.change24h)}" style="color:${c.change24h > 0 ? 'var(--up)' : c.change24h < 0 ? 'var(--down)' : 'var(--muted)'}">${fmtPct(c.change24h)}</td>
+      <td class="num">${n || '<span style="color:var(--muted)">0</span>'}</td>
+      <td style="text-align:right"><button class="iconbtn" data-rm="${c.symbol}" title="Stop tracking">✕</button></td>
+    </tr>`;
+  }).join('');
+  tb.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
+    const sym = b.dataset.rm;
+    const n = state.targets.filter(t => t.symbol === sym).length;
+    const warn = n ? `\n\nThis also deletes ${n} price target${n > 1 ? 's' : ''}.` : '';
+    if (!confirm(`Stop tracking ${sym}?${warn}`)) return;
+    try {
+      await api('api/coins/' + encodeURIComponent(sym), {method:'DELETE'});
+      if (selected === sym) selected = null;
+      await refresh();
+    } catch (e) { alert('Could not remove: ' + e.message); }
+  });
+}
+
 /* ---------- fluctuation ---------- */
 function renderFluct() {
   const tb = document.querySelector('#fluctTable tbody');
@@ -264,12 +303,13 @@ function renderFeed() {
   const dot = document.getElementById('feedDot');
   const txt = document.getElementById('feedText');
   dot.className = 'dot ' + (f.connected ? 'on' : 'off');
-  txt.textContent = f.connected ? 'live · Binance'
-    : (f.error ? 'reconnecting — ' + f.error : 'disconnected');
+  const srcs = (f.sources || []).join(' + ');
+  txt.textContent = f.connected ? ('live · ' + (srcs || 'no coins'))
+    : (srcs ? srcs : (f.error ? 'reconnecting — ' + f.error : 'disconnected'));
 }
 
 function renderAll() {
-  renderCoins(); renderTargets(); renderFluct();
+  renderCoins(); renderCoinManager(); renderTargets(); renderFluct();
   renderEvents(); renderSettings(); renderSymbolOptions(); renderFeed();
   updateChartHead();
 }
@@ -356,8 +396,13 @@ document.getElementById('coinForm').onsubmit = async e => {
   const msg = document.getElementById('coinMsg');
   const f = document.getElementById('cSymbol');
   try {
-    const r = await api('api/coins', {method:'POST', body: JSON.stringify({symbol:f.value})});
-    flash(msg, r.symbol + ' added.', true); f.value = ''; refresh();
+    const nameEl = document.getElementById('cName');
+    const r = await api('api/coins', {method:'POST', body: JSON.stringify({
+      symbol: f.value.trim(), name: (nameEl.value || '').trim() || undefined,
+    })});
+    flash(msg, `${r.symbol} added — backfilling history and joining the live stream.`, true);
+    f.value = ''; nameEl.value = '';
+    refresh();
   } catch (err) { flash(msg, err.message, false); }
 };
 

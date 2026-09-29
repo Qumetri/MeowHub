@@ -158,3 +158,4 @@ code{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.07);
   .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   .form{grid-template-columns:1fr}
 }
+.pill.kraken{background:rgba(124,92,255,.16);color:#a78bfa}

@@ -13,13 +13,15 @@ import time
 DB_PATH = os.environ.get("CRYPTO_DB", "/data/crypto.db")
 
 DEFAULT_COINS = [
-    ("BTCUSDT", "BTC", "Bitcoin"),
-    ("ETHUSDT", "ETH", "Ethereum"),
-    ("ETCUSDT", "ETC", "Ethereum Classic"),
-    ("RVNUSDT", "RVN", "Ravencoin"),
-    ("TONUSDT", "TON", "Toncoin"),
-    ("TRXUSDT", "TRX", "TRON"),
-    ("SOLUSDT", "SOL", "Solana"),
+    ("BTCUSDT", "BTC", "Bitcoin", "binance"),
+    ("ETHUSDT", "ETH", "Ethereum", "binance"),
+    ("ETCUSDT", "ETC", "Ethereum Classic", "binance"),
+    ("RVNUSDT", "RVN", "Ravencoin", "binance"),
+    ("TONUSDT", "TON", "Toncoin", "binance"),
+    ("TRXUSDT", "TRX", "TRON", "binance"),
+    ("SOLUSDT", "SOL", "Solana", "binance"),
+    # Binance halted XMRUSDT in Feb 2024, so Monero comes from Kraken.
+    ("XMRUSD", "XMR", "Monero", "kraken"),
 ]
 
 SCHEMA = """
@@ -29,9 +31,10 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 CREATE TABLE IF NOT EXISTS coins (
-    symbol   TEXT PRIMARY KEY,   -- BTCUSDT
+    symbol   TEXT PRIMARY KEY,   -- BTCUSDT (binance) / XMRUSD (kraken)
     ticker   TEXT NOT NULL,      -- BTC
     name     TEXT NOT NULL,      -- Bitcoin
+    source   TEXT NOT NULL DEFAULT 'binance',   -- binance | kraken
     enabled  INTEGER NOT NULL DEFAULT 1,
     sort     INTEGER NOT NULL DEFAULT 0
 );
@@ -108,7 +111,19 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.executescript(SCHEMA)
+        self._migrate()
         self._seed()
+
+    def _migrate(self):
+        """Additive column migrations. CREATE TABLE IF NOT EXISTS silently does
+        nothing on an existing table, so a new column has to be added here or
+        every query referencing it fails on an upgraded install."""
+        with self._lock:
+            cols = {r["name"] for r in self.db.execute("PRAGMA table_info(coins)")}
+            if "source" not in cols:
+                self.db.execute(
+                    "ALTER TABLE coins ADD COLUMN source TEXT NOT NULL DEFAULT 'binance'")
+                self.db.commit()
 
     def _seed(self):
         with self._lock:
@@ -116,14 +131,19 @@ class Store:
                 self.db.execute(
                     "INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)", (k, v)
                 )
-            for i, (sym, tick, name) in enumerate(DEFAULT_COINS):
-                self.db.execute(
-                    "INSERT OR IGNORE INTO coins (symbol,ticker,name,enabled,sort)"
-                    " VALUES (?,?,?,1,?)", (sym, tick, name, i)
-                )
-                self.db.execute(
-                    "INSERT OR IGNORE INTO fluctuation (symbol) VALUES (?)", (sym,)
-                )
+            # Default coins seed the FIRST run only. Re-seeding on every start
+            # would resurrect a coin the user deliberately removed, which makes
+            # the remove button a lie.
+            have = self.db.execute("SELECT COUNT(*) AS n FROM coins").fetchone()["n"]
+            if not have:
+                for i, (sym, tick, name, src) in enumerate(DEFAULT_COINS):
+                    self.db.execute(
+                        "INSERT INTO coins (symbol,ticker,name,source,enabled,sort)"
+                        " VALUES (?,?,?,?,1,?)", (sym, tick, name, src, i)
+                    )
+                    self.db.execute(
+                        "INSERT OR IGNORE INTO fluctuation (symbol) VALUES (?)", (sym,)
+                    )
             self.db.commit()
 
     # ---------- settings ----------
@@ -154,12 +174,12 @@ class Store:
         with self._lock:
             return [dict(r) for r in self.db.execute(q)]
 
-    def add_coin(self, symbol, ticker, name):
+    def add_coin(self, symbol, ticker, name, source="binance"):
         with self._lock:
             n = self.db.execute("SELECT COALESCE(MAX(sort),0)+1 AS s FROM coins").fetchone()["s"]
             self.db.execute(
-                "INSERT OR IGNORE INTO coins (symbol,ticker,name,enabled,sort)"
-                " VALUES (?,?,?,1,?)", (symbol, ticker, name, n))
+                "INSERT OR IGNORE INTO coins (symbol,ticker,name,source,enabled,sort)"
+                " VALUES (?,?,?,?,1,?)", (symbol, ticker, name, source, n))
             self.db.execute("INSERT OR IGNORE INTO fluctuation (symbol) VALUES (?)", (symbol,))
             self.db.commit()
 
@@ -274,6 +294,11 @@ class Store:
                 "SELECT MAX(ts) AS t FROM candles WHERE symbol=?", (symbol,)
             ).fetchone()
         return r["t"] if r and r["t"] else None
+
+    def delete_candles(self, symbol):
+        with self._lock:
+            self.db.execute("DELETE FROM candles WHERE symbol=?", (symbol,))
+            self.db.commit()
 
     def prune(self):
         days = int(self.get("retention_days", "45") or 45)

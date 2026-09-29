@@ -181,11 +181,22 @@ def fetch_tickers(symbols):
 
 
 def symbol_exists(symbol):
+    """True only if the symbol is actually TRADING.
+
+    /ticker/price is not enough: a delisted symbol keeps answering with the
+    price it was frozen at. XMRUSDT still returns ~118 while its real market
+    price elsewhere is ~540, because Binance halted it in February 2024 and the
+    symbol sits at status BREAK. Checking the status is the difference between
+    tracking a market and tracking a fossil.
+    """
     try:
-        rest_json("/api/v3/ticker/price", {"symbol": symbol}, timeout=10)
-        return True
+        info = rest_json("/api/v3/exchangeInfo", {"symbol": symbol}, timeout=15)
     except Exception:
         return False
+    for s in info.get("symbols", []):
+        if s.get("symbol") == symbol:
+            return s.get("status") == "TRADING" and s.get("isSpotTradingAllowed", True)
+    return False
 
 
 class Feed(threading.Thread):

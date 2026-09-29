@@ -10,6 +10,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import binance                      # noqa: E402
+import kraken                       # noqa: E402
 import server                       # noqa: E402
 from alerts import Engine, fmt_price   # noqa: E402
 from store import Store             # noqa: E402
@@ -74,19 +75,48 @@ class App:
         self.engine = Engine(self.store, self.notifier)
         self.candles = CandleBuilder(self.store)
         self.hub = server.Hub()
-        self.feed = binance.Feed(self._symbols, self._on_tick, self._on_state)
-        self.feed_error = ""
+        # One feed per source. Kraken exists because Binance does not trade
+        # everything (Monero being the case that forced it).
+        self.feeds = {
+            "binance": binance.Feed(lambda: self._symbols("binance"),
+                                    self._on_tick, self._mk_state("binance")),
+            "kraken": kraken.Feed(lambda: self._symbols("kraken"),
+                                  self._on_tick, self._mk_state("kraken")),
+        }
+        self.feed_error = {}
         self._dirty = set()
         self._dirty_lock = threading.Lock()
         self._stopping = threading.Event()
 
     # ---------- feed plumbing ----------
-    def _symbols(self):
-        return [c["symbol"] for c in self.store.coins()]
+    def _symbols(self, source=None):
+        return [c["symbol"] for c in self.store.coins()
+                if source is None or c["source"] == source]
 
-    def _on_state(self, connected, err):
-        self.feed_error = "" if connected else err
-        self.hub.broadcast({"type": "status", "connected": connected, "error": err})
+    def _source_of(self, symbol):
+        for c in self.store.coins():
+            if c["symbol"] == symbol:
+                return c["source"]
+        return "binance"
+
+    def _mk_state(self, source):
+        def cb(connected, err):
+            self.feed_error[source] = "" if connected else err
+            self.hub.broadcast({"type": "status", **self._feed_status()})
+        return cb
+
+    def _feed_status(self):
+        """A source with no coins is idle, not down — reporting it as an error
+        would light the UI red for a feed nobody asked for."""
+        parts, connected = [], True
+        for name, f in self.feeds.items():
+            if not self._symbols(name):
+                continue
+            parts.append(name if f.connected else f"{name} reconnecting")
+            connected = connected and f.connected
+        return {"connected": connected and bool(parts),
+                "error": "; ".join(v for v in self.feed_error.values() if v),
+                "sources": parts}
 
     def _on_tick(self, symbol, price, stats):
         self.engine.on_tick(symbol, price, stats)
@@ -95,16 +125,20 @@ class App:
             self._dirty.add(symbol)
 
     # ---------- coin management ----------
-    def add_coin(self, symbol, ticker, name):
-        self.store.add_coin(symbol, ticker, name)
+    def add_coin(self, symbol, ticker, name, source="binance"):
+        self.store.add_coin(symbol, ticker, name, source)
         self.engine.refresh_rules(force=True)
-        threading.Thread(target=self._backfill_one, args=(symbol,), daemon=True).start()
-        self.feed.resubscribe()
+        threading.Thread(target=self._backfill_one, args=(symbol, source),
+                         daemon=True).start()
+        self.feeds[source].resubscribe()
 
     def remove_coin(self, symbol):
+        source = self._source_of(symbol)
         self.store.remove_coin(symbol)
+        self.engine.prices.pop(symbol, None)
+        self.engine.stats.pop(symbol, None)
         self.engine.refresh_rules(force=True)
-        self.feed.resubscribe()
+        self.feeds[source].resubscribe()
 
     # ---------- snapshots for the UI ----------
     def public_settings(self):
@@ -128,6 +162,7 @@ class App:
             st = self.engine.stats.get(sym, {})
             out.append({
                 "symbol": sym, "ticker": c["ticker"], "name": c["name"],
+                "source": c["source"],
                 "price": self.engine.prices.get(sym),
                 "change24h": self.engine.change_24h(sym),
                 "high": st.get("high"), "low": st.get("low"), "vol": st.get("vol"),
@@ -141,9 +176,9 @@ class App:
             "targets": self.store.targets(),
             "settings": self.public_settings(),
             "events": self.store.events(limit=40),
-            "feed": {"connected": self.feed.connected,
-                     "error": self.feed_error,
-                     "last_tick": self.feed.last_msg},
+            "feed": {**self._feed_status(),
+                     "last_tick": max((f.last_msg for f in self.feeds.values()),
+                                      default=0)},
             "server_time": int(time.time()),
         }
 
@@ -163,13 +198,15 @@ class App:
                 }
             self.hub.broadcast(payload)
 
-    def _backfill_one(self, symbol):
+    def _backfill_one(self, symbol, source="binance"):
         try:
             newest = self.store.newest_candle_ts(symbol)
-            start = None
-            if newest:
-                start = (newest + 60) * 1000
-            rows = binance.fetch_klines(symbol, "1m", limit=1000, start_ms=start)
+            if source == "kraken":
+                rows = kraken.fetch_klines(symbol, limit=720,
+                                           since=newest if newest else None)
+            else:
+                start = (newest + 60) * 1000 if newest else None
+                rows = binance.fetch_klines(symbol, "1m", limit=1000, start_ms=start)
             if rows:
                 self.store.upsert_candles(symbol, rows)
                 self.engine.seed_history(
@@ -185,18 +222,35 @@ class App:
         volume is unknown and their high/low can miss a wick between samples.
         This also repairs any gap left by a reconnect.
         """
-        for sym in self._symbols():
+        for c in self.store.coins():
+            sym, src = c["symbol"], c["source"]
             try:
-                rows = binance.fetch_klines(sym, "1m", limit=15)
+                rows = (kraken.fetch_klines(sym, limit=15) if src == "kraken"
+                        else binance.fetch_klines(sym, "1m", limit=15))
                 if rows:
-                    self.store.upsert_candles(sym, rows)
+                    self.store.upsert_candles(sym, rows[-15:])
             except Exception as e:                      # noqa: BLE001
                 log.debug("refresh_recent %s: %s", sym, e)
 
     def _reconcile(self):
-        """REST snapshot. Thin coins can go minutes without a miniTicker push,
-        so the stream alone is not enough to keep 24h stats honest."""
-        syms = self._symbols()
+        """REST snapshot. Thin coins can go minutes without a stream push, so
+        the stream alone is not enough to keep 24h stats honest."""
+        for sym in self._symbols("kraken"):
+            try:
+                st = kraken.fetch_ticker(sym)
+                price = st.pop("price")
+                # Kraken's REST `o` is today's open since midnight UTC, while the
+                # stream's change_pct is a true rolling 24h figure. Overwriting
+                # one basis with the other makes the 24h number jump every
+                # reconcile, so the stream's value wins once we have it.
+                known = self.engine.stats.get(sym, {}).get("open")
+                if known:
+                    st["open"] = known
+                self._on_tick(sym, price, st)
+            except Exception as e:                      # noqa: BLE001
+                log.debug("kraken reconcile %s: %s", sym, e)
+
+        syms = self._symbols("binance")
         if not syms:
             return
         try:
@@ -264,17 +318,20 @@ class App:
     # ---------- lifecycle ----------
     def start(self):
         for c in self.store.coins():
-            self._backfill_one(c["symbol"])
-        self.feed.start()
+            self._backfill_one(c["symbol"], c["source"])
+        for f in self.feeds.values():
+            f.start()
         threading.Thread(target=self._broadcast_loop, daemon=True, name="broadcast").start()
         threading.Thread(target=self._scheduler, daemon=True, name="scheduler").start()
         self.store.add_event("system", "Tracker started")
-        log.info("tracking %s", ", ".join(self._symbols()))
+        log.info("tracking %s", ", ".join(
+            f"{c['symbol']}({c['source']})" for c in self.store.coins()))
 
     def stop(self, *_):
         log.info("shutting down")
         self._stopping.set()
-        self.feed.stop()
+        for f in self.feeds.values():
+            f.stop()
         self.candles.flush()
         sys.exit(0)
 

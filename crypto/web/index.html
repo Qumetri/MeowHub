@@ -30,6 +30,7 @@
 
 <nav class="tabs" role="tablist">
   <button class="tab active" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="coins">Coins</button>
   <button class="tab" data-tab="alerts">Alerts</button>
   <button class="tab" data-tab="telegram">Telegram</button>
   <button class="tab" data-tab="log">Log</button>
@@ -56,6 +57,29 @@
       </div>
       <div id="chart"></div>
       <p class="hint" id="chartHint">Click a coin above to change the chart.</p>
+    </div>
+  </section>
+
+  <!-- ======================= COINS ======================= -->
+  <section id="coins" class="panel">
+    <div class="card">
+      <h2>Add a coin</h2>
+      <p class="sub">Any Binance spot pair against USDT. Type the ticker (<code>XMR</code>) or the full symbol (<code>XMRUSDT</code>) — it is checked against Binance before being added, then backfilled and put on the live stream without a restart.</p>
+      <form id="coinForm" class="form">
+        <label>Ticker or symbol<input id="cSymbol" placeholder="XMR" required autocomplete="off"></label>
+        <label>Display name <small>(optional)</small><input id="cName" placeholder="Monero" autocomplete="off"></label>
+        <button class="primary" type="submit">Add coin</button>
+      </form>
+      <p id="coinMsg" class="msg"></p>
+    </div>
+
+    <div class="card">
+      <h2>Tracked coins</h2>
+      <p class="sub">Removing a coin deletes its price targets and volatility rule too. Its stored candles are left alone, so adding it back restores the chart history.</p>
+      <div class="tableWrap"><table id="coinTable">
+        <thead><tr><th>Coin</th><th>Symbol</th><th>Price</th><th>24h</th><th>Targets</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table></div>
     </div>
   </section>
 
@@ -107,14 +131,6 @@
       </table></div>
     </div>
 
-    <div class="card">
-      <h2>Track another coin</h2>
-      <form id="coinForm" class="form inline">
-        <label>Binance symbol<input id="cSymbol" placeholder="ADA or ADAUSDT" required></label>
-        <button class="ghost" type="submit">Add coin</button>
-      </form>
-      <p id="coinMsg" class="msg"></p>
-    </div>
   </section>
 
   <!-- ======================= TELEGRAM ======================= -->

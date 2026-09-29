@@ -1,17 +1,18 @@
 # Crypto tracker
 
-Live prices from Binance, price-target and volatility alerts to Telegram, and a
-web UI on the hub. Runs as the `crypto` service (container
-`${STACK_NAME}_crypto`), behind the `crypto` compose profile.
+Live prices, price-target and volatility alerts to Telegram, and a web UI on the
+hub. Runs as the `crypto` service (container `${STACK_NAME}_crypto`), behind the
+`crypto` compose profile.
 
-Tracked out of the box: **BTC, ETH, ETC, RVN, TON, TRX, SOL** — all as `*USDT`
-spot pairs.
+Tracked out of the box: **BTC, ETH, ETC, RVN, TON, TRX, SOL** (Binance) and
+**XMR** (Kraken). Coins are managed from the **Coins** tab — add or remove them
+yourself, no restart and no config file.
 
 ## Where it lives
 
 | | |
 |---|---|
-| Web UI | `https://<domain>/${CRYPTO_PATH}/` — basic auth, user `cryptoadmin` |
+| Web UI | `https://<domain>/${CRYPTO_PATH}/` — basic auth, user `CRYPTO_ADMIN_USER` |
 | Loopback | `http://127.0.0.1:${CRYPTO_LOCAL_PORT}/` — no auth, for local debugging |
 | Code | `crypto/app/` (backend), `crypto/web/` (page) |
 | Database | `crypto/data/crypto.db` (sqlite — small, so it sits with the code rather than in `DATA_ROOT`) |
@@ -19,8 +20,8 @@ spot pairs.
 | Bot token | in the sqlite db, entered through the UI — **not** in `.env` |
 
 The bcrypt hash is injected into the Caddyfile by `bootstrap.sh` from
-`secrets/crypto-admin.hash` — it is kept out of `.env` because it starts with
-`$2a$`, which shell sourcing and compose interpolation both mangle. Rotate with:
+`secrets/crypto-admin.hash` — kept out of `.env` because it starts with `$2a$`,
+which shell sourcing and compose interpolation both mangle. Rotate with:
 
 ```bash
 docker compose exec caddy caddy hash-password --plaintext '<new>' \
@@ -29,6 +30,48 @@ docker compose exec caddy caddy hash-password --plaintext '<new>' \
 
 Unlike the hub page and MeTube, this one is **not** secret-path-only. It stores a
 Telegram bot token and can send messages as you, so it sits behind basic auth.
+
+## Managing coins
+
+The **Coins** tab lists everything tracked, with live price, 24h change, which
+exchange it comes from, and how many targets reference it.
+
+**Adding**: type a ticker (`XMR`) or a full symbol (`XMRUSDT`, `SOLUSD`). The
+symbol is checked against the exchanges before it is accepted, then backfilled
+and joined to the live stream — no restart.
+
+**Removing**: the ✕ button. It also deletes that coin's price targets and
+volatility rule, and says so before it does. Stored candles are kept, so adding
+a coin back restores its chart history.
+
+Removing a coin that ships by default makes it stay removed. Defaults seed the
+first run only; re-seeding on every start would resurrect a coin you deliberately
+deleted, which would make the remove button a lie.
+
+## Two exchanges, and why
+
+| Source | Used for | History depth |
+|---|---|---|
+| **Binance** | everything it actually trades | 1000 one-minute candles |
+| **Kraken** | what Binance does not | 720 one-minute candles |
+
+Binance is tried first because its backfill is deeper. Kraken is the fallback.
+
+This is not architecture for its own sake — **Monero forced it**. Binance halted
+`XMRUSDT` in February 2024. The symbol is still listed, `/exchangeInfo` still
+returns it, and `/ticker/price` still answers with a number. That number is the
+price it froze at: about **$118**, while XMR actually trades near **$540**. A
+tracker that believed it would have backfilled candles from 2024 and fired every
+alert against a price that stopped meaning anything two years ago.
+
+So a symbol is only accepted if its Binance status is `TRADING`; otherwise
+Kraken is tried; if neither trades it, the coin is rejected with a message
+saying why. Existence is not the same as being tradable, and the difference is
+silent unless you check for it.
+
+Everything downstream — alerts, charts, the daily summary — treats both sources
+identically. Kraken publishes 24h change directly, so `open` is derived from it
+to match Binance's shape.
 
 ## Setting up Telegram
 

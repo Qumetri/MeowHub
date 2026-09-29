@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import binance
+import kraken
 import telegram
 
 log = logging.getLogger("http")
@@ -164,8 +165,9 @@ def make_handler(app):
                 return self._json({"symbol": sym,
                                    "candles": app.store.candles(sym, since=since, limit=5000)})
             if p == "/api/health":
-                return self._json({"ok": True, "connected": app.feed.connected,
-                                   "last_tick": app.feed.last_msg})
+                st = app._feed_status()
+                return self._json({"ok": True, "connected": st["connected"],
+                                   "sources": st["sources"]})
             if p == "/api/stream":
                 return self._sse()
             return self._static(p)
@@ -307,15 +309,44 @@ def make_handler(app):
                     return self._json({"ok": False, "error": str(e)}, 200)
 
             if p == "/api/coins":
-                sym = (b.get("symbol") or "").upper().strip()
-                if not sym.isalnum() or len(sym) > 20:
+                raw = (b.get("symbol") or "").upper().strip().replace("/", "")
+                if not raw.isalnum() or not 2 <= len(raw) <= 20:
                     raise ValueError("bad symbol")
-                if not sym.endswith("USDT"):
-                    sym += "USDT"
-                if not binance.symbol_exists(sym):
-                    raise ValueError(f"{sym} is not a Binance spot pair")
-                app.add_coin(sym, b.get("ticker") or sym[:-4], b.get("name") or sym[:-4])
-                return self._json({"ok": True, "symbol": sym})
+                existing = {c["symbol"] for c in app.store.coins()}
+
+                # Try Binance first (deeper history, 1000-candle backfill), then
+                # Kraken. Binance must be actually TRADING: a delisted symbol
+                # still answers /ticker/price with a frozen number.
+                cands = []
+                if raw.endswith("USDT"):
+                    cands.append(("binance", raw))
+                elif raw.endswith(("USD", "EUR", "USDC")):
+                    cands.append(("kraken", raw))
+                else:
+                    cands.append(("binance", raw + "USDT"))
+                    cands.append(("kraken", raw + "USD"))
+
+                chosen = None
+                for src, cand in cands:
+                    if cand in existing:
+                        raise ValueError(f"{cand} is already tracked")
+                    ok = (binance.symbol_exists(cand) if src == "binance"
+                          else kraken.symbol_exists(cand))
+                    if ok:
+                        chosen = (src, cand)
+                        break
+                if not chosen:
+                    tried = ", ".join(c for _, c in cands)
+                    raise ValueError(
+                        f"no exchange is currently trading {tried}. "
+                        "Binance-delisted pairs are rejected on purpose — they keep "
+                        "returning the price they froze at.")
+
+                src, sym = chosen
+                base = sym[:-4] if sym.endswith("USDT") else sym[:-3]
+                ticker = (b.get("ticker") or base).upper()[:8]
+                app.add_coin(sym, ticker, b.get("name") or base, src)
+                return self._json({"ok": True, "symbol": sym, "source": src})
 
             if p == "/api/summary/send":
                 ok = app.engine.send_summary(force=True)

@@ -160,6 +160,51 @@ password is generated for you.
 
 </details>
 
+## Tracking crypto
+
+Live prices, price targets and volatility alerts pushed to Telegram, with
+candlestick charts on the page.
+
+<table>
+<tr><td width="55%" valign="top">
+
+**You manage the coin list yourself.** The Coins tab takes a ticker (`XMR`) or a
+full symbol (`SOLUSDT`), checks it against the exchanges, backfills its history
+and joins it to the live stream — no restart, no config file. Removing a coin
+takes its targets with it and says so first.
+
+Ships tracking BTC, ETH, ETC, RVN, TON, TRX and SOL on Binance, plus XMR on
+Kraken.
+
+**Two exchanges, for a reason.** Binance is tried first because its backfill is
+deeper; Kraken is the fallback for what Binance doesn't trade.
+
+Monero is why. Binance halted `XMRUSDT` in February 2024, but still lists it —
+and `/ticker/price` still answers, with the price it froze at: about **$118**,
+while XMR actually trades near **$540**. So a symbol is only accepted if its
+status is `TRADING`. Existence is not the same as being tradable, and the
+difference is silent unless you check.
+
+</td><td width="45%" valign="top">
+
+Alerts come in two kinds:
+
+**Price targets** fire on a *crossing*, not a level. Add one the price has
+already passed and it arms instead of firing immediately, then waits for a
+genuine crossing. Both directions, because shorts matter as much as longs.
+
+**Volatility alerts** catch an outsized move in a rolling window. If the move
+keeps going, each further step re-measures from the last alert — so a cascade
+keeps telling you, while a single spike into a flat market stays quiet. A plain
+cooldown would hide exactly the move worth knowing about.
+
+</td></tr>
+</table>
+
+Setup is four steps in the Telegram tab, including a **Detect chat** button so
+you never hunt for a numeric chat ID. Full details in
+**[docs/CRYPTO.md](docs/CRYPTO.md)**.
+
 ## Requirements
 
 - Linux, Docker Engine, Compose v2
