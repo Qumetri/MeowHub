@@ -105,6 +105,7 @@ randomise_path DASHBOARD_PATH  hub
 randomise_path METUBE_PATH     dl
 randomise_path MATRIXRTC_PATH  call
 randomise_path AWG_ADMIN_PATH  awg
+randomise_path CRYPTO_PATH     crypto
 randomise_path XUI_PANEL_PATH  panel
 
 # Reload so the rendering below sees everything we just wrote.
@@ -152,6 +153,24 @@ if [[ ! -s $SECRETS_DIR/awg-admin.hash ]]; then
   fi
 else
   c_skip "VPN admin password already set"
+fi
+
+# Crypto tracker admin password. Same reasoning as above: the bcrypt hash stays
+# out of .env and is injected into the Caddyfile at render time.
+if [[ ! -s $SECRETS_DIR/crypto-admin.hash ]]; then
+  crypto_pw=$(pw 24)
+  printf '%s\n' "$crypto_pw" > "$SECRETS_DIR/crypto-admin-password"
+  chmod 600 "$SECRETS_DIR/crypto-admin-password"
+  if docker image inspect caddy:2 >/dev/null 2>&1 || docker pull -q caddy:2 >/dev/null 2>&1; then
+    docker run --rm caddy:2 caddy hash-password --plaintext "$crypto_pw" \
+      > "$SECRETS_DIR/crypto-admin.hash"
+    chmod 600 "$SECRETS_DIR/crypto-admin.hash"
+    c_new "crypto admin password generated (plaintext in $SECRETS_DIR/crypto-admin-password)"
+  else
+    c_skip "could not reach caddy:2 to hash the crypto password — the tracker UI will not authenticate"
+  fi
+else
+  c_skip "crypto admin password already set"
 fi
 
 # ---------------------------------------------------------------- rendering --
@@ -222,6 +241,13 @@ except OSError:
 if "@@AWG_ADMIN_HASH@@" in rendered and not h:
     print("  \033[31m!\033[0m no secrets/awg-admin.hash — the VPN UI will reject every login")
 rendered = rendered.replace("@@AWG_ADMIN_HASH@@", h)
+try:
+    ch = open("secrets/crypto-admin.hash").read().strip()
+except OSError:
+    ch = ""
+if "@@CRYPTO_ADMIN_HASH@@" in rendered and not ch:
+    print("  \033[31m!\033[0m no secrets/crypto-admin.hash — the crypto UI will reject every login")
+rendered = rendered.replace("@@CRYPTO_ADMIN_HASH@@", ch)
 open("caddy/Caddyfile.l4","w").write(rendered)
 kept = sorted(profiles)
 print(f"  \033[32m✓\033[0m Caddyfile.l4  kept: {', '.join(kept) or 'base only'}")
@@ -245,6 +271,7 @@ mk ./caddy/data
 mk ./caddy/config
 mk ./dashboard/dist
 mk ./immich/model-cache
+mk ./crypto/data
 
 # Ownership the containers expect. Nextcloud runs as www-data (uid 33); Synapse
 # and MeTube run as PUID/PGID so their dirs stay host-editable.
@@ -253,6 +280,9 @@ if [[ $(id -u) -eq 0 ]]; then
   chown -R "${PUID:-1000}:${PGID:-1000}" "$MATRIX_MEDIA" "$METUBE_DOWNLOADS" \
                                                               && c_ok "chown matrix media + downloads -> ${PUID:-1000}"
   chown -R "${PUID:-1000}:${PGID:-1000}" ./matrix/synapse     && c_ok "chown ./matrix/synapse -> ${PUID:-1000}"
+  # The crypto container runs as uid 1000; without this its sqlite db is
+  # unwritable, because Docker creates a missing bind-mount source as root.
+  chown -R 1000:1000 ./crypto/data                            && c_ok "chown ./crypto/data -> 1000"
 else
   c_skip "not root — set ownership yourself (see docs/DEPLOY.md 'Permissions')"
 fi
@@ -287,6 +317,7 @@ VITE_PHOTOS_HOST=${PHOTOS_HOST}
 VITE_MATRIX_HOST=${MATRIX_HOST}
 VITE_AWG_ADMIN_PATH=${AWG_ADMIN_PATH}
 VITE_METUBE_PATH=${METUBE_PATH}
+VITE_CRYPTO_PATH=${CRYPTO_PATH}
 VITE_XUI_PANEL_PORT=${XUI_PANEL_PORT}
 VITE_XUI_PANEL_PATH=${XUI_PANEL_PATH}
 EOF

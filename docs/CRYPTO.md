@@ -1,0 +1,143 @@
+# Crypto tracker
+
+Live prices from Binance, price-target and volatility alerts to Telegram, and a
+web UI on the hub. Runs as the `crypto` service (container
+`${STACK_NAME}_crypto`), behind the `crypto` compose profile.
+
+Tracked out of the box: **BTC, ETH, ETC, RVN, TON, TRX, SOL** — all as `*USDT`
+spot pairs.
+
+## Where it lives
+
+| | |
+|---|---|
+| Web UI | `https://<domain>/${CRYPTO_PATH}/` — basic auth, user `cryptoadmin` |
+| Loopback | `http://127.0.0.1:${CRYPTO_LOCAL_PORT}/` — no auth, for local debugging |
+| Code | `crypto/app/` (backend), `crypto/web/` (page) |
+| Database | `crypto/data/crypto.db` (sqlite — small, so it sits with the code rather than in `DATA_ROOT`) |
+| Secrets | `CRYPTO_PATH`, `CRYPTO_ADMIN_USER` in `.env`; password in `secrets/crypto-admin-password` |
+| Bot token | in the sqlite db, entered through the UI — **not** in `.env` |
+
+The bcrypt hash is injected into the Caddyfile by `bootstrap.sh` from
+`secrets/crypto-admin.hash` — it is kept out of `.env` because it starts with
+`$2a$`, which shell sourcing and compose interpolation both mangle. Rotate with:
+
+```bash
+docker compose exec caddy caddy hash-password --plaintext '<new>' \
+  > secrets/crypto-admin.hash && ./bootstrap.sh && docker compose restart caddy
+```
+
+Unlike the hub page and MeTube, this one is **not** secret-path-only. It stores a
+Telegram bot token and can send messages as you, so it sits behind basic auth.
+
+## Setting up Telegram
+
+In the **Telegram** tab:
+
+1. Message **@BotFather** → `/newbot` → copy the token.
+2. Paste it, press **Save**.
+3. Send your new bot any message, then press **Detect chat** — it reads
+   `getUpdates` and offers the chat IDs it finds, so you never have to look up a
+   numeric ID by hand.
+4. **Send test**, then tick *Alerts enabled*.
+
+A bot cannot message you first; Telegram requires you to open the conversation.
+That is why step 3 needs you to send something.
+
+## Alert types
+
+### Price targets
+
+A level plus a direction. Fires on a **crossing**, not on a level:
+
+- A target you add while the price is already past it does **not** fire
+  immediately. It arms once the price moves back, then fires on a genuine
+  crossing. The UI tells you when this happens.
+- **Repeating** targets re-arm after firing, but only once price moves 0.3% clear
+  of the level — otherwise a price hovering on the boundary would fire endlessly.
+- **One-shot** targets disable themselves after firing (still listed, with a hit count).
+- Per-target cooldown, default 15 minutes.
+
+Both directions are supported because of short positions: `above` and `below` are
+symmetric, not "alert" and "stop-loss".
+
+### Fluctuation
+
+Percent move over a rolling window, per coin. Default **3% in 5 minutes**, 30 min
+cooldown.
+
+The cooldown has a deliberate exception. After firing, the move is re-measured
+**from the price at which it fired**, so a cascade — 3%, then another 3%, then
+another — keeps alerting, while a market that spikes once and goes flat stays
+quiet. A plain cooldown would hide exactly the move you most want to know about.
+
+### Daily summary
+
+Off by default. Enable it and pick an hour in the Telegram tab; it lists every
+tracked coin with its price and 24h change, sorted by performance. **Send summary
+now** fires one immediately.
+
+### Quiet hours
+
+`23-7` suppresses **volatility** alerts overnight. Price targets always fire —
+those are levels you chose deliberately.
+
+## How the data works
+
+- **Live prices**: one WebSocket to `stream.binance.com` carrying `miniTicker`
+  for every tracked symbol, roughly one update per second per active coin.
+- **Thin coins go quiet.** `miniTicker` only pushes on change, so RVN or TON can
+  go minutes without a tick. "No tick" is never treated as "no data" — a REST
+  snapshot every 60s keeps 24h stats honest and catches any level crossed during
+  a stream gap.
+- **Charts**: 1-minute candles, backfilled 1000 deep per coin on first start.
+  Live candles are built from ticks, then overwritten every 5 minutes with
+  Binance's authoritative OHLCV (tick-built candles have unknown volume and can
+  miss a wick between samples).
+- **Retention**: 45 days of candles and events, pruned every 6 hours.
+
+Everything is **stdlib Python** — the WebSocket client, HTTP server and Telegram
+sender included — the same philosophy as `stats/server.py`. No dependencies to
+audit or pull at build time for a path that alerts on money.
+
+## Robustness
+
+The feed is designed to survive weeks unattended:
+
+- a watchdog reconnects when frames stop arriving for 45s,
+- full-jitter exponential backoff (max 60s) so a Binance outage is not hammered,
+- the connection is recycled at 20h, before Binance's own 24h cutoff,
+- the REST snapshot repairs anything the stream missed.
+
+Delivery failures never lose an alert: the event is recorded in the **Log** tab
+marked unsent with the reason, so a bad token is visible rather than silent.
+
+## Operations
+
+```bash
+docker compose ps crypto
+docker compose logs -f crypto
+docker compose up -d --build crypto      # after editing crypto/app or crypto/web
+docker compose restart crypto
+```
+
+The page is static files served by the app, so a UI edit needs a rebuild
+(`--build`) but no dashboard rebuild — it is not part of the Vite bundle.
+
+**Adding a coin**: Alerts tab → *Track another coin* → any Binance spot symbol
+(`ADA` or `ADAUSDT`). It is validated against Binance before being accepted, then
+backfilled and added to the stream without a restart.
+
+**Changing `CRYPTO_PATH`**: edit `.env`, then `./bootstrap.sh` (it re-renders the
+Caddyfile and rewrites `dashboard/.env.local`, from which the hub card's URL is
+built), then `docker compose up -d caddy` and rebuild the dashboard.
+
+> **Caution:** an **empty `CRYPTO_PATH` turns the route into `/*`**, which would
+> swallow the entire root domain. `bootstrap.sh` always gives it a value, so this
+> only bites if you blank it by hand.
+
+## Backups
+
+`crypto/data/crypto.db` holds the bot token, every target and all price history.
+Losing it means re-entering the token and the targets; the candles re-backfill
+from Binance on their own.

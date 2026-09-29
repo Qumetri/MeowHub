@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Crypto Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📈</text></svg>">
+</head>
+<body>
+<div class="bg"><span class="blob b1"></span><span class="blob b2"></span></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">📈</span>
+    <div>
+      <h1>Crypto Tracker</h1>
+      <p class="sub">Live prices · price targets · Telegram alerts</p>
+    </div>
+  </div>
+  <div class="status">
+    <span id="feedDot" class="dot"></span>
+    <span id="feedText">connecting…</span>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="alerts">Alerts</button>
+  <button class="tab" data-tab="telegram">Telegram</button>
+  <button class="tab" data-tab="log">Log</button>
+</nav>
+
+<main>
+  <!-- ======================= OVERVIEW ======================= -->
+  <section id="overview" class="panel active">
+    <div id="coinGrid" class="grid"></div>
+
+    <div class="card chartCard">
+      <div class="chartHead">
+        <div>
+          <h2 id="chartTitle">Bitcoin</h2>
+          <p class="sub" id="chartSub">—</p>
+        </div>
+        <div class="ranges" id="ranges">
+          <button data-min="60">1H</button>
+          <button data-min="360">6H</button>
+          <button class="on" data-min="1440">24H</button>
+          <button data-min="10080">7D</button>
+          <button data-min="43200">30D</button>
+        </div>
+      </div>
+      <div id="chart"></div>
+      <p class="hint" id="chartHint">Click a coin above to change the chart.</p>
+    </div>
+  </section>
+
+  <!-- ======================= ALERTS ======================= -->
+  <section id="alerts" class="panel">
+    <div class="card">
+      <h2>Add a price target</h2>
+      <p class="sub">Fires on a <em>crossing</em>. A level the price has already passed waits for a genuine round trip, so it will not fire the moment you add it.</p>
+      <form id="targetForm" class="form">
+        <label>Coin<select id="tSymbol" required></select></label>
+        <label>Direction
+          <select id="tDirection">
+            <option value="above">▲ rises above</option>
+            <option value="below">▼ falls below</option>
+          </select>
+        </label>
+        <label>Price (USDT)<input id="tPrice" type="number" step="any" min="0" required placeholder="85000"></label>
+        <label>Note<input id="tNote" type="text" maxlength="200" placeholder="short entry"></label>
+        <label>Cooldown
+          <select id="tCooldown">
+            <option value="0">none</option>
+            <option value="300">5 min</option>
+            <option value="900" selected>15 min</option>
+            <option value="3600">1 hour</option>
+            <option value="21600">6 hours</option>
+          </select>
+        </label>
+        <label class="check"><input id="tRepeat" type="checkbox"> <span>Repeating <small>(re-arms after each hit)</small></span></label>
+        <button class="primary" type="submit">Add target</button>
+      </form>
+      <p id="targetMsg" class="msg"></p>
+    </div>
+
+    <div class="card">
+      <h2>Active targets</h2>
+      <div class="tableWrap"><table id="targetTable">
+        <thead><tr><th>Coin</th><th>Condition</th><th>Distance</th><th>Note</th><th>Hits</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="empty" id="noTargets">No targets yet. Add one above.</p>
+    </div>
+
+    <div class="card">
+      <h2>Fluctuation alerts</h2>
+      <p class="sub">Alerts on an outsized move within a rolling window. If the move keeps going, you keep getting told — a cascade is re-measured from the last alert instead of being swallowed by the cooldown.</p>
+      <div class="tableWrap"><table id="fluctTable">
+        <thead><tr><th>Coin</th><th>Trigger</th><th>Window</th><th>Cooldown</th><th>On</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2>Track another coin</h2>
+      <form id="coinForm" class="form inline">
+        <label>Binance symbol<input id="cSymbol" placeholder="ADA or ADAUSDT" required></label>
+        <button class="ghost" type="submit">Add coin</button>
+      </form>
+      <p id="coinMsg" class="msg"></p>
+    </div>
+  </section>
+
+  <!-- ======================= TELEGRAM ======================= -->
+  <section id="telegram" class="panel">
+    <div class="card">
+      <h2>Telegram bot</h2>
+      <ol class="steps">
+        <li>In Telegram, message <b>@BotFather</b> → <code>/newbot</code> → copy the token.</li>
+        <li>Paste it below and press <b>Save</b>.</li>
+        <li>Send your new bot any message (say <code>hi</code>), then press <b>Detect chat</b>.</li>
+        <li>Press <b>Send test</b> to confirm, then switch alerts on.</li>
+      </ol>
+      <form id="tgForm" class="form">
+        <label class="wide">Bot token<input id="tgToken" type="password" autocomplete="off" placeholder="123456:ABC-DEF…"></label>
+        <label>Chat ID<input id="tgChat" autocomplete="off" placeholder="123456789"></label>
+        <label class="check"><input id="tgEnabled" type="checkbox"> <span>Alerts enabled</span></label>
+        <label>Quiet hours <small>(volatility only)</small><input id="tgQuiet" placeholder="23-7"></label>
+        <label class="check"><input id="tgSummary" type="checkbox"> <span>Daily summary</span></label>
+        <label>Summary hour<input id="tgSummaryHour" type="number" min="0" max="23" value="9"></label>
+        <div class="row">
+          <button class="primary" type="submit">Save</button>
+          <button class="ghost" type="button" id="tgDetect">Detect chat</button>
+          <button class="ghost" type="button" id="tgTest">Send test</button>
+          <button class="ghost" type="button" id="tgSummaryNow">Send summary now</button>
+        </div>
+      </form>
+      <div id="tgChats" class="chats"></div>
+      <p id="tgMsg" class="msg"></p>
+      <p class="hint">Quiet hours suppress volatility alerts only. A price target you set deliberately always fires.</p>
+    </div>
+  </section>
+
+  <!-- ======================= LOG ======================= -->
+  <section id="log" class="panel">
+    <div class="card">
+      <h2>Recent events</h2>
+      <div id="eventList" class="events"></div>
+    </div>
+  </section>
+</main>
+
+<script src="vendor/lightweight-charts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

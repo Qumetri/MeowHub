@@ -134,6 +134,7 @@ sudo chown -R 33:33     /srv/media/nextcloud        # www-data inside the contai
 sudo chown -R 1000:1000 /srv/media/matrix/media     # Synapse runs as PUID
 sudo chown -R 1000:1000 /srv/media/youtube          # MeTube runs as PUID
 sudo chown -R 1000:1000 ./matrix/synapse            # so config stays host-editable
+sudo chown -R 1000:1000 ./crypto/data              # crypto tracker runs as uid 1000
 ```
 
 Nextcloud's data dir owned by anything but uid 33 gives a blank page with

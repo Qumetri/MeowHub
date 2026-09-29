@@ -11,7 +11,7 @@ One `docker compose up`. One `.env`. One reverse proxy.
 
 ![Docker Compose](https://img.shields.io/badge/Docker-Compose_v2-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/TLS-automatic-00C7B7?logo=caddy&logoColor=white)
-![Services](https://img.shields.io/badge/services-18-7928CA)
+![Services](https://img.shields.io/badge/services-19-7928CA)
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
 
 <img src="docs/img/hub.png" alt="The MeowHub dashboard: service cards and live host metrics" width="100%">
@@ -32,6 +32,7 @@ on hardware you control.
 | 🖼️ | **Immich** — photos and video, face recognition | `photos.yourdomain` |
 | 💬 | **Matrix + Element** — private chat, voice, video | `matrix.yourdomain` |
 | ⬇️ | **MeTube** — yt-dlp downloader, self-cleaning | `yourdomain/<secret>` |
+| 📈 | **Crypto Tracker** — live prices, Telegram price alerts | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
@@ -101,7 +102,7 @@ Not everyone wants all of it. One line in `.env` decides:
 
 ```ini
 # everything
-COMPOSE_PROFILES=nextcloud,immich,matrix,metube
+COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto
 
 # just files and photos
 COMPOSE_PROFILES=nextcloud,immich
@@ -114,7 +115,7 @@ COMPOSE_PROFILES=immich
 |---|---|
 | `nextcloud` | 6 |
 | `nextcloud,immich` | 10 |
-| all four | 18 |
+| all five | 19 |
 
 Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
@@ -130,7 +131,7 @@ The dashboard is responsive, so the hub works from a phone as well as a desk.
 
 ## Everything is in one file
 
-`.env` holds **94 settings**, each documented where it sits. Only two have no
+`.env` holds **99 settings**, each documented where it sits. Only two have no
 sensible default, because they can't:
 
 ```ini
@@ -150,7 +151,7 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `CRYPTO_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
 | Secrets | 11 passwords and shared secrets, all generated |
@@ -184,6 +185,7 @@ docker-compose.yml      the stack        docker-compose.gpu.yml   NVIDIA overlay
 caddy/                  custom image + Caddyfile template
 dashboard/              hub page (Vite + React) — cards in src/services.js
 stats/                  host metrics, dependency-free Python
+crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
@@ -200,6 +202,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🚀 **[DEPLOY.md](docs/DEPLOY.md)** | First deployment — host prep, DNS, router ports, permissions, migrating an existing install |
 | 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
+| 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price alerts, Telegram setup, how the crossing logic works |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly
@@ -210,8 +213,10 @@ credential — `bootstrap.sh` gives each a random suffix like
 model. That's deliberate: it costs nothing, and for a single-user service a
 login screen is friction nobody wants.
 
-It is *not* appropriate for anything sensitive, which is why the VPN peer
-manager — it hands out working VPN keys — sits behind HTTP basic auth instead.
+It is *not* appropriate for anything sensitive, which is why two pages sit
+behind HTTP basic auth instead: the VPN peer manager, which hands out working
+VPN keys, and the crypto tracker, which stores a Telegram bot token and can
+send messages as you.
 
 Nextcloud, Immich and Matrix have real authentication of their own.
 

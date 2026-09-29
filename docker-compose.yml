@@ -60,6 +60,27 @@ services:
   # ---------- Hub page backend ----------
   # Live host metrics for the dashboard. Reads the HOST, not the container:
   # /proc/1/net/dev is the host root netns, /host/root is the real filesystem.
+  # ---------- Crypto tracker ----------
+  # Live Binance prices, price-target and volatility alerts to Telegram, and a
+  # web UI on a secret path. Dependency-free Python (stdlib websocket client,
+  # HTTP server and Telegram sender), so nothing is pulled at build time for a
+  # path that alerts on money.
+  crypto:
+    container_name: ${STACK_NAME:-meowstack}_crypto
+    build: ./crypto
+    image: ${CRYPTO_IMAGE:-meowhub-crypto:1.0}
+    profiles: [crypto]
+    <<: [*restart, *logging]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${CRYPTO_LOCAL_PORT:-8084}:9102'
+    environment:
+      TZ: ${TZ:-UTC}
+      CRYPTO_DB: /data/crypto.db
+      LOG_LEVEL: ${CRYPTO_LOG_LEVEL:-INFO}
+    volumes:
+      - ./crypto/data:/data
+
+
   hub-stats:
     container_name: ${STACK_NAME:-meowstack}_hub_stats
     image: ${STATS_IMAGE:-python:3.12-slim}

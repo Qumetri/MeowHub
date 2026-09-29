@@ -102,6 +102,24 @@
 		reverse_proxy metube:8081
 	}
 #ENDIF
+#IF:crypto
+	# Crypto tracker, behind basic_auth — the page holds a Telegram bot token, so
+	# a secret URL alone is not enough. handle_path strips the prefix; the page
+	# uses relative URLs so it works under any prefix. flush_interval -1 keeps the
+	# /api/stream SSE feed unbuffered.
+	# The hash is injected by bootstrap.sh from secrets/crypto-admin.hash — kept
+	# out of .env because it starts with "$2a$", which shell sourcing and compose
+	# interpolation both mangle.
+	redir /{$CRYPTO_PATH} /{$CRYPTO_PATH}/ 308
+	handle_path /{$CRYPTO_PATH}/* {
+		basic_auth {
+			{$CRYPTO_ADMIN_USER} @@CRYPTO_ADMIN_HASH@@
+		}
+		reverse_proxy crypto:9102 {
+			flush_interval -1
+		}
+	}
+#ENDIF
 #IF:vpn
 	# AmneziaWG peer-management UI, behind basic_auth. handle_path strips the
 	# prefix; the app uses relative URLs so it works under any prefix.

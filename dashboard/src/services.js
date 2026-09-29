@@ -13,6 +13,7 @@ const PHOTOS  = E.VITE_PHOTOS_HOST   || `photos.${BASE}`
 const MATRIX  = E.VITE_MATRIX_HOST   || `matrix.${BASE}`
 const AWG     = E.VITE_AWG_ADMIN_PATH || ''
 const METUBE  = E.VITE_METUBE_PATH   || ''
+const CRYPTO  = E.VITE_CRYPTO_PATH   || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -70,6 +71,15 @@ export const services = [
     icon: 'chat',
     gradient: ['#0dbd8b', '#16d4a4'],
     status: 'live',
+  },
+  {
+    id: 'crypto',
+    name: 'Crypto Tracker',
+    description: 'Prices & Telegram alerts',
+    url: `https://${BASE}/${CRYPTO}/`,
+    icon: 'chart',
+    gradient: ['#f7931a', '#fbbf24'],
+    status: CRYPTO ? 'live' : 'soon',
   },
   {
     id: 'metube',

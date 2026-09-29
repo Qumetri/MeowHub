@@ -31,6 +31,7 @@ Almost everything lives in `.env`. What you change decides what you run after:
 | Anything in a `matrix/*.template` | `./bootstrap.sh && docker compose up -d` |
 | Hub cards (`dashboard/src/services.js`) | `cd dashboard && npm run build` |
 | Metrics (`stats/server.py`) | `docker compose restart hub-stats` |
+| Crypto tracker code (`crypto/app`, `crypto/web`) | `docker compose up -d --build crypto` |
 
 Caddy reads `{$VAR}` at load time, which is why a path change needs only a
 restart. Synapse, coturn, LiveKit and Element have no env substitution at all —
