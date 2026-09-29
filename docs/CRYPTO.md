@@ -48,6 +48,16 @@ Removing a coin that ships by default makes it stay removed. Defaults seed the
 first run only; re-seeding on every start would resurrect a coin you deliberately
 deleted, which would make the remove button a lie.
 
+**Logos** come from the [cryptocurrency-icons](https://github.com/spothq/cryptocurrency-icons)
+pack (CC0), vendored into `crypto/web/icons/` — 483 of them, so a coin you add
+later almost certainly has one. They are bundled rather than loaded from a CDN
+on purpose: this page is behind auth on a private server, and pulling icons from
+a third party would disclose which coins you track on every page load.
+
+A coin with no logo falls back to a coloured ticker badge — GRAM is one, being
+newer than the pack. The server sends the page the list of icons it actually
+has, so the browser never requests one that isn't there.
+
 ## Listing health — why a tracked coin is re-checked
 
 Validating a symbol when you add it is not enough. **A pair can be halted months
@@ -78,6 +88,17 @@ Reason  Binance status BREAK
 ticker and the coin is swapped in place — your price targets and volatility
 settings move across with it. A rebrand should not cost you the alerts you set
 up, which is why this is a distinct action rather than remove-then-add.
+
+**An unreachable exchange is never treated as a delisting.** The two must not
+look alike: reporting a rate-limit as "this coin is dead" would be a worse bug
+than the one this check exists to catch. If an exchange cannot be reached the
+cycle is skipped and every verdict is left untouched. Only a *successful*
+response that reports a non-trading status, or omits the symbol entirely, marks
+a coin halted.
+
+Binance statuses are fetched for every coin in **one** batched `exchangeInfo`
+call. Asking per-coin is what provoked the rate-limiting that exposed this in
+the first place.
 
 ## Two exchanges, and why
 

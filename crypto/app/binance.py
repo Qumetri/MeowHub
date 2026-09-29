@@ -180,16 +180,24 @@ def fetch_tickers(symbols):
     return {r["symbol"]: r for r in raw}
 
 
-def symbol_status(symbol):
-    """-> the exchange's own status string, or None if it is unknown."""
-    try:
-        info = rest_json("/api/v3/exchangeInfo", {"symbol": symbol}, timeout=15)
-    except Exception:
-        return None
-    for s in info.get("symbols", []):
-        if s.get("symbol") == symbol:
-            return s.get("status")
-    return None
+def symbol_statuses(symbols):
+    """-> {symbol: status} for many symbols in ONE call.
+
+    Raises on transport failure rather than returning a value. This matters:
+    "the exchange says this pair is not trading" and "I could not reach the
+    exchange" must never look the same to the caller, or a rate-limit gets
+    reported to the user as a delisting.
+
+    One batched call also keeps the hourly health check well clear of the
+    weight limits -- exchangeInfo is expensive, and asking per-coin is what
+    provoked the rate-limiting in the first place.
+    """
+    symbols = list(symbols)
+    if not symbols:
+        return {}
+    q = json.dumps(symbols, separators=(",", ":"))
+    info = rest_json("/api/v3/exchangeInfo", {"symbols": q}, timeout=25)
+    return {s["symbol"]: s.get("status") for s in info.get("symbols", [])}
 
 
 def symbol_exists(symbol):

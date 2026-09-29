@@ -209,6 +209,10 @@ cooldown would hide exactly the move worth knowing about.
 </td></tr>
 </table>
 
+Coin logos are bundled (483 of them, CC0) rather than hot-linked, so the page
+discloses nothing about what you track. Anything the pack predates falls back
+to a coloured ticker badge.
+
 Setup is four steps in the Telegram tab, including a **Detect chat** button so
 you never hunt for a numeric chat ID. Full details in
 **[docs/CRYPTO.md](docs/CRYPTO.md)**.

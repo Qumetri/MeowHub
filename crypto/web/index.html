@@ -64,10 +64,10 @@
   <section id="coins" class="panel">
     <div class="card">
       <h2>Add a coin</h2>
-      <p class="sub">Any Binance spot pair against USDT. Type the ticker (<code>XMR</code>) or the full symbol (<code>XMRUSDT</code>) — it is checked against Binance before being added, then backfilled and put on the live stream without a restart.</p>
+      <p class="sub">Type a ticker (<code>SOL</code>) or a full symbol (<code>SOLUSDT</code>, <code>XMRUSD</code>). Binance is tried first, then Kraken; the pair must actually be trading, not merely listed. It is then backfilled and joined to the live stream without a restart.</p>
       <form id="coinForm" class="form">
-        <label>Ticker or symbol<input id="cSymbol" placeholder="XMR" required autocomplete="off"></label>
-        <label>Display name <small>(optional)</small><input id="cName" placeholder="Monero" autocomplete="off"></label>
+        <label>Ticker or symbol<input id="cSymbol" placeholder="SOL" required autocomplete="off"></label>
+        <label>Display name <small>(optional)</small><input id="cName" placeholder="Solana" autocomplete="off"></label>
         <button class="primary" type="submit">Add coin</button>
       </form>
       <p id="coinMsg" class="msg"></p>

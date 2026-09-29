@@ -71,6 +71,15 @@ class CandleBuilder:
 class App:
     def __init__(self):
         self.store = Store()
+        # Which coin logos we actually ship. Sent to the page so it never
+        # requests an icon that is not there -- a newly listed or renamed coin
+        # (GRAM) predates the pack, and a 404 per card on every load is waste.
+        icon_dir = os.path.join(os.environ.get("CRYPTO_WEB", "/app/web"), "icons")
+        try:
+            self.icons = sorted(f[:-4].upper() for f in os.listdir(icon_dir)
+                                if f.endswith(".svg"))
+        except OSError:
+            self.icons = []
         self.notifier = Notifier(self.store)
         self.engine = Engine(self.store, self.notifier)
         self.candles = CandleBuilder(self.store)
@@ -198,6 +207,7 @@ class App:
             "feed": {**self._feed_status(),
                      "last_tick": max((f.last_msg for f in self.feeds.values()),
                                       default=0)},
+            "icons": self.icons,
             "server_time": int(time.time()),
         }
 
@@ -296,26 +306,51 @@ class App:
 
         Validating only at add-time is not enough: a pair can be halted months
         later and the exchange keeps answering with the price it froze at.
-        Toncoin is the case in point — Binance halted TONUSDT on 2026-06-30 and
+        Toncoin is the case in point -- Binance halted TONUSDT on 2026-06-30 and
         kept serving $1.60 indefinitely, so the tracker showed a plausible
         number and silently stopped being able to alert on anything.
+
+        A failure to REACH an exchange is never treated as a delisting. Marking
+        a healthy coin dead because of a rate-limit would be worse than the bug
+        this check exists to catch, so an unreachable exchange simply skips the
+        cycle and leaves every verdict untouched.
         """
-        for c in self.store.coins():
-            sym, src, was = c["symbol"], c["source"], c["health"]
-            health, note = "ok", ""
+        coins = self.store.coins()
+        verdicts = {}
+
+        binance_syms = [c["symbol"] for c in coins if c["source"] == "binance"]
+        if binance_syms:
             try:
-                if src == "kraken":
-                    if not kraken.symbol_exists(sym):
-                        health, note = "halted", "not tradable on Kraken"
-                else:
-                    st = binance.symbol_status(sym)
-                    if st is None:
-                        health, note = "halted", "no longer listed on Binance"
-                    elif st != "TRADING":
-                        health, note = "halted", f"Binance status {st}"
+                statuses = binance.symbol_statuses(binance_syms)
             except Exception as e:                      # noqa: BLE001
-                log.debug("listing check %s: %s", sym, e)
+                log.warning("listing check skipped (Binance unreachable): %s", e)
+                statuses = None
+            if statuses is not None:
+                for sym in binance_syms:
+                    st = statuses.get(sym)
+                    if st is None:
+                        verdicts[sym] = ("halted", "no longer listed on Binance")
+                    elif st != "TRADING":
+                        verdicts[sym] = ("halted", f"Binance status {st}")
+                    else:
+                        verdicts[sym] = ("ok", "")
+
+        for c in coins:
+            if c["source"] != "kraken":
                 continue
+            try:
+                ok = kraken.symbol_exists(c["symbol"])
+            except Exception as e:                      # noqa: BLE001
+                log.warning("listing check skipped for %s: %s", c["symbol"], e)
+                continue
+            verdicts[c["symbol"]] = (("ok", "") if ok
+                                     else ("halted", "not tradable on Kraken"))
+
+        for c in coins:
+            sym, was = c["symbol"], c["health"]
+            if sym not in verdicts:
+                continue                    # exchange unreachable: leave as-is
+            health, note = verdicts[sym]
 
             # Exchange says fine, but has the data actually moved?
             if health == "ok":

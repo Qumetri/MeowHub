@@ -8,7 +8,8 @@ const COLORS = {
 };
 const colorFor = t => COLORS[t] || '#7928ca';
 
-let state = { coins: [], targets: [], settings: {}, events: [], feed: {} };
+let state = { coins: [], targets: [], settings: {}, events: [], feed: {}, icons: [] };
+let iconSet = new Set();
 let selected = null, rangeMin = 1440, chart = null, series = null, lastPx = {};
 
 /* ---------- formatting (mirrors alerts.fmt_price on the server) ---------- */
@@ -58,6 +59,21 @@ function flash(el, txt, ok) {
   if (ok) setTimeout(() => { if (el.textContent === txt) el.textContent=''; }, 5000);
 }
 
+/* ---------- coin mark ---------- */
+// A vendored logo when we have one, otherwise a coloured ticker badge. The
+// fallback matters: a newly listed or renamed coin (GRAM) predates the icon
+// pack, and a broken image would be worse than no logo at all.
+function coinMark(ticker, size) {
+  size = size || 28;
+  const t = String(ticker || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const label = esc(String(ticker || '?').slice(0, 4));
+  const has = iconSet.has(String(ticker || '').toUpperCase());
+  return `<span class="mark" style="width:${size}px;height:${size}px;background:${colorFor(ticker)}">`
+       + `<span class="markTxt" style="font-size:${Math.max(8, Math.round(size * 0.34))}px">${label}</span>`
+       + (has ? `<img src="icons/${t}.svg" alt="" loading="lazy" onerror="this.remove()">` : '')
+       + `</span>`;
+}
+
 /* ---------- coin cards ---------- */
 function renderCoins() {
   const g = document.getElementById('coinGrid');
@@ -65,8 +81,8 @@ function renderCoins() {
     <div class="coin ${selected===c.symbol?'sel':''} ${c.health&&c.health!=='ok'?'bad':''}" data-sym="${c.symbol}">
       <span class="bar" style="background:${colorFor(c.ticker)}"></span>
       <div class="head">
-        <span class="tickBadge" style="background:${colorFor(c.ticker)}">${esc(c.ticker)}</span>
-        <span class="nm">${esc(c.name)}</span>
+        ${coinMark(c.ticker, 30)}
+        <span class="nm"><b>${esc(c.ticker)}</b><br>${esc(c.name)}</span>
       </div>
       <div class="px" id="px-${c.symbol}">${c.price!=null?'$'+fmtPrice(c.price):'—'}</div>
       ${c.health && c.health !== 'ok'
@@ -146,7 +162,8 @@ async function loadChart() {
 function updateChartHead() {
   const c = state.coins.find(x => x.symbol === selected);
   if (!c) return;
-  document.getElementById('chartTitle').textContent = c.name;
+  document.getElementById('chartTitle').innerHTML =
+    `${coinMark(c.ticker, 32)}<span>${esc(c.name)}</span>`;
   const bits = [`$${fmtPrice(c.price)}`, `24h ${fmtPct(c.change24h)}`];
   if (c.high) bits.push(`H $${fmtPrice(c.high)}`);
   if (c.low)  bits.push(`L $${fmtPrice(c.low)}`);
@@ -172,7 +189,7 @@ function renderTargets() {
       : t.armed ? '<span class="pill armed">armed</span>'
                 : '<span class="pill waiting">waiting</span>';
     return `<tr data-id="${t.id}">
-      <td><span class="tickBadge" style="background:${colorFor(c.ticker)}">${esc(c.ticker)}</span></td>
+      <td><span class="cellCoin">${coinMark(c.ticker, 24)}<b>${esc(c.ticker)}</b></span></td>
       <td class="cond"><span class="${up?'up':'dn'}">${up?'▲':'▼'}</span> $${fmtPrice(t.price)}
           ${t.repeat?'<span class="pill">repeat</span>':''} ${stateLbl}</td>
       <td class="num dist" id="dist-${t.id}">—</td>
@@ -207,8 +224,8 @@ function renderCoinManager() {
   tb.innerHTML = state.coins.map(c => {
     const n = state.targets.filter(t => t.symbol === c.symbol).length;
     return `<tr data-sym="${c.symbol}">
-      <td><span class="tickBadge" style="background:${colorFor(c.ticker)}">${esc(c.ticker)}</span>
-          <span class="nm" style="margin-left:8px">${esc(c.name)}</span></td>
+      <td><span class="cellCoin">${coinMark(c.ticker, 26)}
+          <span><b>${esc(c.ticker)}</b> <span class="nm">${esc(c.name)}</span></span></span></td>
       <td class="num" style="color:var(--muted)">${esc(c.symbol)}
           <span class="pill ${c.source === 'kraken' ? 'kraken' : ''}">${esc(c.source || 'binance')}</span></td>
       <td class="num">${c.price != null ? '$' + fmtPrice(c.price) : '—'}</td>
@@ -259,7 +276,7 @@ function renderFluct() {
   tb.innerHTML = state.coins.map(c => {
     const f = c.fluctuation || {};
     return `<tr data-sym="${c.symbol}">
-      <td><span class="tickBadge" style="background:${colorFor(c.ticker)}">${esc(c.ticker)}</span></td>
+      <td><span class="cellCoin">${coinMark(c.ticker, 24)}<b>${esc(c.ticker)}</b></span></td>
       <td><input class="mini" type="number" step="0.1" min="0" data-f="pct" value="${f.pct ?? 3}">&nbsp;%</td>
       <td><select data-f="window_s">
             ${[60,300,900,1800,3600].map(v=>`<option value="${v}" ${f.window_s==v?'selected':''}>${humanDur(v)}</option>`).join('')}
@@ -342,6 +359,7 @@ function renderAll() {
 async function refresh() {
   try {
     state = await api('api/state');
+    if (state.icons) iconSet = new Set(state.icons);
     renderAll();
   } catch (e) {
     document.getElementById('feedText').textContent = 'server unreachable';
@@ -492,7 +510,13 @@ document.getElementById('tgSummaryNow').onclick = async () => {
   } catch (e) { flash(msg, e.message, false); }
 };
 
+// ?static=1 skips the live stream. An open SSE connection means a headless
+// browser never reaches network-idle, so screenshots and previews hang.
+const STATIC = new URLSearchParams(location.search).has('static');
+
 refresh();
-connectStream();
-setInterval(refresh, 30000);
-setInterval(() => { if (selected) loadChart(); }, 60000);
+if (!STATIC) connectStream();
+if (!STATIC) {
+  setInterval(refresh, 30000);
+  setInterval(() => { if (selected) loadChart(); }, 60000);
+}
