@@ -58,6 +58,18 @@ def mask_token(tok):
     return ("*" * max(0, len(tok) - 6)) + tok[-6:] if len(tok) > 6 else "*" * len(tok)
 
 
+def _stamp_assets(html):
+    """Append ?v=<mtime> to the page's own script/stylesheet references."""
+    out = html.decode("utf-8", "replace")
+    for name in ("app.js", "style.css"):
+        try:
+            v = int(os.stat(os.path.join(WEB_DIR, name)).st_mtime)
+        except OSError:
+            continue
+        out = out.replace(f'"{name}"', f'"{name}?v={v}"')
+    return out.encode()
+
+
 def make_handler(app):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -207,10 +219,41 @@ def make_handler(app):
             ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
             if ctype.startswith("text/") or ctype.endswith("javascript"):
                 ctype += "; charset=utf-8"
+
+            st = os.stat(full)
+            etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+
+            # The page's own code must revalidate on every load. Serving app.js
+            # with a plain max-age and no validator means a UI change stays
+            # invisible until the cache expires, with no way for the browser to
+            # ask whether it is stale. Icons and vendored libraries are content-
+            # stable for a given filename, so they may sit in cache, but they
+            # still carry an ETag so a replacement is picked up.
+            long_lived = rel.startswith(("icons/", "vendor/"))
+            cache = "public, max-age=86400" if long_lived else "no-cache"
+
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", cache)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+
             with open(full, "rb") as f:
                 data = f.read()
-            cache = "no-cache" if full.endswith(".html") else "public, max-age=3600"
-            self._send(200, data, ctype, {"Cache-Control": cache})
+
+            # Cache-bust the page's own assets by stamping their mtime into the
+            # URL. index.html always revalidates, so a changed stamp forces the
+            # browser to fetch the new app.js even when it is still holding an
+            # older copy it thinks is fresh -- otherwise a UI change is invisible
+            # until that entry expires, and the user has to know to hard-refresh.
+            if rel == "index.html":
+                data = _stamp_assets(data)
+
+            self._send(200, data, ctype,
+                       {"Cache-Control": cache, "ETag": etag,
+                        "Last-Modified": self.date_time_string(int(st.st_mtime))})
 
         # ---------- POST ----------
         def _route_post(self):
