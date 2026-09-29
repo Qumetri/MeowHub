@@ -132,6 +132,24 @@ class App:
                          daemon=True).start()
         self.feeds[source].resubscribe()
 
+    def replace_coin(self, old, new, ticker, name, source):
+        """Swap a coin for its successor, carrying targets and rules across.
+
+        A rebrand (Toncoin -> Gram) should not cost the user the alerts they
+        set up, so this is a first-class action rather than remove-then-add.
+        """
+        old_src = self._source_of(old)
+        self.store.rename_coin(old, new, ticker, name, source)
+        self.engine.prices.pop(old, None)
+        self.engine.stats.pop(old, None)
+        self.engine.refresh_rules(force=True)
+        threading.Thread(target=self._backfill_one, args=(new, source),
+                         daemon=True).start()
+        for src in {old_src, source}:
+            self.feeds[src].resubscribe()
+        self.store.add_event("system", f"{old} replaced by {new} ({source})")
+        log.info("replaced %s -> %s", old, new)
+
     def remove_coin(self, symbol):
         source = self._source_of(symbol)
         self.store.remove_coin(symbol)
@@ -163,6 +181,7 @@ class App:
             out.append({
                 "symbol": sym, "ticker": c["ticker"], "name": c["name"],
                 "source": c["source"],
+                "health": c["health"], "health_note": c["health_note"],
                 "price": self.engine.prices.get(sym),
                 "change24h": self.engine.change_24h(sym),
                 "high": st.get("high"), "low": st.get("low"), "vol": st.get("vol"),
@@ -272,11 +291,63 @@ class App:
             # is still caught.
             self._on_tick(sym, price, stats)
 
+    def _check_listings(self):
+        """Re-validate every tracked coin against its exchange.
+
+        Validating only at add-time is not enough: a pair can be halted months
+        later and the exchange keeps answering with the price it froze at.
+        Toncoin is the case in point — Binance halted TONUSDT on 2026-06-30 and
+        kept serving $1.60 indefinitely, so the tracker showed a plausible
+        number and silently stopped being able to alert on anything.
+        """
+        for c in self.store.coins():
+            sym, src, was = c["symbol"], c["source"], c["health"]
+            health, note = "ok", ""
+            try:
+                if src == "kraken":
+                    if not kraken.symbol_exists(sym):
+                        health, note = "halted", "not tradable on Kraken"
+                else:
+                    st = binance.symbol_status(sym)
+                    if st is None:
+                        health, note = "halted", "no longer listed on Binance"
+                    elif st != "TRADING":
+                        health, note = "halted", f"Binance status {st}"
+            except Exception as e:                      # noqa: BLE001
+                log.debug("listing check %s: %s", sym, e)
+                continue
+
+            # Exchange says fine, but has the data actually moved?
+            if health == "ok":
+                newest = self.store.newest_candle_ts(sym)
+                if newest and time.time() - newest > 3 * 3600:
+                    hrs = int((time.time() - newest) / 3600)
+                    health, note = "stale", f"no new candle for {hrs}h"
+
+            if health != was:
+                self.store.set_health(sym, health, note)
+                if health != "ok":
+                    self._warn_unhealthy(c, health, note)
+                else:
+                    log.info("%s recovered", sym)
+
+    def _warn_unhealthy(self, coin, health, note):
+        tick = coin["ticker"]
+        text = (f"🛑 <b>{tick} is no longer reporting live prices</b>\n\n"
+                f"<b>Symbol</b>  {coin['symbol']} ({coin['source']})\n"
+                f"<b>Reason</b>  {note}\n\n"
+                "Its last known price is frozen, so alerts on it cannot fire. "
+                "Check whether it was delisted or renamed, and add the "
+                "replacement from the Coins tab.")
+        log.warning("%s unhealthy: %s", coin["symbol"], note)
+        self.notifier.dispatch("system", text, symbol=coin["symbol"])
+
     def _scheduler(self):
         last_reconcile = 0.0
         last_prune = 0.0
         last_flush = 0.0
         last_refresh = time.time()
+        last_listing = 0.0
         while not self._stopping.is_set():
             self._stopping.wait(5)
             now = time.time()
@@ -291,6 +362,9 @@ class App:
                     last_refresh = now
                     self.candles.flush()
                     self.refresh_recent()
+                if now - last_listing >= 3600:
+                    last_listing = now
+                    self._check_listings()
                 if now - last_prune >= 6 * 3600:
                     last_prune = now
                     self.store.prune()
@@ -323,6 +397,9 @@ class App:
             f.start()
         threading.Thread(target=self._broadcast_loop, daemon=True, name="broadcast").start()
         threading.Thread(target=self._scheduler, daemon=True, name="scheduler").start()
+        # Check listings shortly after start rather than waiting an hour, so a
+        # coin that was halted while the service was down is flagged promptly.
+        threading.Thread(target=self._check_listings, daemon=True).start()
         self.store.add_event("system", "Tracker started")
         log.info("tracking %s", ", ".join(
             f"{c['symbol']}({c['source']})" for c in self.store.coins()))

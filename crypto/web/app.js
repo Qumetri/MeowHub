@@ -62,14 +62,16 @@ function flash(el, txt, ok) {
 function renderCoins() {
   const g = document.getElementById('coinGrid');
   g.innerHTML = state.coins.map(c => `
-    <div class="coin ${selected===c.symbol?'sel':''}" data-sym="${c.symbol}">
+    <div class="coin ${selected===c.symbol?'sel':''} ${c.health&&c.health!=='ok'?'bad':''}" data-sym="${c.symbol}">
       <span class="bar" style="background:${colorFor(c.ticker)}"></span>
       <div class="head">
         <span class="tickBadge" style="background:${colorFor(c.ticker)}">${esc(c.ticker)}</span>
         <span class="nm">${esc(c.name)}</span>
       </div>
       <div class="px" id="px-${c.symbol}">${c.price!=null?'$'+fmtPrice(c.price):'—'}</div>
-      <span class="chg ${cls(c.change24h)}" id="ch-${c.symbol}">${fmtPct(c.change24h)}</span>
+      ${c.health && c.health !== 'ok'
+        ? `<span class="chg dn" title="${esc(c.health_note)}">⚠ not live</span>`
+        : `<span class="chg ${cls(c.change24h)}" id="ch-${c.symbol}">${fmtPct(c.change24h)}</span>`}
     </div>`).join('');
   g.querySelectorAll('.coin').forEach(el =>
     el.onclick = () => selectCoin(el.dataset.sym));
@@ -210,11 +212,34 @@ function renderCoinManager() {
       <td class="num" style="color:var(--muted)">${esc(c.symbol)}
           <span class="pill ${c.source === 'kraken' ? 'kraken' : ''}">${esc(c.source || 'binance')}</span></td>
       <td class="num">${c.price != null ? '$' + fmtPrice(c.price) : '—'}</td>
-      <td class="num ${cls(c.change24h)}" style="color:${c.change24h > 0 ? 'var(--up)' : c.change24h < 0 ? 'var(--down)' : 'var(--muted)'}">${fmtPct(c.change24h)}</td>
+      <td class="num" style="color:${c.change24h > 0 ? 'var(--up)' : c.change24h < 0 ? 'var(--down)' : 'var(--muted)'}">${fmtPct(c.change24h)}</td>
+      <td>${c.health && c.health !== 'ok'
+            ? `<span class="pill halted" title="${esc(c.health_note)}">${esc(c.health)}</span>`
+            : '<span class="pill ok">live</span>'}</td>
       <td class="num">${n || '<span style="color:var(--muted)">0</span>'}</td>
-      <td style="text-align:right"><button class="iconbtn" data-rm="${c.symbol}" title="Stop tracking">✕</button></td>
+      <td style="text-align:right">
+        ${c.health && c.health !== 'ok'
+          ? `<button class="iconbtn swap" data-swap="${c.symbol}" title="Replace with its successor, keeping targets">⇄</button>`
+          : ''}
+        <button class="iconbtn" data-rm="${c.symbol}" title="Stop tracking">✕</button></td>
     </tr>`;
   }).join('');
+  tb.querySelectorAll('[data-swap]').forEach(b => b.onclick = async () => {
+    const sym = b.dataset.swap;
+    const c = state.coins.find(x => x.symbol === sym) || {};
+    const next = prompt(
+      `${sym} is no longer trading (${c.health_note || 'halted'}).\n\n` +
+      'Enter the ticker or symbol that replaced it. Your price targets and ' +
+      'volatility settings move across.', '');
+    if (!next) return;
+    try {
+      const r = await api(`api/coins/${encodeURIComponent(sym)}/replace`,
+        {method:'POST', body: JSON.stringify({symbol: next.trim()})});
+      if (selected === sym) selected = r.symbol;
+      await refresh();
+      alert(`${sym} replaced by ${r.symbol} (${r.source}).`);
+    } catch (e) { alert('Could not replace: ' + e.message); }
+  });
   tb.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
     const sym = b.dataset.rm;
     const n = state.targets.filter(t => t.symbol === sym).length;

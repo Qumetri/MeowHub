@@ -76,8 +76,9 @@
     <div class="card">
       <h2>Tracked coins</h2>
       <p class="sub">Removing a coin deletes its price targets and volatility rule too. Its stored candles are left alone, so adding it back restores the chart history.</p>
+      <p class="sub">The <b>Feed</b> column is re-checked against the exchange every hour. A pair can be halted long after you add it — the exchange keeps serving the price it froze at, so a coin marked <b>halted</b> is showing a dead number and cannot alert.</p>
       <div class="tableWrap"><table id="coinTable">
-        <thead><tr><th>Coin</th><th>Symbol</th><th>Price</th><th>24h</th><th>Targets</th><th></th></tr></thead>
+        <thead><tr><th>Coin</th><th>Symbol</th><th>Price</th><th>24h</th><th>Feed</th><th>Targets</th><th></th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>

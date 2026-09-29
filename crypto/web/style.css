@@ -159,3 +159,8 @@ code{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.07);
   .form{grid-template-columns:1fr}
 }
 .pill.kraken{background:rgba(124,92,255,.16);color:#a78bfa}
+.pill.ok{background:rgba(52,211,153,.12);color:var(--up)}
+.pill.halted{background:rgba(248,113,113,.14);color:var(--down)}
+.coin.bad{border-color:rgba(248,113,113,.4)}
+.coin.bad .px{color:var(--muted);text-decoration:line-through;text-decoration-thickness:1px}
+.iconbtn.swap:hover{color:var(--accent2);background:rgba(37,99,235,.12)}

@@ -173,7 +173,7 @@ full symbol (`SOLUSDT`), checks it against the exchanges, backfills its history
 and joins it to the live stream — no restart, no config file. Removing a coin
 takes its targets with it and says so first.
 
-Ships tracking BTC, ETH, ETC, RVN, TON, TRX and SOL on Binance, plus XMR on
+Ships tracking BTC, ETH, ETC, RVN, GRAM, TRX and SOL on Binance, plus XMR on
 Kraken.
 
 **Two exchanges, for a reason.** Binance is tried first because its backfill is
@@ -182,8 +182,16 @@ deeper; Kraken is the fallback for what Binance doesn't trade.
 Monero is why. Binance halted `XMRUSDT` in February 2024, but still lists it —
 and `/ticker/price` still answers, with the price it froze at: about **$118**,
 while XMR actually trades near **$540**. So a symbol is only accepted if its
-status is `TRADING`. Existence is not the same as being tradable, and the
-difference is silent unless you check.
+status is `TRADING`. Existence is not the same as being tradable.
+
+**And checking once is not enough.** A pair can be halted long after you add it:
+Toncoin rebranded to Gram and Binance halted every `TON*` pair on 30 June 2026,
+serving a frozen $1.60 ever since. So every tracked coin is re-validated hourly.
+A coin that stops trading is struck through on the page, marked in the **Feed**
+column, and announced once over Telegram — because a frozen price is
+indistinguishable from a quiet market, and silently-never-alerting is the worst
+thing an alerting tool can do. Renamed coins get a **⇄** button that swaps in the
+successor and carries your targets across.
 
 </td><td width="45%" valign="top">
 

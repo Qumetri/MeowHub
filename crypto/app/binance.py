@@ -180,6 +180,18 @@ def fetch_tickers(symbols):
     return {r["symbol"]: r for r in raw}
 
 
+def symbol_status(symbol):
+    """-> the exchange's own status string, or None if it is unknown."""
+    try:
+        info = rest_json("/api/v3/exchangeInfo", {"symbol": symbol}, timeout=15)
+    except Exception:
+        return None
+    for s in info.get("symbols", []):
+        if s.get("symbol") == symbol:
+            return s.get("status")
+    return None
+
+
 def symbol_exists(symbol):
     """True only if the symbol is actually TRADING.
 

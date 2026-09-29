@@ -1,12 +1,12 @@
 # Crypto tracker
 
 Live prices, price-target and volatility alerts to Telegram, and a web UI on the
-hub. Runs as the `crypto` service (container `${STACK_NAME}_crypto`), behind the
-`crypto` compose profile.
+hub. Runs as the `crypto` service (container `${STACK_NAME}_crypto`), behind
+the `crypto` compose profile.
 
-Tracked out of the box: **BTC, ETH, ETC, RVN, TON, TRX, SOL** (Binance) and
-**XMR** (Kraken). Coins are managed from the **Coins** tab — add or remove them
-yourself, no restart and no config file.
+Tracked out of the box: **BTC, ETH, ETC, RVN, GRAM, TRX, SOL** (Binance) and
+**XMR** (Kraken). Coins are managed from the **Coins** tab — add, replace or
+remove them yourself, no restart and no config file.
 
 ## Where it lives
 
@@ -47,6 +47,37 @@ a coin back restores its chart history.
 Removing a coin that ships by default makes it stay removed. Defaults seed the
 first run only; re-seeding on every start would resurrect a coin you deliberately
 deleted, which would make the remove button a lie.
+
+## Listing health — why a tracked coin is re-checked
+
+Validating a symbol when you add it is not enough. **A pair can be halted months
+later, and the exchange keeps serving the price it froze at.** Both of the coins
+this tracker started with hit exactly that:
+
+| Coin | What happened | Frozen at | Real price |
+|---|---|---|---|
+| Monero | Binance halted `XMRUSDT`, Feb 2024 | ~$118 | ~$540 (Kraken) |
+| Toncoin | rebranded to **Gram**; all `TON*` halted 2026-06-30 | $1.60 | `GRAMUSDT`, live |
+
+Neither looked broken. Both showed a plausible number that simply never moved,
+and alerts on them could never fire — the worst failure mode for an alerting
+tool, because it is indistinguishable from a quiet market.
+
+So every tracked coin is re-validated against its exchange **hourly, and at
+startup**. A coin whose status is no longer tradable — or whose newest candle is
+more than 3 hours old while the exchange claims otherwise — is marked in the
+**Feed** column, struck through on its card, and announced once over Telegram:
+
+```
+🛑 TON is no longer reporting live prices
+Symbol  TONUSDT (binance)
+Reason  Binance status BREAK
+```
+
+**Replacing a renamed coin**: a halted row gets a **⇄** button. Give it the new
+ticker and the coin is swapped in place — your price targets and volatility
+settings move across with it. A rebrand should not cost you the alerts you set
+up, which is why this is a distinct action rather than remove-then-add.
 
 ## Two exchanges, and why
 

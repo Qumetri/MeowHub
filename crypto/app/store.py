@@ -17,7 +17,8 @@ DEFAULT_COINS = [
     ("ETHUSDT", "ETH", "Ethereum", "binance"),
     ("ETCUSDT", "ETC", "Ethereum Classic", "binance"),
     ("RVNUSDT", "RVN", "Ravencoin", "binance"),
-    ("TONUSDT", "TON", "Toncoin", "binance"),
+    # Toncoin rebranded to Gram; Binance halted every TON* pair on 2026-06-30.
+    ("GRAMUSDT", "GRAM", "Gram", "binance"),
     ("TRXUSDT", "TRX", "TRON", "binance"),
     ("SOLUSDT", "SOL", "Solana", "binance"),
     # Binance halted XMRUSDT in Feb 2024, so Monero comes from Kraken.
@@ -36,7 +37,13 @@ CREATE TABLE IF NOT EXISTS coins (
     name     TEXT NOT NULL,      -- Bitcoin
     source   TEXT NOT NULL DEFAULT 'binance',   -- binance | kraken
     enabled  INTEGER NOT NULL DEFAULT 1,
-    sort     INTEGER NOT NULL DEFAULT 0
+    sort     INTEGER NOT NULL DEFAULT 0,
+    -- Listing health. A pair can be halted long after it was added (Toncoin
+    -- was, on 2026-06-30) and the exchange keeps serving its frozen last
+    -- price, so tracked coins are re-checked, not trusted forever.
+    health      TEXT NOT NULL DEFAULT 'ok',      -- ok | halted | stale
+    health_note TEXT NOT NULL DEFAULT '',
+    health_at   INTEGER NOT NULL DEFAULT 0
 );
 
 -- A price level to watch. direction 'above' fires on an upward crossing,
@@ -120,10 +127,16 @@ class Store:
         every query referencing it fails on an upgraded install."""
         with self._lock:
             cols = {r["name"] for r in self.db.execute("PRAGMA table_info(coins)")}
-            if "source" not in cols:
-                self.db.execute(
-                    "ALTER TABLE coins ADD COLUMN source TEXT NOT NULL DEFAULT 'binance'")
-                self.db.commit()
+            add = {
+                "source": "TEXT NOT NULL DEFAULT 'binance'",
+                "health": "TEXT NOT NULL DEFAULT 'ok'",
+                "health_note": "TEXT NOT NULL DEFAULT ''",
+                "health_at": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for col, decl in add.items():
+                if col not in cols:
+                    self.db.execute(f"ALTER TABLE coins ADD COLUMN {col} {decl}")
+            self.db.commit()
 
     def _seed(self):
         with self._lock:
@@ -181,6 +194,34 @@ class Store:
                 "INSERT OR IGNORE INTO coins (symbol,ticker,name,source,enabled,sort)"
                 " VALUES (?,?,?,?,1,?)", (symbol, ticker, name, source, n))
             self.db.execute("INSERT OR IGNORE INTO fluctuation (symbol) VALUES (?)", (symbol,))
+            self.db.commit()
+
+    def set_health(self, symbol, health, note=""):
+        with self._lock:
+            self.db.execute(
+                "UPDATE coins SET health=?, health_note=?, health_at=? WHERE symbol=?",
+                (health, note, int(time.time()), symbol))
+            self.db.commit()
+
+    def rename_coin(self, old, new, ticker, name, source):
+        """Carry targets and rules across a ticker rename, so a rebrand does
+        not silently drop the alerts you set up."""
+        with self._lock:
+            n = self.db.execute(
+                "SELECT sort FROM coins WHERE symbol=?", (old,)).fetchone()
+            sort = n["sort"] if n else 0
+            self.db.execute(
+                "INSERT OR IGNORE INTO coins (symbol,ticker,name,source,enabled,sort)"
+                " VALUES (?,?,?,?,1,?)", (new, ticker, name, source, sort))
+            self.db.execute("INSERT OR IGNORE INTO fluctuation (symbol) VALUES (?)", (new,))
+            self.db.execute(
+                "UPDATE fluctuation SET pct=(SELECT pct FROM fluctuation WHERE symbol=?),"
+                " window_s=(SELECT window_s FROM fluctuation WHERE symbol=?),"
+                " cooldown_s=(SELECT cooldown_s FROM fluctuation WHERE symbol=?)"
+                " WHERE symbol=?", (old, old, old, new))
+            self.db.execute("UPDATE targets SET symbol=? WHERE symbol=?", (new, old))
+            self.db.execute("DELETE FROM coins WHERE symbol=?", (old,))
+            self.db.execute("DELETE FROM fluctuation WHERE symbol=?", (old,))
             self.db.commit()
 
     def remove_coin(self, symbol):

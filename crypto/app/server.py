@@ -348,6 +348,33 @@ def make_handler(app):
                 app.add_coin(sym, ticker, b.get("name") or base, src)
                 return self._json({"ok": True, "symbol": sym, "source": src})
 
+            if p.startswith("/api/coins/") and p.endswith("/replace"):
+                old_sym = p[len("/api/coins/"):-len("/replace")].upper()
+                if old_sym not in {c["symbol"] for c in app.store.coins()}:
+                    raise ValueError(f"{old_sym} is not tracked")
+                raw = (b.get("symbol") or "").upper().strip().replace("/", "")
+                if not raw.isalnum() or not 2 <= len(raw) <= 20:
+                    raise ValueError("bad replacement symbol")
+                cands = ([("binance", raw)] if raw.endswith("USDT")
+                         else [("kraken", raw)] if raw.endswith(("USD", "EUR", "USDC"))
+                         else [("binance", raw + "USDT"), ("kraken", raw + "USD")])
+                chosen = None
+                for src, cand in cands:
+                    ok = (binance.symbol_exists(cand) if src == "binance"
+                          else kraken.symbol_exists(cand))
+                    if ok:
+                        chosen = (src, cand)
+                        break
+                if not chosen:
+                    raise ValueError("no exchange is currently trading "
+                                     + ", ".join(c for _, c in cands))
+                src, new_sym = chosen
+                base = new_sym[:-4] if new_sym.endswith("USDT") else new_sym[:-3]
+                app.replace_coin(old_sym, new_sym,
+                                 (b.get("ticker") or base).upper()[:8],
+                                 b.get("name") or base, src)
+                return self._json({"ok": True, "symbol": new_sym, "source": src})
+
             if p == "/api/summary/send":
                 ok = app.engine.send_summary(force=True)
                 return self._json({"ok": ok})
