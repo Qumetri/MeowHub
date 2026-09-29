@@ -124,10 +124,17 @@ def read_gpu():
             capture_output=True, text=True, timeout=4,
         ).stdout.strip().splitlines()[0]
         util, mused, mtotal, temp = [x.strip() for x in out.split(",")]
+        used = int(mused) * 1024 * 1024
+        total = int(mtotal) * 1024 * 1024
         return {
             "percent": float(util),
-            "memUsed": int(mused) * 1024 * 1024,
-            "memTotal": int(mtotal) * 1024 * 1024,
+            "memUsed": used,
+            "memTotal": total,
+            # VRAM is reported as its own percentage, like mem/disk/hdd, so the
+            # dashboard can render it as a gauge rather than a subtitle. GPU
+            # memory pressure and GPU utilisation are independent -- a model can
+            # hold 10GB while the card is idle -- so one number cannot show both.
+            "memPercent": round(used / total * 100, 1) if total else 0.0,
             "temp": float(temp),
         }
     except Exception:

@@ -98,16 +98,32 @@ export default function Stats() {
         from="#2563eb"
         to="#00c6fb"
       />
+      {/* VRAM and GPU load are separate gauges on purpose: they move
+          independently. A loaded model can pin 10GB of memory while the card
+          sits at 0% util, so folding memory into the GPU tile's subtitle hid
+          whichever of the two actually mattered at the time. */}
       {gpu ? (
-        <Gauge
-          label="GPU"
-          percent={gpu.percent}
-          detail={`${fmtBytes(gpu.memUsed)} · ${gpu.temp.toFixed(0)}°C`}
-          from="#10b981"
-          to="#a7f3d0"
-        />
+        <>
+          <Gauge
+            label="VRAM"
+            percent={gpu.memPercent ?? (gpu.memTotal ? (gpu.memUsed / gpu.memTotal) * 100 : 0)}
+            detail={`${fmtBytes(gpu.memUsed)} / ${fmtBytes(gpu.memTotal)}`}
+            from="#0d9488"
+            to="#5eead4"
+          />
+          <Gauge
+            label="GPU"
+            percent={gpu.percent}
+            detail={`${gpu.percent.toFixed(0)}% · ${gpu.temp.toFixed(0)}°C`}
+            from="#10b981"
+            to="#a7f3d0"
+          />
+        </>
       ) : (
-        <Gauge label="GPU" percent={0} detail="n/a" from="#334155" to="#64748b" />
+        <>
+          <Gauge label="VRAM" percent={0} detail="n/a" from="#334155" to="#64748b" />
+          <Gauge label="GPU" percent={0} detail="n/a" from="#334155" to="#64748b" />
+        </>
       )}
       <Gauge
         label="SSD"
