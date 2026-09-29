@@ -50,6 +50,13 @@ services:
       METUBE_PATH: ${METUBE_PATH}
       AWG_ADMIN_PATH: ${AWG_ADMIN_PATH}
       AWG_ADMIN_USER: ${AWG_ADMIN_USER:-awgadmin}
+      # These three are read by Caddy from its OWN env. An empty value turns
+      # handle_path /{$VAR}/* into /*, which would swallow the entire root
+      # domain, so each carries a non-empty fallback rather than defaulting
+      # to the empty string.
+      CRYPTO_PATH: ${CRYPTO_PATH:-crypto-unset}
+      CRYPTO_ADMIN_USER: ${CRYPTO_ADMIN_USER:-cryptoadmin}
+      N8N_PUBLIC_PATH: ${N8N_PUBLIC_PATH:-n8n-unset}
       XUI_SUB_PORT: ${XUI_SUB_PORT:-2096}
     # Reaches host-network services (the 3x-ui VPN inbounds) from inside the
     # container. Without this the layer4 passthrough routes cannot resolve.
@@ -336,6 +343,62 @@ services:
       done'
     volumes:
       - ${METUBE_DOWNLOADS}:/downloads
+
+  # ---------- n8n automation ----------
+  # Workflow automation: schedule/webhook -> HTTP -> LLM -> notification.
+  # Served on a secret path. Auth is n8n's OWN account login (with optional
+  # 2FA), not basic_auth -- a second credential prompt is what breaks the
+  # editor's websocket push channel.
+  n8n:
+    container_name: ${STACK_NAME:-meowstack}_n8n
+    image: ${N8N_IMAGE:-n8nio/n8n:2.41.2}
+    profiles: [n8n]
+    <<: [*restart, *logging]
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${N8N_LOCAL_PORT:-5678}:5678'
+    environment:
+      TZ: ${TZ:-UTC}
+      GENERIC_TIMEZONE: ${TZ:-UTC}
+      # Encrypts every credential stored in n8n's database. Back it up with
+      # .env: change or lose it and every saved credential becomes unreadable.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${BASE_DOMAIN}
+      N8N_PROTOCOL: https
+      N8N_PORT: 5678
+      # N8N_PATH only changes the URLs n8n GENERATES; it still serves its files
+      # from the root. That is why Caddy strips the prefix with handle_path --
+      # the two settings are complements, not duplicates. See docs/N8N.md.
+      N8N_PATH: /${N8N_PUBLIC_PATH}/
+      N8N_EDITOR_BASE_URL: https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/
+      WEBHOOK_URL: https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/
+      N8N_PROXY_HOPS: 1
+      N8N_RUNNERS_ENABLED: 'true'
+      # No telemetry, no upsell banners, and Code nodes cannot read the
+      # container's environment (where the encryption key lives).
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      N8N_VERSION_NOTIFICATIONS_ENABLED: 'false'
+      N8N_HIRING_BANNER_ENABLED: 'false'
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'true'
+    volumes:
+      - ./n8n/data:/home/node/.n8n
+
+  # ---------- Ollama ----------
+  # Local LLM runtime for n8n. Deliberately publishes NO port: n8n reaches it
+  # as http://ollama:11434 over the compose network. This is an unauthenticated
+  # API -- publishing it hands a model server to anything that can reach the
+  # host. GPU is opt-in through docker-compose.gpu.yml; without it this runs on
+  # the CPU, which is slow but works.
+  ollama:
+    container_name: ${STACK_NAME:-meowstack}_ollama
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.20.3}
+    profiles: [ollama]
+    <<: [*restart, *logging]
+    environment:
+      TZ: ${TZ:-UTC}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
+    volumes:
+      # Models are bulky and belong on the data disk, not the system disk.
+      - ${OLLAMA_MODELS}:/root/.ollama
 
 networks:
   default:

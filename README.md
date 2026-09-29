@@ -102,7 +102,7 @@ Not everyone wants all of it. One line in `.env` decides:
 
 ```ini
 # everything
-COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto
+COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,n8n,ollama
 
 # just files and photos
 COMPOSE_PROFILES=nextcloud,immich
@@ -115,7 +115,7 @@ COMPOSE_PROFILES=immich
 |---|---|
 | `nextcloud` | 6 |
 | `nextcloud,immich` | 10 |
-| all five | 19 |
+| all seven | 21 |
 
 Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
@@ -217,6 +217,28 @@ Setup is four steps in the Telegram tab, including a **Detect chat** button so
 you never hunt for a numeric chat ID. Full details in
 **[docs/CRYPTO.md](docs/CRYPTO.md)**.
 
+## Automating things
+
+The `n8n` profile adds [n8n](https://n8n.io) on its own secret path — schedules
+and webhooks wired to HTTP calls, models and notifications. Unlike the rest of
+the secret-path services it is **not** behind basic auth: it has real accounts
+of its own, with optional 2FA.
+
+The `ollama` profile adds a local model runtime alongside it, reachable from
+workflows as `http://ollama:11434` and **publishing no port at all** — an
+unauthenticated model server has no business listening on the network. Add
+`docker-compose.gpu.yml` to run it on an NVIDIA card; on a 12 GB card an 8B
+model sits entirely in VRAM at around 60 tokens/s.
+
+A worked example ships in the box: `n8n/workflows/crypto-daily-summary.json`
+reads the crypto tracker, asks a model for a few sentences of commentary, and
+sends the lot to Telegram every morning.
+
+Its design rule is worth stealing: **the model never supplies a number.** The
+price table, the ranking and the averages are computed in a Code node and handed
+to the model as settled facts, so the worst it can do is write a dull sentence —
+not invent a price. Full details in **[docs/N8N.md](docs/N8N.md)**.
+
 ## Requirements
 
 - Linux, Docker Engine, Compose v2
@@ -243,6 +265,7 @@ caddy/                  custom image + Caddyfile template
 dashboard/              hub page (Vite + React) — cards in src/services.js
 stats/                  host metrics, dependency-free Python
 crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
+n8n/workflows/          importable automation workflows
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
@@ -260,6 +283,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price alerts, Telegram setup, how the crossing logic works |
+| 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, and the daily-summary workflow |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly

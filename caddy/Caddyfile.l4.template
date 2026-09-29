@@ -120,6 +120,29 @@
 		}
 	}
 #ENDIF
+#IF:n8n
+	# n8n automation.
+	#
+	# handle_path (strips the prefix) is REQUIRED, and the reason is not obvious:
+	# N8N_PATH only changes the URLs n8n *generates*, not where it *serves* from.
+	# The HTML asks for /{prefix}/static/base-path.js, but the file is mounted at
+	# /static/base-path.js. Caddy puts the prefix on going in and takes it off
+	# coming out -- the two settings are complements, not duplicates.
+	#
+	# The failure mode is silent: n8n answers ANY unknown path with the SPA shell,
+	# so a prefixed asset returns 200 text/html instead of 404. Status codes all
+	# look fine while the browser gets HTML where it expects JavaScript,
+	# window.BASE_PATH is never defined, and the page renders blank. Verify with
+	# content-type, not status:
+	#   curl -sI https://<domain>/<prefix>/static/base-path.js | grep -i content-type
+	#
+	# No basic_auth: n8n has its own account login, and a second credential prompt
+	# is exactly what breaks browser websocket upgrades.
+	redir /{$N8N_PUBLIC_PATH} /{$N8N_PUBLIC_PATH}/ 308
+	handle_path /{$N8N_PUBLIC_PATH}/* {
+		reverse_proxy n8n:5678
+	}
+#ENDIF
 #IF:vpn
 	# AmneziaWG peer-management UI, behind basic_auth. handle_path strips the
 	# prefix; the app uses relative URLs so it works under any prefix.

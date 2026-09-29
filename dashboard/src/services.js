@@ -14,6 +14,7 @@ const MATRIX  = E.VITE_MATRIX_HOST   || `matrix.${BASE}`
 const AWG     = E.VITE_AWG_ADMIN_PATH || ''
 const METUBE  = E.VITE_METUBE_PATH   || ''
 const CRYPTO  = E.VITE_CRYPTO_PATH   || ''
+const N8N     = E.VITE_N8N_PATH      || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -80,6 +81,15 @@ export const services = [
     icon: 'chart',
     gradient: ['#f7931a', '#fbbf24'],
     status: CRYPTO ? 'live' : 'soon',
+  },
+  {
+    id: 'n8n',
+    name: 'n8n',
+    description: 'Workflow automation',
+    url: `https://${BASE}/${N8N}/`,
+    icon: 'flow',
+    gradient: ['#ea4b71', '#ff8da1'],
+    status: N8N ? 'live' : 'soon',
   },
   {
     id: 'metube',

@@ -1,0 +1,235 @@
+{
+  "id": "cryptoDailySum01",
+  "name": "Crypto daily summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "50b2645f-dfd8-404b-9651-5fd22aee434e",
+      "name": "Every day at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -380,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a52418bb-eace-4b0e-9964-82fe96038138",
+      "name": "Test manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://crypto:9102/api/state",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "4eaf5db5-f008-4f9d-87ad-ec48e83744aa",
+      "name": "Get crypto state",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Telegram price table from REAL numbers, and the prompt for the model.\n// Deliberate split: the table is produced here, in code, from the tracker's own\n// data. The model only writes prose around it and is never the source of a\n// figure - a hallucinated price in a money alert is the one failure mode that\n// must be impossible by construction rather than by prompting.\nconst s = $json;\nconst coins = (s.coins || []).filter(c => typeof c.price === 'number');\nif (!coins.length) {\n  throw new Error('crypto tracker returned no prices - is the feed connected?');\n}\n\nconst fmt = (p) => {\n  if (typeof p !== 'number') return 'n/a';\n  if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 0 });\n  if (p >= 1) return p.toFixed(2);\n  return p.toPrecision(4);\n};\nconst pct = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;\n\nconst sorted = [...coins].sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0));\n\nconst table = sorted.map(c => {\n  const ch = c.change24h ?? 0;\n  const mark = ch > 0 ? '🟢' : ch < 0 ? '🔴' : '⚪';\n  const warn = (c.health && c.health !== 'ok') ? ' ⚠️' : '';\n  return `${mark} <b>${c.ticker}</b>  $${fmt(c.price)}  (${pct(ch)})${warn}`;\n}).join('\\n');\n\nconst facts = sorted.map(c =>\n  `${c.ticker}: $${fmt(c.price)}, 24ч ${pct(c.change24h ?? 0)}, макс $${fmt(c.high)}, мин $${fmt(c.low)}`\n).join('\\n');\n\n// Ranking and averaging are arithmetic, so code does them and hands the model the\n// conclusion. Asked to work it out itself, an 8B model gets it subtly wrong - it\n// called XMR (+2.17%) the leader over ETH (+2.20%) - and prose that contradicts\n// the table printed directly above it is worse than no prose at all.\nconst best = sorted[0];\nconst worst = sorted[sorted.length - 1];\nconst avg = sorted.reduce((a, c) => a + (c.change24h ?? 0), 0) / sorted.length;\nconst up = sorted.filter(c => (c.change24h ?? 0) > 0).length;\nconst verdict = `Лидер роста: ${best.ticker} (${pct(best.change24h ?? 0)}). ` +\n  `Лидер падения: ${worst.ticker} (${pct(worst.change24h ?? 0)}). ` +\n  `В плюсе: ${up} из ${sorted.length}. Среднее изменение: ${pct(avg)}.`;\n\n// Events are stored as ready-to-send Telegram messages: multi-line and full of\n// HTML. Pasting them in verbatim feeds the model a wall of markup AND the price\n// table of *yesterday's* summary - stale figures it will happily repeat as\n// current. So: drop previous summaries, strip tags, keep one line each.\nconst dayAgo = Math.floor(Date.now() / 1000) - 86400;\nconst alerts = (s.events || [])\n  .filter(e => e.ts >= dayAgo && e.kind !== 'system' && e.kind !== 'summary')\n  .slice(0, 15)\n  .map(e => {\n    const one = String(e.message || '')\n      .replace(/<[^>]*>/g, '')\n      .replace(/\\s*\\n+\\s*/g, ' · ')\n      .replace(/\\s{2,}/g, ' ')\n      .trim();\n    return '- ' + (one.length > 140 ? one.slice(0, 137) + '…' : one);\n  });\n\nconst halted = coins\n  .filter(c => c.health && c.health !== 'ok')\n  .map(c => `${c.ticker} (${c.health_note || c.health})`);\n\nconst system = [\n  'Ты финансовый аналитик. Пиши по-русски, деловым тоном.',\n  'Используй ТОЛЬКО те числа, которые даны во входных данных.',\n  'Никогда не придумывай цены, проценты и события.',\n  'Формат: 4-6 предложений сплошным текстом, без markdown и без эмодзи.',\n  'Пиши только по-русски: никаких английских слов, кроме тикеров монет.',\n  'Не перечисляй все монеты подряд — таблица с ценами уже есть отдельно.',\n].join(' ');\n\nconst user = [\n  'Рыночные данные за последние 24 часа:',\n  facts,\n  '\\nУже посчитано, используй как есть и не пересчитывай: ' + verdict,\n  alerts.length\n    ? '\\nСработавшие оповещения за сутки:\\n' + alerts.join('\\n')\n    : '\\nОповещений за сутки не было.',\n  halted.length ? '\\nПроблемы с данными: ' + halted.join(', ') : '',\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { system, user, table, count: coins.length } }];"
+      },
+      "id": "52df3ce5-fbbe-4f89-b49e-1a209d6f19e8",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, think: false, options: { temperature: 0.3, num_ctx: 8192 }, messages: [ { role: 'system', content: $json.system }, { role: 'user', content: $json.user } ] }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "3e9f7a21-b3c6-49ac-b1bd-052afc54b606",
+      "name": "Ollama qwen3:8b",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'deepseek/deepseek-chat-v3-0324:free', temperature: 0.3, messages: [ { role: 'system', content: $json.system }, { role: 'user', content: $json.user } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ad7cc57e-9f7a-4e97-8671-958c53fd391d",
+      "name": "OpenRouter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        430
+      ],
+      "disabled": true,
+      "notesInFlow": true,
+      "notes": "Not wired in. Drag its output to Compose message and remove the Ollama link to use it."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accepts either shape: Ollama returns {message:{content}}, OpenAI-compatible\n// APIs (OpenRouter) return {choices:[{message:{content}}]}. Handling both is\n// what lets the model be swapped without touching anything downstream.\nconst r = $json;\nconst raw = (r?.message?.content ?? r?.choices?.[0]?.message?.content ?? '').trim();\nif (!raw) {\n  throw new Error('LLM returned no text: ' + JSON.stringify(r).slice(0, 300));\n}\n\n// Telegram parses this message as HTML. A stray tag from the model would make\n// the whole send fail with \"can't parse entities\", so strip them.\nconst comment = raw.replace(/<[^>]*>/g, '').trim();\n\nconst p = $('Build prompt').first().json;\nconst day = new Date().toLocaleDateString('ru-RU', {\n  day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Oslo',\n});\n\nconst text = [\n  `📊 <b>Криптосводка за 24 часа</b> — ${day}`,\n  '',\n  p.table,\n  '',\n  '💬 <i>' + comment + '</i>',\n].join('\\n');\n\nreturn [{ json: { text } }];"
+      },
+      "id": "444fedb2-5beb-43de-b96a-d98c272a54ce",
+      "name": "Compose message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "PUT_YOUR_CHAT_ID_HERE",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "6b3857bb-14d5-4d45-a35c-3d3c4aece1f2",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "width": 820,
+        "height": 300,
+        "color": 4,
+        "content": "## Daily crypto summary\nReads the tracker's live state, asks a model for a short comment, sends it to Telegram.\n\n**The price table is built in code from real numbers.** The model only writes the prose around it, and the ranking/averages are pre-computed, so it cannot invent or misorder a price.\n\n### Before the first run\n1. Open **Send to Telegram** and create a Telegram credential (same bot token as the tracker).\n2. Replace `PUT_YOUR_CHAT_ID_HERE` with your chat id.\n3. **Execute workflow** once to test, then toggle **Active**.\n\n### Switching to OpenRouter\nThe node is already configured but left unconnected. Enable it, drag **Build prompt** -> **OpenRouter** -> **Compose message**, delete the Ollama link, and add a *Header Auth* credential with name `Authorization` and value `Bearer <your key>`.\n\n*(Do not simply run both in parallel: a disabled n8n node passes its input through, so the idle branch would feed Compose message the raw prompt.)*"
+      },
+      "id": "053249be-c4e9-4b05-b992-a49b817e4a5f",
+      "name": "README",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -140
+      ]
+    }
+  ],
+  "connections": {
+    "Every day at 09:00": {
+      "main": [
+        [
+          {
+            "node": "Get crypto state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test manually": {
+      "main": [
+        [
+          {
+            "node": "Get crypto state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get crypto state": {
+      "main": [
+        [
+          {
+            "node": "Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama qwen3:8b",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama qwen3:8b": {
+      "main": [
+        [
+          {
+            "node": "Compose message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose message": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Oslo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "active": false
+}

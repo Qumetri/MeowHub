@@ -79,6 +79,9 @@ set_env SYNAPSE_MACAROON_SECRET    "$(hex 32)"
 set_env SYNAPSE_FORM_SECRET        "$(hex 32)"
 set_env LIVEKIT_KEY                "key$(hex 4)"
 set_env LIVEKIT_SECRET             "$(hex 32)"
+# Encrypts every credential stored in n8n. Losing it does not lose the
+# workflows, but every saved credential becomes unreadable.
+set_env N8N_ENCRYPTION_KEY         "$(hex 32)"
 
 # Secret paths: the placeholder defaults are guessable, so give each a random
 # suffix on first run. Once randomised they look nothing like the default and
@@ -107,6 +110,7 @@ randomise_path MATRIXRTC_PATH  call
 randomise_path AWG_ADMIN_PATH  awg
 randomise_path CRYPTO_PATH     crypto
 randomise_path XUI_PANEL_PATH  panel
+randomise_path N8N_PUBLIC_PATH n8n
 
 # Reload so the rendering below sees everything we just wrote.
 set -a; . "$ENV_FILE"; set +a
@@ -272,6 +276,8 @@ mk ./caddy/config
 mk ./dashboard/dist
 mk ./immich/model-cache
 mk ./crypto/data
+mk ./n8n/data
+[[ -n ${OLLAMA_MODELS:-} ]] && mk "$OLLAMA_MODELS"
 
 # Ownership the containers expect. Nextcloud runs as www-data (uid 33); Synapse
 # and MeTube run as PUID/PGID so their dirs stay host-editable.
@@ -283,6 +289,8 @@ if [[ $(id -u) -eq 0 ]]; then
   # The crypto container runs as uid 1000; without this its sqlite db is
   # unwritable, because Docker creates a missing bind-mount source as root.
   chown -R 1000:1000 ./crypto/data                            && c_ok "chown ./crypto/data -> 1000"
+  # n8n runs as uid 1000 (node) and owns its sqlite db the same way.
+  chown -R 1000:1000 ./n8n/data                               && c_ok "chown ./n8n/data -> 1000"
 else
   c_skip "not root — set ownership yourself (see docs/DEPLOY.md 'Permissions')"
 fi
@@ -318,6 +326,7 @@ VITE_MATRIX_HOST=${MATRIX_HOST}
 VITE_AWG_ADMIN_PATH=${AWG_ADMIN_PATH}
 VITE_METUBE_PATH=${METUBE_PATH}
 VITE_CRYPTO_PATH=${CRYPTO_PATH}
+VITE_N8N_PATH=${N8N_PUBLIC_PATH}
 VITE_XUI_PANEL_PORT=${XUI_PANEL_PORT}
 VITE_XUI_PANEL_PATH=${XUI_PANEL_PATH}
 EOF
@@ -343,6 +352,8 @@ echo "   hub         https://${BASE_DOMAIN}/${DASHBOARD_PATH}/"
 [[ $COMPOSE_PROFILES == *immich*    ]] && echo "   photos      https://${PHOTOS_HOST}/"
 [[ $COMPOSE_PROFILES == *matrix*    ]] && echo "   chat        https://${MATRIX_HOST}/"
 [[ $COMPOSE_PROFILES == *metube*    ]] && echo "   downloader  https://${BASE_DOMAIN}/${METUBE_PATH}/"
+[[ $COMPOSE_PROFILES == *crypto*    ]] && echo "   crypto      https://${BASE_DOMAIN}/${CRYPTO_PATH}/"
+[[ $COMPOSE_PROFILES == *n8n*       ]] && echo "   automation  https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/"
 echo
 echo " Secret paths are the only access control on the hub and"
 echo " downloader. Treat those URLs as passwords."

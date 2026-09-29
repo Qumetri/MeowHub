@@ -42,3 +42,14 @@ services:
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: utility
+
+  # Ollama on the GPU. Without this it still runs, on the CPU, at a small
+  # fraction of the speed.
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
