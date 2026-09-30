@@ -277,6 +277,7 @@ mk ./dashboard/dist
 mk ./immich/model-cache
 mk ./crypto/data
 mk ./n8n/data
+mk ./helper/data
 [[ -n ${OLLAMA_MODELS:-} ]] && mk "$OLLAMA_MODELS"
 
 # Ownership the containers expect. Nextcloud runs as www-data (uid 33); Synapse
@@ -291,6 +292,12 @@ if [[ $(id -u) -eq 0 ]]; then
   chown -R 1000:1000 ./crypto/data                            && c_ok "chown ./crypto/data -> 1000"
   # n8n runs as uid 1000 (node) and owns its sqlite db the same way.
   chown -R 1000:1000 ./n8n/data                               && c_ok "chown ./n8n/data -> 1000"
+  # The helper bot (uid 1000) keeps its token in ./helper/data and reads the
+  # generated UI passwords from ./secrets to hand them to the owner.
+  chown -R 1000:1000 ./helper/data && chmod 700 ./helper/data && c_ok "chown ./helper/data -> 1000"
+  chgrp 1000 "$SECRETS_DIR" "$SECRETS_DIR"/*-password 2>/dev/null \
+    && chmod 750 "$SECRETS_DIR" && chmod 640 "$SECRETS_DIR"/*-password \
+    && c_ok "secrets/*-password readable by the helper (group 1000)"
 else
   c_skip "not root — set ownership yourself (see docs/DEPLOY.md 'Permissions')"
 fi
@@ -354,6 +361,7 @@ echo "   hub         https://${BASE_DOMAIN}/${DASHBOARD_PATH}/"
 [[ $COMPOSE_PROFILES == *metube*    ]] && echo "   downloader  https://${BASE_DOMAIN}/${METUBE_PATH}/"
 [[ $COMPOSE_PROFILES == *crypto*    ]] && echo "   crypto      https://${BASE_DOMAIN}/${CRYPTO_PATH}/"
 [[ $COMPOSE_PROFILES == *n8n*       ]] && echo "   automation  https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/"
+[[ $COMPOSE_PROFILES == *helper*    ]] && echo "   bot         docker compose exec -it helper python3 /app/app/ctl.py token"
 echo
 echo " Secret paths are the only access control on the hub and"
 echo " downloader. Treat those URLs as passwords."

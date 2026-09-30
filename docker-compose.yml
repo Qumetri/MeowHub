@@ -88,6 +88,57 @@ services:
       - ./crypto/data:/data
 
 
+  # ---------- Helper bot ----------
+  # Read-only window onto the Docker API for the bot's health checks. Only
+  # GET /containers is allowed -- the raw socket would be root on the host,
+  # and the bot talks to the internet. Internal-only network, nothing else on it.
+  docker-proxy:
+    container_name: ${STACK_NAME:-meowstack}_docker_proxy
+    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:v0.5.0}
+    profiles: [helper]
+    <<: [*restart, *logging]
+    environment:
+      CONTAINERS: '1'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [helper-docker]
+
+  # Telegram bot: server health + alerts, hub links, downloads via MeTube and,
+  # for the owner only, the hub's logins. Long polling -- nothing is published.
+  # Setup: docs/HELPER.md.
+  helper:
+    container_name: ${STACK_NAME:-meowstack}_helper
+    build: ./helper
+    image: ${HELPER_IMAGE:-meowstack-helper:local}
+    profiles: [helper]
+    <<: [*restart, *logging]
+    environment:
+      TZ: ${TZ:-UTC}
+      HELPER_OWNER_ID: ${HELPER_OWNER_ID:-}
+      HELPER_REPORT_HOUR: ${HELPER_REPORT_HOUR:-9}
+      BASE_DOMAIN: ${BASE_DOMAIN}
+      DASHBOARD_PATH: ${DASHBOARD_PATH}
+      METUBE_PATH: ${METUBE_PATH:-}
+      METUBE_TTL_MIN: ${METUBE_TTL_MIN:-720}
+      # Logins the owner can ask the bot for. Accounts that only keep a hash
+      # (3x-ui, Immich, n8n) are added from Telegram with /setpass.
+      VAULT_NEXTCLOUD_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+      VAULT_NEXTCLOUD_PASS: ${NEXTCLOUD_ADMIN_PASSWORD:-}
+      VAULT_NEXTCLOUD_NOTE: initial password from .env
+      VAULT_CRYPTO_USER: ${CRYPTO_ADMIN_USER:-cryptoadmin}
+      VAULT_CRYPTO_PASS_FILE: /secrets/crypto-admin-password
+      VAULT_AMNEZIAWG_USER: ${AWG_ADMIN_USER:-awgadmin}
+      VAULT_AMNEZIAWG_PASS_FILE: /secrets/awg-admin-password
+    volumes:
+      - ./helper/data:/data
+      - ./dashboard/dist:/hub:ro
+      - ./secrets:/secrets:ro
+      - /proc:/host/proc:ro
+      - ${METUBE_DOWNLOADS}:/downloads:ro
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks: [default, helper-docker]
+
   hub-stats:
     container_name: ${STACK_NAME:-meowstack}_hub_stats
     image: ${STATS_IMAGE:-python:3.12-slim}
@@ -407,3 +458,6 @@ networks:
   proxy:
     external: true
     name: ${PROXY_NETWORK:-meowstack-proxy}
+  # docker-proxy <-> helper only; internal: no route to the outside.
+  helper-docker:
+    internal: true

@@ -11,7 +11,7 @@ One `docker compose up`. One `.env`. One reverse proxy.
 
 ![Docker Compose](https://img.shields.io/badge/Docker-Compose_v2-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/TLS-automatic-00C7B7?logo=caddy&logoColor=white)
-![Services](https://img.shields.io/badge/services-19-7928CA)
+![Services](https://img.shields.io/badge/services-23-7928CA)
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
 
 <img src="docs/img/hub.png" alt="The MeowHub dashboard: service cards and live host metrics" width="100%">
@@ -34,6 +34,7 @@ on hardware you control.
 | ⬇️ | **MeTube** — yt-dlp downloader, self-cleaning | `yourdomain/<secret>` |
 | 📈 | **Crypto Tracker** — live prices, Telegram price alerts | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
+| 🤖 | **Helper bot** — health alerts, links, downloads, logins over Telegram | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
 
@@ -102,7 +103,7 @@ Not everyone wants all of it. One line in `.env` decides:
 
 ```ini
 # everything
-COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,n8n,ollama
+COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,n8n,ollama,helper
 
 # just files and photos
 COMPOSE_PROFILES=nextcloud,immich
@@ -115,7 +116,7 @@ COMPOSE_PROFILES=immich
 |---|---|
 | `nextcloud` | 6 |
 | `nextcloud,immich` | 10 |
-| all seven | 21 |
+| all eight | 23 |
 
 Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
@@ -239,6 +240,19 @@ price table, the ranking and the averages are computed in a Code node and handed
 to the model as settled facts, so the worst it can do is write a dull sentence —
 not invent a price. Full details in **[docs/N8N.md](docs/N8N.md)**.
 
+## A bot for the whole hub
+
+The `helper` profile adds a Telegram bot. It **watches the server and messages
+you when something breaks** — a full disk, a crash-looping container, an
+expiring certificate, a GPU lost to a driver upgrade, or DNS no longer pointing
+at your IP — and again when it's fixed. It also lists the hub's links, downloads
+any video link you send it through MeTube, and hands **you, and only you**, the
+logins for your services, in a message that deletes itself after a minute.
+
+Setup is one command after `up -d`, because the token stays out of `.env`:
+`docker compose exec -it helper python3 /app/app/ctl.py token`. Full details in
+**[docs/HELPER.md](docs/HELPER.md)**.
+
 ## Requirements
 
 - Linux, Docker Engine, Compose v2
@@ -266,6 +280,7 @@ dashboard/              hub page (Vite + React) — cards in src/services.js
 stats/                  host metrics, dependency-free Python
 crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
 n8n/workflows/          importable automation workflows
+helper/                 Telegram helper bot (dependency-free Python)
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
@@ -284,6 +299,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price alerts, Telegram setup, how the crossing logic works |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, and the daily-summary workflow |
+| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram helper bot — health alerts, links, downloads, logins |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly
