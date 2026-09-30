@@ -182,7 +182,8 @@ def make_handler(app):
                 # cache (one news fetch per coin), so the caller should allow ~60s.
                 hours = min(max(int(q.get("hours", ["24"])[0]), 1), 72)
                 with_news = q.get("news", ["1"])[0] != "0"
-                return self._json(news.build_digest(app, hours=hours, with_news=with_news))
+                fresh = q.get("fresh", ["0"])[0] == "1"
+                return self._json(news.build_digest(app, hours=hours, with_news=with_news, fresh=fresh))
             if p == "/api/health":
                 st = app._feed_status()
                 return self._json({"ok": True, "connected": st["connected"],

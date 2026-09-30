@@ -19,6 +19,8 @@ import time
 from collections import deque, defaultdict
 from datetime import datetime, timezone
 
+import explain
+
 log = logging.getLogger("alerts")
 
 HYSTERESIS = 0.003      # 0.3% past the level before a repeating target re-arms
@@ -280,7 +282,18 @@ class Engine:
         lines.append("")
         lines.append(f"<code>{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} UTC</code>")
         log.info("fluctuation fired: %s %.2f%% step=%d urgent=%s", tick, move, step, urgent)
-        self.notifier.dispatch("fluctuation", "\n".join(lines), symbol=symbol, price=price)
+        meta = {}
+        self.notifier.dispatch("fluctuation", "\n".join(lines), symbol=symbol, price=price, meta=meta)
+
+        # Ask n8n why -- on the first alert of a move, and again when it first
+        # turns urgent. Intermediate steps of the same move are not re-explained.
+        if explain.enabled() and (not continuing or first_urgent):
+            explain.request({
+                "symbol": symbol, "ticker": tick, "direction": "up" if up else "down",
+                "move_pct": round(move, 2), "price": price, "anchor": anchor,
+                "window_min": mins, "urgent": urgent, "urgent_first": first_urgent,
+                "message_id": meta.get("message_id"), "ts": now,
+            })
 
         for i in range(2, repeat + 1):
             t = threading.Timer(self.FOLLOWUP_GAP_S * (i - 1), self._followup,

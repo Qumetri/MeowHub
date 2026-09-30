@@ -1,0 +1,310 @@
+{
+  "id": "cryptoMoveExpl01",
+  "name": "Crypto move explainer",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crypto-move",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "8297f4f2-9f80-4118-9f89-c85eed786ed9",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        300
+      ],
+      "webhookId": "6f1c1b2e-4a7d-4c1e-9b2a-3c8e5d7f9a10",
+      "notesInFlow": true,
+      "notes": "Called by the tracker after a volatility alert. Header X-Hook-Secret."
+    },
+    {
+      "parameters": {
+        "url": "http://crypto:9102/api/digest?hours=24&fresh=1",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "59b7af92-2b60-409a-893b-51c14134fb07",
+      "name": "Get digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// A volatility alert just fired; explain it. Everything factual -- the move,\n// what the rest of the market did in the same hour, how old each headline is --\n// is computed here, and the model may only add a *reason*, by citing one of\n// the numbered headlines. Compose turns [n] into a link and drops any number\n// that does not exist.\nconst ev = $('Webhook').first().json.body || {};\nconst d = $json;\nconst coins = (d.coins || []).filter((x) => typeof x.price === 'number');\nconst c = coins.find((x) => x.symbol === ev.symbol) || coins.find((x) => x.ticker === ev.ticker);\nif (!c) throw new Error('coin not in digest: ' + (ev.ticker || ev.symbol));\n\nconst pct = (v) => (typeof v === 'number' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : 'n/a');\nconst fmt = (p) => {\n  if (typeof p !== 'number') return 'n/a';\n  if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 0 });\n  if (p >= 1) return p.toFixed(2);\n  return p.toPrecision(4);\n};\nconst now = Date.now() / 1000;\nconst ago = (ts) => {\n  if (!ts) return 'время неизвестно';\n  const m = Math.max(0, Math.round((now - ts) / 60));\n  return m < 90 ? `${m} мин назад` : `${Math.round(m / 60)} ч назад`;\n};\n\n// Was it the market or just this coin? Decided here from the tracker's own\n// 1h changes, not left to the model.\nconst up = ev.direction === 'up';\nconst others = coins.filter((x) => x !== c && typeof x.change_1h === 'number');\nconst same = others.filter((x) => (up ? x.change_1h >= 1 : x.change_1h <= -1)).length;\nconst avg1h = others.length ? others.reduce((a, x) => a + x.change_1h, 0) / others.length : null;\nconst btc = coins.find((x) => x.ticker === 'BTC');\nlet scope = 'partial';\nif (others.length && same >= Math.ceil(others.length * 0.6) && Math.abs(avg1h) >= 1.5) scope = 'market';\nelse if (avg1h === null || Math.abs(avg1h) < 1) scope = 'solo';\nconst SCOPE = {\n  market: 'движение всего рынка — большинство монет шли в ту же сторону',\n  solo: 'монета двигалась одна — остальной рынок почти стоял',\n  partial: 'рынок двигался в ту же сторону, но слабее',\n};\nconst marketLine = [\n  btc && btc !== c ? `BTC ${pct(btc.change_1h)}` : null,\n  avg1h !== null ? `в среднем по остальным ${pct(avg1h)}` : null,\n  others.length ? `в ту же сторону ${same} из ${others.length}` : null,\n].filter(Boolean).join(' · ');\n\nconst refs = [];\nconst line = (h) => {\n  refs.push({ url: h.url, source: h.source });\n  const kind = h.kind === 'exchange' ? ', объявление биржи' : '';\n  return `[${refs.length}] (${h.source}${kind}, ${ago(h.ts)}) ${h.title}`;\n};\nconst coinNews = (c.headlines || []).map(line);\nconst marketNews = ((d.market || {}).headlines || []).map(line);\n\nconst system = [\n  'Ты объясняешь резкое движение криптовалюты для Telegram. Ответ: 1-3 коротких предложения по-русски, до 60 слов.',\n  'Цифры движения и рынка уже напечатаны над твоим текстом. НЕ повторяй их.',\n  'Причину называй, только если её прямо подтверждает заголовок из списка, и ссылайся на него номером в квадратных скобках, например [3].',\n  'Свежие заголовки (минуты или несколько часов назад) важнее: заголовок суточной давности редко объясняет резкий час.',\n  'Объявления бирж (Binance, OKX, Bybit, KuCoin, Bitget) официальные: делистинг, остановка депозитов, листинг или обновление сети часто и есть причина.',\n  'Если это движение всего рынка, скажи, что монета шла вместе с рынком, и назови причину рынка, если она есть в заголовках.',\n  'Если подходящего заголовка нет, напиши «явной новостной причины пока нет» и на что это похоже: на движение всего рынка или на локальное движение монеты (например, крупные сделки).',\n  'Нельзя: придумывать новости, события и источники. Причина должна совпадать с направлением: рост не объясняют плохими новостями, падение — хорошими.',\n  'Без markdown, эмодзи и HTML. Тикеры латиницей.',\n].join('\\n');\nconst system_json = system + '\\n\\nОтветь строго JSON-объектом: {\"text\": \"...\"}';\n\nconst user = [\n  `Движение: ${c.ticker} (${c.name}) ${up ? 'вырос' : 'упал'} на ${Math.abs(ev.move_pct).toFixed(2)}% за ${ev.window_min || 60} мин: с $${fmt(ev.anchor)} до $${fmt(ev.price)}.`,\n  `За 24 часа: ${pct(c.change24h)}.`,\n  `Рынок за последний час: ${marketLine || 'нет данных'}. Вывод по данным: ${SCOPE[scope]}.`,\n  '',\n  coinNews.length ? `Новости по ${c.ticker} (включая объявления бирж):\\n${coinNews.join('\\n')}` : `Новостей по ${c.ticker} нет.`,\n  '',\n  marketNews.length ? `Новости рынка:\\n${marketNews.join('\\n')}` : 'Новостей рынка нет.',\n].join('\\n');\n\nreturn [{ json: {\n  system, system_json, user, refs,\n  schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },\n  ticker: c.ticker, move_pct: ev.move_pct, direction: ev.direction, urgent: !!ev.urgent,\n  window_min: ev.window_min || 60, scope, marketLine, reply_to: ev.message_id || null,\n} }];"
+      },
+      "id": "7b7a5e8c-cf41-43ab-ba6e-5c06d0db20ec",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'nvidia/nemotron-3-super-120b-a12b:free', temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: $json.system_json }, { role: 'user', content: $json.user } ] }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "08f8a3b2-3313-48f1-9e00-984bce257892",
+      "name": "OpenRouter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Free models sometimes answer 200 with an error body or prose. Only a JSON\n// object with a non-empty \"text\" goes on; anything else falls back to Ollama.\nconst r = $json;\nlet c = r?.choices?.[0]?.message?.content;\nlet ok = false;\nif (typeof c === 'string') {\n  c = c.trim().replace(/^```(?:json)?\\s*/, '').replace(/\\s*```$/, '');\n  try { const o = JSON.parse(c); ok = !!(o && typeof o.text === 'string' && o.text.trim()); } catch (e) { ok = false; }\n}\nreturn [{ json: { ...r, ok } }];"
+      },
+      "id": "c9634cf4-e95a-49a9-9b0f-cd075c47ea3e",
+      "name": "Valid answer?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "84dbebc4-0374-490f-b4c4-4bd9dc50eb28",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "49678854-f223-4afb-8604-cf68d9659a02",
+      "name": "Use it",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, think: true, format: $('Build prompt').first().json.schema, options: { temperature: 0.2, num_ctx: 8192, num_predict: 3000 }, messages: [ { role: 'system', content: $('Build prompt').first().json.system }, { role: 'user', content: $('Build prompt').first().json.user } ] }) }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "7b0525e8-005f-4692-9d7a-5b8e08cfb4fd",
+      "name": "Ollama qwen3:8b (fallback)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The heading and the market line are printed by code; the model's sentence\n// goes underneath, with [n] turned into links. Sent as a reply to the alert.\nconst r = $json;\nlet raw = (r?.message?.content ?? r?.choices?.[0]?.message?.content ?? '').trim();\nraw = raw.replace(/^```(?:json)?\\s*/, '').replace(/\\s*```$/, '');\nlet out;\ntry { out = JSON.parse(raw); } catch (e) { throw new Error('model did not return JSON: ' + raw.slice(0, 300)); }\n\nconst p = $('Build prompt').first().json;\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst pct = (v) => (typeof v === 'number' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : 'n/a');\nconst cite = (s) => esc(String(s || '').replace(/<[^>]*>/g, ''))\n  .replace(/(?:\\s*\\[\\d+(?:\\s*,\\s*\\d+)*\\])+/g, (group) => {\n    const seen = new Set();\n    const links = (group.match(/\\d+/g) || []).map(Number)\n      .filter((n) => p.refs[n - 1] && p.refs[n - 1].url)\n      .filter((n) => { const k = p.refs[n - 1].source; if (seen.has(k)) return false; seen.add(k); return true; })\n      .slice(0, 2)\n      .map((n) => `<a href=\"${esc(p.refs[n - 1].url)}\">${esc(p.refs[n - 1].source)}</a>`);\n    return links.length ? ` (${links.join(', ')})` : '';\n  })\n  .trim();\n\nconst icon = p.direction === 'up' ? '📈' : '📉';\nconst model = String(r.model || '');\nconst text = [\n  `🔎 ${icon} <b>Почему ${esc(p.ticker)} ${pct(p.move_pct)} за ${p.window_min} мин</b>`,\n  cite(out.text) || '<i>нет объяснения</i>',\n  p.marketLine ? `<i>Рынок за час: ${esc(p.marketLine)}</i>` : '',\n  `<i>🤖 ${esc(model.replace(/:free$/, '') || 'unknown')} · ${model.includes('/') ? 'OpenRouter' : 'локально, резервная модель'}</i>`,\n].filter(Boolean).join('\\n\\n');\nreturn [{ json: { text, reply_to: p.reply_to } }];"
+      },
+      "id": "f75f0ee9-0b93-4b03-b49a-9afa3b888408",
+      "name": "Compose message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "PUT_YOUR_CHAT_ID_HERE",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "reply_to_message_id": "={{ $json.reply_to }}"
+        }
+      },
+      "id": "33f582cf-16b2-44c1-8ead-4c26c0ade6a4",
+      "name": "Reply under the alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "width": 900,
+        "height": 330,
+        "color": 4,
+        "content": "## Why did it move?\nThe crypto tracker POSTs here right after a volatility alert (first alert of a move, and again when it turns urgent). This reads the tracker's digest with **fresh** news, decides in code whether the whole market moved or just this coin, and asks a model for 1-3 sentences explaining the move -- **only from numbered headlines**, which Compose turns into links. Sent as a reply under the alert.\n\n### Setup\n1. **Webhook**: Header Auth credential, name `X-Hook-Secret`, value = `CRYPTO_EXPLAIN_SECRET` from `.env`.\n2. **OpenRouter**: the OpenRouter credential (else every run uses local qwen3:8b).\n3. **Reply under the alert**: the crypto bot's Telegram credential + chat id (same as the tracker).\n4. Publish. The tracker calls `http://n8n:5678/webhook/crypto-move`."
+      },
+      "id": "c37e6cef-dc80-4c80-9d06-4ca9101e53a7",
+      "name": "README",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -150
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get digest": {
+      "main": [
+        [
+          {
+            "node": "Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter": {
+      "main": [
+        [
+          {
+            "node": "Valid answer?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama qwen3:8b (fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid answer?": {
+      "main": [
+        [
+          {
+            "node": "Use it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use it": {
+      "main": [
+        [
+          {
+            "node": "Compose message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama qwen3:8b (fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama qwen3:8b (fallback)": {
+      "main": [
+        [
+          {
+            "node": "Compose message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose message": {
+      "main": [
+        [
+          {
+            "node": "Reply under the alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Oslo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "active": false
+}

@@ -202,10 +202,12 @@ Alerts come in two kinds:
 already passed and it arms instead of firing immediately, then waits for a
 genuine crossing. Both directions, because shorts matter as much as longs.
 
-**Volatility alerts** catch an outsized move in a rolling window. If the move
-keeps going, each further step re-measures from the last alert — so a cascade
-keeps telling you, while a single spike into a flat market stays quiet. A plain
-cooldown would hide exactly the move worth knowing about.
+**Volatility alerts** fire on a 5% swing within an hour — rises and falls alike,
+measured from the hour's low or high so a sharp V counts. Every further 5% alerts
+again, and past 10% the alert is sent three times a minute apart with the live
+price. With n8n, each move then gets a reply underneath: **why it moved**, citing
+fresh news and the exchanges' own announcements — or saying plainly that there
+is no news cause.
 
 </td></tr>
 </table>
@@ -231,9 +233,9 @@ unauthenticated model server has no business listening on the network. Add
 `docker-compose.gpu.yml` to run it on an NVIDIA card; on a 12 GB card an 8B
 model sits entirely in VRAM at around 60 tokens/s.
 
-A worked example ships in the box: `n8n/workflows/crypto-daily-summary.json`
-reads the crypto tracker, asks a model for a few sentences of commentary, and
-sends the lot to Telegram every morning.
+Two worked examples ship in the box: `crypto-daily-summary.json` explains
+each coin's last 24 hours every morning, and `crypto-move-explainer.json`
+answers every volatility alert with its likely cause.
 
 Its design rule is worth stealing: **the model never supplies a number.** The
 price table, the ranking and the averages are computed in a Code node and handed
@@ -297,8 +299,8 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🚀 **[DEPLOY.md](docs/DEPLOY.md)** | First deployment — host prep, DNS, router ports, permissions, migrating an existing install |
 | 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
-| 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price alerts, Telegram setup, how the crossing logic works |
-| 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, and the daily-summary workflow |
+| 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
+| 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram helper bot — health alerts, links, downloads, logins |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 

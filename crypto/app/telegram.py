@@ -87,7 +87,9 @@ class Notifier:
         s = self.store.settings()
         return s.get("tg_enabled") == "1" and s.get("tg_token") and s.get("tg_chat_id")
 
-    def dispatch(self, kind, text, symbol="", price=None, force=False):
+    def dispatch(self, kind, text, symbol="", price=None, force=False, meta=None):
+        """meta, if given, receives the Telegram message_id -- so a follow-up
+        (the n8n explanation) can be sent as a reply under this alert."""
         eid = self.store.add_event(kind, text, symbol=symbol, price=price)
         if not force and not self.enabled():
             self.store.mark_event(eid, 0, "telegram disabled or unconfigured")
@@ -96,7 +98,9 @@ class Notifier:
         last = ""
         for attempt in range(3):
             try:
-                send(s["tg_token"], s["tg_chat_id"], text)
+                res = send(s["tg_token"], s["tg_chat_id"], text)
+                if meta is not None:
+                    meta["message_id"] = (res or {}).get("message_id")
                 self.store.mark_event(eid, 1, "")
                 return eid, True
             except TelegramError as e:

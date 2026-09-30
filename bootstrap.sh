@@ -82,6 +82,9 @@ set_env LIVEKIT_SECRET             "$(hex 32)"
 # Encrypts every credential stored in n8n. Losing it does not lose the
 # workflows, but every saved credential becomes unreadable.
 set_env N8N_ENCRYPTION_KEY         "$(hex 32)"
+# Shared secret between the crypto tracker and n8n's "explain this move"
+# webhook (header X-Hook-Secret). See docs/CRYPTO.md.
+set_env CRYPTO_EXPLAIN_SECRET      "$(hex 24)"
 
 # Secret paths: the placeholder defaults are guessable, so give each a random
 # suffix on first run. Once randomised they look nothing like the default and

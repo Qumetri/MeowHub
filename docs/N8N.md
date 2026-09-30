@@ -165,6 +165,25 @@ summary uses 1–3 requests a day.
 - The credential the n8n *Assistant* wizard creates is not shareable with
   workflows ("does not have access to the credential") — create a separate one.
 
+## The move-explainer workflow
+
+`n8n/workflows/crypto-move-explainer.json` — called by the crypto tracker right
+after a volatility alert, it answers **as a reply under the alert** with the
+likely cause. Setup is in [CRYPTO.md](CRYPTO.md) (*Why did it move*).
+
+```
+Webhook  POST /webhook/crypto-move, Header Auth X-Hook-Secret, answers 202 at once
+   → Get digest            crypto:9102/api/digest?fresh=1
+   → Build prompt          the move; market-vs-coin decided in code; headlines with age
+   → OpenRouter → Valid answer? → Use it → (Ollama qwen3:8b fallback) → Compose
+   → Reply under the alert  Telegram reply_to_message_id = the alert's message
+```
+
+Whether the whole market moved or just this coin is **computed**, from the share
+of tracked coins that moved ≥1% the same way within the hour — the model is told
+the verdict, not asked for it. Each headline carries its age, because a day-old
+story rarely explains a sharp hour.
+
 ## Operations
 
 ```bash

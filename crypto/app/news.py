@@ -387,7 +387,7 @@ def _one_line(msg):
 
 
 # --------------------------------------------------------------------- build --
-def build_digest(app, hours=24, with_news=True):
+def build_digest(app, hours=24, with_news=True, fresh=False):
     now = int(time.time())
     since = now - hours * 3600
     rows = [r for r in app.coin_rows() if r.get("price") is not None]
@@ -400,7 +400,9 @@ def build_digest(app, hours=24, with_news=True):
         key = (tuple(sorted(r["symbol"] for r in rows)), hours)
         with _cache_lock:
             hit = _cache.get(key)
-        if hit and now - hit[0] < CACHE_S:
+        # fresh: explaining a move that happened a minute ago -- a 15-minute-old
+        # cache could predate the very headline that caused it.
+        if hit and not fresh and now - hit[0] < CACHE_S:
             news, market, errors = hit[1]
         else:
             with ThreadPoolExecutor(8) as ex:

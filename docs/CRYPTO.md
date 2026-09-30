@@ -201,6 +201,47 @@ crash straight to −12%, reversals, quiet hours, migration of an old database).
 
 Changing *Step* or *Window* on a coin closes its open episode.
 
+### Why did it move — explanation under the alert
+
+After a volatility alert the tracker asks n8n to explain it, and the answer
+arrives **as a reply under the alert** a few seconds to a minute later:
+
+> 🔎 📉 **Почему SOL −5.12% за 60 мин**
+> Явной новостной причины пока нет… похоже на локальное движение, рынок почти стоял.
+> *Рынок за час: BTC +0.30% · в среднем по остальным +0.35% · в ту же сторону 0 из 5*
+
+- **When:** on the first alert of a move, and again when it first turns urgent
+  (10%). Not on every intermediate step. At most once per coin per 30 min and
+  20 a day (`CRYPTO_EXPLAIN_MIN_GAP_S`, `CRYPTO_EXPLAIN_DAILY_MAX`), so a
+  market-wide crash cannot burn the free model quota. Alerts silenced by quiet
+  hours are not explained.
+- **How:** `app/explain.py` POSTs the facts of the move (ticker, direction, %,
+  from/to price, window, the alert's Telegram `message_id`) to
+  `CRYPTO_EXPLAIN_HOOK` in a background thread — **the alert never waits for
+  it**. n8n's *Crypto move explainer* reads `/api/digest?fresh=1` (bypasses the
+  15-min news cache — a cached copy could predate the headline that caused the
+  move) and decides **in code** whether it was the whole market or just this coin
+  (share of coins that moved ≥1% the same way within the hour, and the average).
+- **The model only adds the reason**, citing numbered headlines — each with its
+  age ("10 мин назад"), exchange announcements marked as official — which become
+  links; with no fitting headline it says so. Same honesty rules as the daily
+  summary ([N8N.md](N8N.md)).
+- **Auth:** the webhook is reachable through n8n's public route, so it requires
+  header `X-Hook-Secret` = `CRYPTO_EXPLAIN_SECRET` (`.env`), matched by the n8n
+  credential *Crypto hook secret*. Without it: 403.
+- Empty `CRYPTO_EXPLAIN_HOOK` turns the feature off (the default).
+
+**Turning it on** (needs the `n8n` profile):
+
+1. n8n → *Import from File* → `n8n/workflows/crypto-move-explainer.json`.
+2. **Webhook** node → new *Header Auth* credential: name `X-Hook-Secret`, value
+   = `CRYPTO_EXPLAIN_SECRET` from `.env`.
+3. **OpenRouter** node → your OpenRouter credential (without it every run uses
+   the local model). **Reply under the alert** → the same Telegram bot and chat
+   id as the tracker.
+4. Publish the workflow, set `CRYPTO_EXPLAIN_HOOK=http://n8n:5678/webhook/crypto-move`
+   in `.env`, and `docker compose up -d crypto`.
+
 ### Daily summary
 
 The tracker's own summary (Telegram tab) is a plain price list and is **left
