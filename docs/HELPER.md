@@ -9,24 +9,23 @@ nothing new listens on the internet and there is no Caddy route.
 
 ## Setup
 
-```bash
-# .env
-COMPOSE_PROFILES=...,helper
-HELPER_OWNER_ID=123456789     # your numeric Telegram id, optional (see below)
-
-docker compose up -d helper docker-proxy
-docker compose exec -it helper python3 /app/app/ctl.py token
-```
-
 1. Create a bot with **@BotFather** (`/newbot`) and copy its token.
-2. `ctl.py token` asks for it (input hidden), checks it with Telegram, and
-   stores it in `helper/data/helper.db` — **not in `.env`**, same rule as the
-   crypto tracker's token.
-3. If `HELPER_OWNER_ID` is empty, it then waits for a `/start` and offers to make
-   whoever sent it the owner. Or set it later: `ctl.py owner <id>`.
-4. `docker compose restart helper`, then `/start` in Telegram.
+2. Put it in `.env`, with your numeric Telegram id as the owner:
 
-`ctl.py status` shows what is configured.
+   ```ini
+   HELPER_BOT_TOKEN=123456:ABC…
+   HELPER_OWNER_ID=123456789
+   ```
+
+3. Add `helper` to `COMPOSE_PROFILES`, `docker compose up -d`, then `/start`
+   in Telegram.
+
+Don't know your id? Leave `HELPER_OWNER_ID` empty, message the bot — it answers
+strangers with their ID — then set it and `docker compose up -d helper`.
+
+Without access to `.env` (e.g. from a phone shell), `ctl.py token` stores the
+token in `helper/data/helper.db` instead; `.env` wins when both are set.
+`ctl.py status` shows which one is in use.
 
 ## Who can do what
 
@@ -128,7 +127,7 @@ Nextcloud, store the new one with `/setpass nextcloud admin <new>`.
 > password sent there passes through Telegram's servers. The spoiler,
 > `protect_content` and auto-delete limit what stays on your phone, not what
 > Telegram saw. Bot-stored logins sit in plaintext in `helper/data/helper.db`
-> (0600 in a 0700 directory), like the tracker's bot token. It is a convenience
+> (0600 in a 0700 directory). It is a convenience
 > for your own logins, not a password manager.
 
 ## Operations
@@ -139,5 +138,5 @@ docker compose exec helper python3 /app/app/ctl.py status
 docker compose up -d --build helper      # after editing helper/app
 ```
 
-Back up `helper/data/` — it holds the token, the allowed users and the logins
-added with `/setpass`.
+Back up `helper/data/` — it holds the allowed users and the logins added with
+`/setpass`.

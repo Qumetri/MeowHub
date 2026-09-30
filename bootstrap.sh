@@ -364,7 +364,7 @@ echo "   hub         https://${BASE_DOMAIN}/${DASHBOARD_PATH}/"
 [[ $COMPOSE_PROFILES == *metube*    ]] && echo "   downloader  https://${BASE_DOMAIN}/${METUBE_PATH}/"
 [[ $COMPOSE_PROFILES == *crypto*    ]] && echo "   crypto      https://${BASE_DOMAIN}/${CRYPTO_PATH}/"
 [[ $COMPOSE_PROFILES == *n8n*       ]] && echo "   automation  https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/"
-[[ $COMPOSE_PROFILES == *helper*    ]] && echo "   bot         docker compose exec -it helper python3 /app/app/ctl.py token"
+[[ $COMPOSE_PROFILES == *helper*    ]] && [[ -z ${HELPER_BOT_TOKEN:-} ]] && echo "   bot         set HELPER_BOT_TOKEN in .env (docs/HELPER.md)"
 echo
 echo " Secret paths are the only access control on the hub and"
 echo " downloader. Treat those URLs as passwords."

@@ -17,7 +17,7 @@ remove them yourself, no restart and no config file.
 | Code | `crypto/app/` (backend), `crypto/web/` (page) |
 | Database | `crypto/data/crypto.db` (sqlite — small, so it sits with the code rather than in `DATA_ROOT`) |
 | Secrets | `CRYPTO_PATH`, `CRYPTO_ADMIN_USER` in `.env`; password in `secrets/crypto-admin-password` |
-| Bot token | in the sqlite db, entered through the UI — **not** in `.env` |
+| Bot token, chat id | the Telegram tab, or `.env` (`CRYPTO_TG_TOKEN`, `CRYPTO_TG_CHAT_ID`) — `.env` wins and locks the UI fields |
 
 The bcrypt hash is injected into the Caddyfile by `bootstrap.sh` from
 `secrets/crypto-admin.hash` — kept out of `.env` because it starts with `$2a$`,
@@ -138,6 +138,19 @@ In the **Telegram** tab:
 
 A bot cannot message you first; Telegram requires you to open the conversation.
 That is why step 3 needs you to send something.
+
+**Or in `.env`**:
+
+```ini
+CRYPTO_TG_TOKEN=123456:ABC…
+CRYPTO_TG_CHAT_ID=123456789
+```
+
+then `docker compose up -d crypto`. Set there, they **override** the UI and the
+Token / Chat ID fields become read-only ("set in .env"); delivery is switched on
+once automatically, and the *Alerts enabled* switch still works after that.
+A value saved in the UI remains only as a fallback for when the variable is
+empty. **Send test** and **Detect chat** use the effective (`.env`) token.
 
 ## Alert types
 

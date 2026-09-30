@@ -1,9 +1,10 @@
 """Setup from the command line -- the bot has no web UI.
 
+  The token normally goes in .env as HELPER_BOT_TOKEN. Without .env access:
   docker compose exec -it helper python3 /app/app/ctl.py token
         paste the token from @BotFather (input hidden). Verified, then stored
-        in the bot's sqlite, not in .env. Then offers to make whoever sends
-        /start next the owner.
+        in the bot's sqlite (used only when HELPER_BOT_TOKEN is empty). Then
+        offers to make whoever sends /start next the owner.
   docker compose exec helper python3 /app/app/ctl.py owner <telegram user id>
   docker compose exec helper python3 /app/app/ctl.py status
 """
@@ -47,7 +48,9 @@ def main():
         st.set("owner_id", sys.argv[2])
         print("owner set. restart: docker compose restart helper")
     elif cmd == "status":
-        print("token:", "set" if st.get("tg_token") else "MISSING")
+        src = ("from .env" if os.environ.get("HELPER_BOT_TOKEN", "").strip()
+               else "from ctl.py (sqlite)" if st.get("tg_token") else "MISSING")
+        print("token:", src)
         print("owner:", os.environ.get("HELPER_OWNER_ID") or st.get("owner_id") or "MISSING")
         print("users:", len(st.users()), " bot-stored logins:", len(st.vault()))
     else:

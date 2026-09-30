@@ -324,11 +324,17 @@ function renderEvents() {
 function renderSettings() {
   const s = state.settings || {};
   const tok = document.getElementById('tgToken');
+  // Set in .env (CRYPTO_TG_TOKEN / CRYPTO_TG_CHAT_ID): shown, not editable here.
+  tok.disabled = !!s.tg_token_env;
   if (document.activeElement !== tok) {
     tok.value = '';
-    tok.placeholder = s.tg_token_set ? s.tg_token : '123456:ABC-DEF…';
+    tok.placeholder = s.tg_token_env ? `${s.tg_token}  (set in .env: CRYPTO_TG_TOKEN)`
+      : s.tg_token_set ? s.tg_token : '123456:ABC-DEF…';
   }
-  document.getElementById('tgChat').value = s.tg_chat_id || '';
+  const chat = document.getElementById('tgChat');
+  chat.disabled = !!s.tg_chat_env;
+  chat.title = s.tg_chat_env ? 'Set in .env: CRYPTO_TG_CHAT_ID' : '';
+  chat.value = s.tg_chat_id || '';
   document.getElementById('tgEnabled').checked = s.tg_enabled === '1';
   document.getElementById('tgQuiet').value = s.quiet_hours || '';
   document.getElementById('tgSummary').checked = s.summary_enabled === '1';

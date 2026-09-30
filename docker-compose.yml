@@ -87,6 +87,9 @@ services:
       # Ask n8n to explain each volatility alert (docs/CRYPTO.md). Empty = off.
       CRYPTO_EXPLAIN_HOOK: ${CRYPTO_EXPLAIN_HOOK:-}
       CRYPTO_EXPLAIN_SECRET: ${CRYPTO_EXPLAIN_SECRET:-}
+      # Telegram delivery. Set in .env, these override (and lock) the UI fields.
+      CRYPTO_TG_TOKEN: ${CRYPTO_TG_TOKEN:-}
+      CRYPTO_TG_CHAT_ID: ${CRYPTO_TG_CHAT_ID:-}
     volumes:
       - ./crypto/data:/data
 
@@ -117,6 +120,7 @@ services:
     <<: [*restart, *logging]
     environment:
       TZ: ${TZ:-UTC}
+      HELPER_BOT_TOKEN: ${HELPER_BOT_TOKEN:-}
       HELPER_OWNER_ID: ${HELPER_OWNER_ID:-}
       HELPER_REPORT_HOUR: ${HELPER_REPORT_HOUR:-9}
       BASE_DOMAIN: ${BASE_DOMAIN}

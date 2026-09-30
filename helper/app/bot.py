@@ -70,9 +70,11 @@ class Helper:
     # ------------------------------------------------------------------ loop --
     def run(self):
         while True:
-            token = self.store.get("tg_token")
+            # .env (HELPER_BOT_TOKEN) first; a token saved with ctl.py is the fallback.
+            token = os.environ.get("HELPER_BOT_TOKEN", "").strip() or self.store.get("tg_token")
             if not token:
-                log.warning("no bot token yet -- run: docker compose exec -it helper python3 /app/app/ctl.py token")
+                log.warning("no bot token yet -- set HELPER_BOT_TOKEN in .env "
+                            "(or: docker compose exec -it helper python3 /app/app/ctl.py token)")
                 self._beat()
                 time.sleep(30)
                 continue

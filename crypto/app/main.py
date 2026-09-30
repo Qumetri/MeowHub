@@ -13,6 +13,7 @@ import binance                      # noqa: E402
 import kraken                       # noqa: E402
 import server                       # noqa: E402
 from alerts import Engine, fmt_price   # noqa: E402
+import store as store_mod           # noqa: E402
 from store import Store             # noqa: E402
 from telegram import Notifier       # noqa: E402
 
@@ -173,6 +174,9 @@ class App:
         return {
             "tg_token": server.mask_token(s.get("tg_token", "")),
             "tg_token_set": bool(s.get("tg_token")),
+            # Managed by .env (CRYPTO_TG_TOKEN / CRYPTO_TG_CHAT_ID): read-only in the UI.
+            "tg_token_env": "tg_token" in store_mod.env_managed(),
+            "tg_chat_env": "tg_chat_id" in store_mod.env_managed(),
             "tg_chat_id": s.get("tg_chat_id", ""),
             "tg_enabled": s.get("tg_enabled", "0"),
             "summary_enabled": s.get("summary_enabled", "0"),

@@ -119,6 +119,16 @@ DEFAULT_SETTINGS = {
 }
 
 
+# Settings that may come from the environment (.env via compose) instead of
+# the UI. When set there, the environment wins and the UI shows the field as
+# managed by .env; a value saved in the UI is kept only as a fallback.
+ENV_SETTINGS = {"tg_token": "CRYPTO_TG_TOKEN", "tg_chat_id": "CRYPTO_TG_CHAT_ID"}
+
+
+def env_managed():
+    return {k for k, var in ENV_SETTINGS.items() if os.environ.get(var, "").strip()}
+
+
 class Store:
     def __init__(self, path=DB_PATH):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -165,6 +175,14 @@ class Store:
                 self.db.execute(
                     "INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)", (k, v)
                 )
+            # A token and chat given in .env mean "deliver alerts": switch
+            # delivery on once. Only once, so turning it off in the UI sticks.
+            if {"tg_token", "tg_chat_id"} <= env_managed():
+                done = self.db.execute(
+                    "SELECT 1 FROM settings WHERE key='tg_env_enabled'").fetchone()
+                if not done:
+                    self.db.execute("UPDATE settings SET value='1' WHERE key='tg_enabled'")
+                    self.db.execute("INSERT INTO settings (key,value) VALUES ('tg_env_enabled','1')")
             # Default coins seed the FIRST run only. Re-seeding on every start
             # would resurrect a coin the user deliberately removed, which makes
             # the remove button a lie.
@@ -183,13 +201,19 @@ class Store:
     # ---------- settings ----------
     def settings(self):
         with self._lock:
-            return {r["key"]: r["value"]
-                    for r in self.db.execute("SELECT key,value FROM settings")}
+            out = {r["key"]: r["value"]
+                   for r in self.db.execute("SELECT key,value FROM settings")}
+        for k, var in ENV_SETTINGS.items():
+            v = os.environ.get(var, "").strip()
+            if v:
+                out[k] = v
+        return out
 
     def get(self, key, default=""):
         return self.settings().get(key, default)
 
     def set_many(self, mapping):
+        mapping = {k: v for k, v in mapping.items() if k not in env_managed()}
         with self._lock:
             for k, v in mapping.items():
                 self.db.execute(

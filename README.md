@@ -251,9 +251,8 @@ at your IP — and again when it's fixed. It also lists the hub's links, downloa
 any video link you send it through MeTube, and hands **you, and only you**, the
 logins for your services, in a message that deletes itself after a minute.
 
-Setup is one command after `up -d`, because the token stays out of `.env`:
-`docker compose exec -it helper python3 /app/app/ctl.py token`. Full details in
-**[docs/HELPER.md](docs/HELPER.md)**.
+Setup is two lines in `.env` — `HELPER_BOT_TOKEN` and your Telegram id as
+`HELPER_OWNER_ID`. Full details in **[docs/HELPER.md](docs/HELPER.md)**.
 
 ## Requirements
 
