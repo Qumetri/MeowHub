@@ -64,15 +64,25 @@ CREATE TABLE IF NOT EXISTS targets (
     created     INTEGER NOT NULL
 );
 
--- Per-symbol "huge move" rule: percent change over a rolling window.
+-- Per-symbol "huge move" rule: a swing of `pct` within a rolling window,
+-- reported again at every further `pct` step while the move keeps going. At
+-- `urgent_pct` the alert is sent `urgent_repeat` times (follow-ups carry the
+-- live price). ep_* is the open episode: direction, the price it is measured
+-- from, and the last step reported. cooldown_s is unused since episodes; it
+-- stays so older databases keep working.
 CREATE TABLE IF NOT EXISTS fluctuation (
-    symbol      TEXT PRIMARY KEY,
-    pct         REAL NOT NULL DEFAULT 3.0,
-    window_s    INTEGER NOT NULL DEFAULT 300,
-    cooldown_s  INTEGER NOT NULL DEFAULT 1800,
-    enabled     INTEGER NOT NULL DEFAULT 1,
-    last_fired  INTEGER NOT NULL DEFAULT 0,
-    last_price  REAL NOT NULL DEFAULT 0
+    symbol        TEXT PRIMARY KEY,
+    pct           REAL NOT NULL DEFAULT 5.0,
+    window_s      INTEGER NOT NULL DEFAULT 3600,
+    cooldown_s    INTEGER NOT NULL DEFAULT 3600,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    last_fired    INTEGER NOT NULL DEFAULT 0,
+    last_price    REAL NOT NULL DEFAULT 0,
+    urgent_pct    REAL NOT NULL DEFAULT 10.0,
+    urgent_repeat INTEGER NOT NULL DEFAULT 3,
+    ep_dir        INTEGER NOT NULL DEFAULT 0,
+    ep_anchor     REAL NOT NULL DEFAULT 0,
+    ep_step       INTEGER NOT NULL DEFAULT 0
 );
 
 -- 1-minute candles, used for the charts and the daily summary.
@@ -136,6 +146,17 @@ class Store:
             for col, decl in add.items():
                 if col not in cols:
                     self.db.execute(f"ALTER TABLE coins ADD COLUMN {col} {decl}")
+            cols = {r["name"] for r in self.db.execute("PRAGMA table_info(fluctuation)")}
+            add = {
+                "urgent_pct": "REAL NOT NULL DEFAULT 10.0",
+                "urgent_repeat": "INTEGER NOT NULL DEFAULT 3",
+                "ep_dir": "INTEGER NOT NULL DEFAULT 0",
+                "ep_anchor": "REAL NOT NULL DEFAULT 0",
+                "ep_step": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for col, decl in add.items():
+                if col not in cols:
+                    self.db.execute(f"ALTER TABLE fluctuation ADD COLUMN {col} {decl}")
             self.db.commit()
 
     def _seed(self):
@@ -217,8 +238,10 @@ class Store:
             self.db.execute(
                 "UPDATE fluctuation SET pct=(SELECT pct FROM fluctuation WHERE symbol=?),"
                 " window_s=(SELECT window_s FROM fluctuation WHERE symbol=?),"
-                " cooldown_s=(SELECT cooldown_s FROM fluctuation WHERE symbol=?)"
-                " WHERE symbol=?", (old, old, old, new))
+                " cooldown_s=(SELECT cooldown_s FROM fluctuation WHERE symbol=?),"
+                " urgent_pct=(SELECT urgent_pct FROM fluctuation WHERE symbol=?),"
+                " urgent_repeat=(SELECT urgent_repeat FROM fluctuation WHERE symbol=?)"
+                " WHERE symbol=?", (old, old, old, old, old, new))
             self.db.execute("UPDATE targets SET symbol=? WHERE symbol=?", (new, old))
             self.db.execute("DELETE FROM coins WHERE symbol=?", (old,))
             self.db.execute("DELETE FROM fluctuation WHERE symbol=?", (old,))
@@ -280,7 +303,8 @@ class Store:
             return {r["symbol"]: dict(r) for r in self.db.execute("SELECT * FROM fluctuation")}
 
     def set_fluctuation(self, symbol, **fields):
-        allowed = {"pct", "window_s", "cooldown_s", "enabled", "last_fired", "last_price"}
+        allowed = {"pct", "window_s", "cooldown_s", "enabled", "last_fired", "last_price",
+                   "urgent_pct", "urgent_repeat", "ep_dir", "ep_anchor", "ep_step"}
         sets, args = [], []
         for k, v in fields.items():
             if k in allowed:

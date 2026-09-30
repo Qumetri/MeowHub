@@ -277,12 +277,13 @@ function renderFluct() {
     const f = c.fluctuation || {};
     return `<tr data-sym="${c.symbol}">
       <td><span class="cellCoin">${coinMark(c.ticker, 24)}<b>${esc(c.ticker)}</b></span></td>
-      <td><input class="mini" type="number" step="0.1" min="0" data-f="pct" value="${f.pct ?? 3}">&nbsp;%</td>
+      <td><input class="mini" type="number" step="0.5" min="0" data-f="pct" value="${f.pct ?? 5}">&nbsp;%</td>
       <td><select data-f="window_s">
-            ${[60,300,900,1800,3600].map(v=>`<option value="${v}" ${f.window_s==v?'selected':''}>${humanDur(v)}</option>`).join('')}
+            ${[300,900,1800,3600,7200,14400].map(v=>`<option value="${v}" ${f.window_s==v?'selected':''}>${humanDur(v)}</option>`).join('')}
           </select></td>
-      <td><select data-f="cooldown_s">
-            ${[0,300,900,1800,3600,21600].map(v=>`<option value="${v}" ${f.cooldown_s==v?'selected':''}>${humanDur(v)}</option>`).join('')}
+      <td><input class="mini" type="number" step="0.5" min="0" data-f="urgent_pct" value="${f.urgent_pct ?? 10}">&nbsp;%</td>
+      <td><select data-f="urgent_repeat">
+            ${[1,2,3,4,5].map(v=>`<option value="${v}" ${(f.urgent_repeat ?? 3)==v?'selected':''}>×${v}</option>`).join('')}
           </select></td>
       <td><input type="checkbox" data-f="enabled" ${f.enabled?'checked':''}></td>
     </tr>`;

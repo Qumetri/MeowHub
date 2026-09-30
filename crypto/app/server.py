@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs
 
 import binance
 import kraken
+import news
 import telegram
 
 log = logging.getLogger("http")
@@ -176,6 +177,12 @@ def make_handler(app):
                 since = int(time.time()) - minutes * 60
                 return self._json({"symbol": sym,
                                    "candles": app.store.candles(sym, since=since, limit=5000)})
+            if p == "/api/digest":
+                # Everything the daily summary needs in one call. Slow on a cold
+                # cache (one news fetch per coin), so the caller should allow ~60s.
+                hours = min(max(int(q.get("hours", ["24"])[0]), 1), 72)
+                with_news = q.get("news", ["1"])[0] != "0"
+                return self._json(news.build_digest(app, hours=hours, with_news=with_news))
             if p == "/api/health":
                 st = app._feed_status()
                 return self._json({"ok": True, "connected": st["connected"],
@@ -314,6 +321,13 @@ def make_handler(app):
                     fields["cooldown_s"] = max(0, int(b["cooldown_s"]))
                 if "enabled" in b:
                     fields["enabled"] = 1 if b["enabled"] else 0
+                if "urgent_pct" in b:
+                    fields["urgent_pct"] = max(0.0, float(b["urgent_pct"]))
+                if "urgent_repeat" in b:
+                    fields["urgent_repeat"] = min(5, max(1, int(b["urgent_repeat"])))
+                # A changed threshold or window invalidates the open episode.
+                if {"pct", "window_s"} & set(fields):
+                    fields.update(ep_dir=0, ep_anchor=0, ep_step=0)
                 app.store.set_fluctuation(sym, **fields)
                 app.engine.refresh_rules(force=True)
                 return self._json({"ok": True})

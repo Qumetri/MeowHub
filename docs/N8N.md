@@ -72,9 +72,14 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
 Without it Ollama runs on the CPU: usable for a nightly job, painful for
 anything interactive.
 
-Sizing, for a 12 GB card: an 8B model at Q4 occupies ~6 GB of VRAM and runs at
-roughly 60 tokens/s. A 14B fits but leaves little room for context. Anything
-above that spills into system RAM and slows to a crawl.
+Sizing, for a 12 GB card (checked 2026-09):
+
+| Model | Disk | Fit |
+|---|---|---|
+| `qwen3:8b` | 5.2 GB | fully in VRAM, ~60 tok/s — the default fallback |
+| `gemma4:12b` | ~8 GB | fully in VRAM; newest dense model that fits, strong multilingual |
+| `qwen3.6:35b-a3b`, `gemma4:26b-a4b`, `nemotron-3.5-lightning:30b` | 16–25 GB | MoE: only 3–4B parameters are active per token, so offloading part of the weights to system RAM stays usable (needs ~32 GB RAM) |
+| 27B+ dense | 17 GB+ | every token reads every weight — spills to RAM and crawls |
 
 ```bash
 docker compose exec ollama ollama pull qwen3:8b
@@ -103,51 +108,62 @@ become hundreds of gigabytes.
 (**Workflows → Import from File**). Needs the `crypto` profile.
 
 ```
-Every day at 09:00 ─┐
-                    ├─→ Get crypto state → Build prompt → Ollama → Compose → Telegram
-Test manually ──────┘
+09:00 / Test manually
+   → Get digest            GET crypto:9102/api/digest — 24h stats + last-24h news
+   → Build prompt          numbered headlines, per-coin facts, JSON shape
+   → OpenRouter            hosted model, 3 tries
+        ├ ok   → Valid answer? → Use it ─┬ true  → Compose message
+        │                                └ false ─┐
+        └ error ─────────────────────────────────┴→ Ollama qwen3:8b (fallback) → Compose
+   → Send to Telegram      one or more messages
 ```
 
-**The model never supplies a number.** The price table is built in code from the
-tracker's `/api/state`, and the ranking, the up/down count and the average are
-computed there too, then handed to the model as settled facts. This is not
-caution for its own sake: asked to rank the coins itself, an 8B model called the
-second-best performer the day's leader. Prose that contradicts the table printed
-directly above it is worse than no prose.
+Each coin gets a heading printed **by code** — price, 24h change, "with / stronger
+/ weaker than the market" — then one or two sentences from the model: what
+happened inside the day (sharpest hour, range, alerts) and **why, only if a
+headline supports it**. News comes from the tracker's `/api/digest` (Google News
+per coin, crypto outlets, and the exchanges' own announcements — see
+[CRYPTO.md](CRYPTO.md)).
 
-Two more things the Code node does before building the prompt:
+Rules that keep it honest:
 
-- **Previous summaries are excluded from the event list.** Events are stored as
-  ready-to-send messages, so yesterday's summary carries a full price table —
-  including, potentially, a stale price from a halted trading pair. Feeding that
-  back in invites the model to repeat it as current.
-- **HTML is stripped** from event text going in and from the model's text coming
-  out. Telegram parses the message as HTML, so one stray tag fails the whole send
-  with `can't parse entities`.
+- **The model never supplies a number.** Every figure is computed by the tracker
+  from its own candles and printed by code.
+- **A reason must cite a numbered headline as `[n]`.** *Compose* turns it into a
+  link and **drops any number that does not exist**, so an invented source never
+  reaches the message.
+- **No headline, no reason** — small coins often have none, and the summary says so.
+- Alerts are *what happened*, never a *reason*.
+
+**Why a hosted model is primary.** On the same prompt, `qwen3:8b` called a coin
+that beat the market by 2.7pp "lagging" and blamed a rise on "selling pressure";
+Nemotron 120B (OpenRouter, free tier) got both right and cited the actual ETF
+news. The local model stays as the **fallback**: free models regularly answer
+429, or HTTP 200 with an error body — *Valid answer?* catches that — and a
+weaker summary beats none. The footer names the model that wrote it.
 
 ### Before the first run
 
-1. Open **Send to Telegram** → create a Telegram credential.
-2. Replace `PUT_YOUR_CHAT_ID_HERE` with your chat id (the crypto tracker's
-   Telegram tab can discover it for you).
-3. **Test manually → Execute workflow**.
-4. Toggle the workflow **Active**.
+1. **OpenRouter** node → create an *OpenRouter* credential with a free key from
+   openrouter.ai. Without one the node errors and every run uses the local model.
+2. **Send to Telegram** → create a Telegram credential, replace
+   `PUT_YOUR_CHAT_ID_HERE` with your chat id (the crypto tracker's Telegram tab
+   can discover it).
+3. Pull the fallback model: `docker compose exec ollama ollama pull qwen3:8b`.
+4. **Test manually → Execute workflow**, then **Publish**.
 
-### Using a hosted model instead
+OpenRouter free-model limits: 20 requests/minute, **50/day**; after buying
+**≥ $10** of credits, **1,000/day**. Free models do not spend the credits. The
+summary uses 1–3 requests a day.
 
-The workflow ships an **OpenRouter** node — configured, disabled, and
-deliberately **left unconnected**. A disabled node in n8n passes its input
-straight through to its output, so wiring it in parallel with Ollama made the
-idle branch hand the raw prompt to *Compose message*, and the run failed with
-`LLM returned no text`. Swapping models is a rewire, not a toggle:
+### Pitfalls
 
-1. Enable the node, give it a *Header Auth* credential — name `Authorization`,
-   value `Bearer <key>`.
-2. Drag **Build prompt → OpenRouter → Compose message**, delete the Ollama link.
-
-*Compose message* accepts both response shapes (`message.content` from Ollama,
-`choices[0].message.content` from any OpenAI-compatible API), so nothing
-downstream changes.
+- **A literal `}}` inside an n8n `{{ }}` expression ends it** — the node fails
+  with a bare `invalid syntax`. Build JSON strings in a Code node instead.
+- **A disabled node passes its input through.** Never park an alternative model
+  node in parallel "disabled"; it feeds the raw prompt downstream.
+- The credential the n8n *Assistant* wizard creates is not shareable with
+  workflows ("does not have access to the credential") — create a separate one.
 
 ## Operations
 

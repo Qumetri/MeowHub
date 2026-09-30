@@ -125,9 +125,9 @@
 
     <div class="card">
       <h2>Fluctuation alerts</h2>
-      <p class="sub">Alerts on an outsized move within a rolling window. If the move keeps going, you keep getting told — a cascade is re-measured from the last alert instead of being swallowed by the cooldown.</p>
+      <p class="sub">An alert when price rises <i>or</i> falls by <b>Step</b> within the window — measured from the window's low or high, so a sharp V counts too. While the move keeps going you get another alert at every further step. Once it passes <b>Urgent</b> the alert is sent <b>Pings</b> times, a minute apart, each with the live price. Urgent moves ignore quiet hours.</p>
       <div class="tableWrap"><table id="fluctTable">
-        <thead><tr><th>Coin</th><th>Trigger</th><th>Window</th><th>Cooldown</th><th>On</th></tr></thead>
+        <thead><tr><th>Coin</th><th>Step</th><th>Window</th><th>Urgent</th><th>Pings</th><th>On</th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>

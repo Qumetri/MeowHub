@@ -158,19 +158,100 @@ symmetric, not "alert" and "stop-loss".
 
 ### Fluctuation
 
-Percent move over a rolling window, per coin. Default **3% in 5 minutes**, 30 min
-cooldown.
+A swing of **5% within an hour**, per coin (both are editable per coin in the
+Alerts tab: *Step*, *Window*, *Urgent*, *Pings*).
 
-The cooldown has a deliberate exception. After firing, the move is re-measured
-**from the price at which it fired**, so a cascade — 3%, then another 3%, then
-another — keeps alerting, while a market that spikes once and goes flat stays
-quiet. A plain cooldown would hide exactly the move you most want to know about.
+It works in **episodes**. An episode opens when price moves one step away from
+the window's **low** (a rise) or **high** (a fall). It is then measured from
+that fixed anchor, and every further whole step is reported again:
+
+| Move within the hour | What you get |
+|---|---|
+| 5% | one alert |
+| 10% | an 🚨 alert **sent 3 times**, a minute apart |
+| 15%, 20% … | one more 🚨 alert per step |
+
+Rises and falls are symmetric and marked so they can be told apart at a glance
+in a notification: 📈 up / 📉 down, 🚨📈 / 🚨📉 past the urgent level. (The
+first version used 🚀 for rises and ⚠️ for falls, which read as "rocket" and
+"generic warning" rather than as a direction.)
+
+The repeats are not copies. Each follow-up re-reads the live price, so the
+second and third message say whether the move is *still* running or has
+retraced — that is the thing you want to know a minute later.
+
+Design points, each of which exists because the simpler version was wrong:
+
+- **Low/high of the window, not "price one hour ago".** Down 4% and then up 6%
+  off the bottom is a 6% move inside the hour, even though it is +2% end to end.
+  Comparing with the price exactly an hour ago misses it.
+- **Steps from a fixed anchor, not a cooldown.** A cooldown would swallow the
+  second half of a 5% → 10% crash — the part you most need.
+- **A reported move is never reported twice.** When no episode is open, only
+  prices *since the last alert* are considered, so a move that stops and goes
+  flat does not re-fire when the episode expires.
+- **A full step the other way is a new move.** Up 7% then down 6% from the top
+  opens a new down episode.
+- **Urgent moves ignore quiet hours.** Ordinary 5% alerts respect them — but the
+  episode is still recorded, so the same move is not announced when quiet hours
+  end.
+
+Covered by a 23-check test harness (flat market, V-shapes, slow drift, a rise and a fall each run 5% → 10% → 15%, flash
+crash straight to −12%, reversals, quiet hours, migration of an old database).
+
+Changing *Step* or *Window* on a coin closes its open episode.
 
 ### Daily summary
 
-Off by default. Enable it and pick an hour in the Telegram tab; it lists every
-tracked coin with its price and 24h change, sorted by performance. **Send summary
-now** fires one immediately.
+The tracker's own summary (Telegram tab) is a plain price list and is **left
+off**: the daily summary is the n8n workflow, which explains the moves — see
+[N8N.md](N8N.md). It reads everything it needs from one endpoint:
+
+### `GET /api/digest?hours=24`
+
+Internal only (`crypto:9102` on the compose network, `127.0.0.1:8084` on the
+host). One call returns, per coin:
+
+- **numbers from the tracker's own candles** — 24h change, range, high/low and
+  when they happened, the sharpest 60-minute move and its time window, 1h/4h
+  momentum, and `relative`: `with_market` / `outperformed` / `underperformed`
+  against the tracked average (±1.5pp);
+- the coin's **alerts** in the period, one line each;
+- up to 6 **headlines** from the last 24h — exchange announcements first (at
+  most 3), then news.
+
+Plus market-wide headlines (CoinDesk, Cointelegraph, Decrypt) and aggregate
+stats. News is cached for 15 minutes; all sources are fetched in parallel, so a
+cold call takes ~1–4s. `news=0` skips it. `hours` is capped at 72.
+
+**Exchange announcements** come from the exchanges' own public APIs — no key:
+Binance (listings, news, delisting, maintenance/upgrades — not activities,
+airdrops or API notices), OKX, Bybit, KuCoin and Bitget. A delisting, a network
+upgrade or a deposit halt moves a price and rarely makes the news the same day.
+They carry `"kind": "exchange"` and are matched to a coin by title, except
+Binance delisting/upgrade notices, whose titles are generic ("Notice of Removal
+of Spot Trading Pairs") — for those the article body is read and `RVN/…` or
+`(RVN)` counts, and the title gets "(affects RVN)" appended. In a pair only the
+**base** counts: "ABC/BTC" is about ABC, never BTC. Promotions, competitions,
+airdrops, "earn"/APR offers and wallet maintenance/resumption are dropped.
+Most days none match the tracked coins; that is expected. Coinbase and Kraken
+are absent: both put their blogs behind a bot challenge (403, Kraken's
+intermittently) and neither has an announcements API.
+
+Headlines come from Google News RSS per coin, then are **filtered by title**,
+because the search is loose:
+
+- `ETC` returns "Bitcoin **ETC**" — an exchange-traded commodity. Ambiguous
+  tickers (`ETC`, `TON`, …) only count as `$ETC`, `(ETC)` or by full name.
+- "Ethereum" returns Ethereum Classic news. A coin never claims headlines naming
+  another tracked coin whose name contains its own.
+- Price-prediction listicles, prediction-market tickers ("BTC price on Sep 30 at
+  3am"), "crypto to buy" promos and paid press-release wires are dropped. They
+  never explain a move, and left in they give a model something
+  plausible-sounding to cite.
+
+Small coins (RVN, ETC) often have **no** relevant headline on a given day. That
+is reported as such, never padded.
 
 ### Quiet hours
 

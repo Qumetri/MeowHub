@@ -14,7 +14,7 @@
           ]
         }
       },
-      "id": "50b2645f-dfd8-404b-9651-5fd22aee434e",
+      "id": "37e9a769-d3e0-4e9a-8ca3-223e09c627cb",
       "name": "Every day at 09:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -25,7 +25,7 @@
     },
     {
       "parameters": {},
-      "id": "a52418bb-eace-4b0e-9964-82fe96038138",
+      "id": "68e6e3c5-6dba-453a-a3c5-e06cd76494d2",
       "name": "Test manually",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -36,13 +36,13 @@
     },
     {
       "parameters": {
-        "url": "http://crypto:9102/api/state",
+        "url": "http://crypto:9102/api/digest?hours=24",
         "options": {
-          "timeout": 20000
+          "timeout": 120000
         }
       },
-      "id": "4eaf5db5-f008-4f9d-87ad-ec48e83744aa",
-      "name": "Get crypto state",
+      "id": "defc079d-dd65-472a-afdf-ec0317489d68",
+      "name": "Get digest",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -52,9 +52,9 @@
     },
     {
       "parameters": {
-        "jsCode": "// Builds the Telegram price table from REAL numbers, and the prompt for the model.\n// Deliberate split: the table is produced here, in code, from the tracker's own\n// data. The model only writes prose around it and is never the source of a\n// figure - a hallucinated price in a money alert is the one failure mode that\n// must be impossible by construction rather than by prompting.\nconst s = $json;\nconst coins = (s.coins || []).filter(c => typeof c.price === 'number');\nif (!coins.length) {\n  throw new Error('crypto tracker returned no prices - is the feed connected?');\n}\n\nconst fmt = (p) => {\n  if (typeof p !== 'number') return 'n/a';\n  if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 0 });\n  if (p >= 1) return p.toFixed(2);\n  return p.toPrecision(4);\n};\nconst pct = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;\n\nconst sorted = [...coins].sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0));\n\nconst table = sorted.map(c => {\n  const ch = c.change24h ?? 0;\n  const mark = ch > 0 ? '🟢' : ch < 0 ? '🔴' : '⚪';\n  const warn = (c.health && c.health !== 'ok') ? ' ⚠️' : '';\n  return `${mark} <b>${c.ticker}</b>  $${fmt(c.price)}  (${pct(ch)})${warn}`;\n}).join('\\n');\n\nconst facts = sorted.map(c =>\n  `${c.ticker}: $${fmt(c.price)}, 24ч ${pct(c.change24h ?? 0)}, макс $${fmt(c.high)}, мин $${fmt(c.low)}`\n).join('\\n');\n\n// Ranking and averaging are arithmetic, so code does them and hands the model the\n// conclusion. Asked to work it out itself, an 8B model gets it subtly wrong - it\n// called XMR (+2.17%) the leader over ETH (+2.20%) - and prose that contradicts\n// the table printed directly above it is worse than no prose at all.\nconst best = sorted[0];\nconst worst = sorted[sorted.length - 1];\nconst avg = sorted.reduce((a, c) => a + (c.change24h ?? 0), 0) / sorted.length;\nconst up = sorted.filter(c => (c.change24h ?? 0) > 0).length;\nconst verdict = `Лидер роста: ${best.ticker} (${pct(best.change24h ?? 0)}). ` +\n  `Лидер падения: ${worst.ticker} (${pct(worst.change24h ?? 0)}). ` +\n  `В плюсе: ${up} из ${sorted.length}. Среднее изменение: ${pct(avg)}.`;\n\n// Events are stored as ready-to-send Telegram messages: multi-line and full of\n// HTML. Pasting them in verbatim feeds the model a wall of markup AND the price\n// table of *yesterday's* summary - stale figures it will happily repeat as\n// current. So: drop previous summaries, strip tags, keep one line each.\nconst dayAgo = Math.floor(Date.now() / 1000) - 86400;\nconst alerts = (s.events || [])\n  .filter(e => e.ts >= dayAgo && e.kind !== 'system' && e.kind !== 'summary')\n  .slice(0, 15)\n  .map(e => {\n    const one = String(e.message || '')\n      .replace(/<[^>]*>/g, '')\n      .replace(/\\s*\\n+\\s*/g, ' · ')\n      .replace(/\\s{2,}/g, ' ')\n      .trim();\n    return '- ' + (one.length > 140 ? one.slice(0, 137) + '…' : one);\n  });\n\nconst halted = coins\n  .filter(c => c.health && c.health !== 'ok')\n  .map(c => `${c.ticker} (${c.health_note || c.health})`);\n\nconst system = [\n  'Ты финансовый аналитик. Пиши по-русски, деловым тоном.',\n  'Используй ТОЛЬКО те числа, которые даны во входных данных.',\n  'Никогда не придумывай цены, проценты и события.',\n  'Формат: 4-6 предложений сплошным текстом, без markdown и без эмодзи.',\n  'Пиши только по-русски: никаких английских слов, кроме тикеров монет.',\n  'Не перечисляй все монеты подряд — таблица с ценами уже есть отдельно.',\n].join(' ');\n\nconst user = [\n  'Рыночные данные за последние 24 часа:',\n  facts,\n  '\\nУже посчитано, используй как есть и не пересчитывай: ' + verdict,\n  alerts.length\n    ? '\\nСработавшие оповещения за сутки:\\n' + alerts.join('\\n')\n    : '\\nОповещений за сутки не было.',\n  halted.length ? '\\nПроблемы с данными: ' + halted.join(', ') : '',\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { system, user, table, count: coins.length } }];"
+        "jsCode": "// Builds the prompt from the tracker's /api/digest.\n//\n// Division of labour, on purpose:\n//   code   every number, the ranking, the \"with / against the market\" label,\n//          the sharpest hour and when it happened -- all computed by the\n//          tracker from its own candles.\n//   model  prose, and the *reason* for a move -- but only by citing one of the\n//          numbered headlines below. Compose turns [n] into a link, and drops\n//          any number that does not exist, so an invented source cannot reach\n//          the message.\nconst d = $json;\nconst coins = (d.coins || []).filter(c => typeof c.price === 'number');\nif (!coins.length) throw new Error('digest has no priced coins - is the tracker feed connected?');\n\nconst fmt = (p) => {\n  if (typeof p !== 'number') return 'n/a';\n  if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 0 });\n  if (p >= 1) return p.toFixed(2);\n  return p.toPrecision(4);\n};\nconst pct = (v) => (typeof v === 'number' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : 'n/a');\nconst hhmm = (ts) => new Date(ts * 1000).toISOString().slice(11, 16);\nconst REL = {\n  with_market: 'в унисон с рынком',\n  outperformed: 'сильнее рынка',\n  underperformed: 'слабее рынка',\n};\n\nconst refs = [];\nconst line = (h) => {\n  refs.push({ url: h.url, source: h.source });\n  const when = h.ts ? `${hhmm(h.ts)} UTC` : 'время неизвестно';\n  return `[${refs.length}] (${h.source}, ${when}) ${h.title}`;\n};\n\nconst m = d.market || {};\nconst marketBlock = [\n  `Среднее изменение по ${m.count} монетам: ${pct(m.avg_change)}; в плюсе ${m.up} из ${m.count}; BTC ${pct(m.btc_change)}.`,\n  `Лидер роста: ${m.best}. Лидер падения: ${m.worst}.`,\n  (m.headlines || []).length\n    ? 'Новости рынка за сутки:\\n' + m.headlines.map(line).join('\\n')\n    : 'Новостей рынка не найдено.',\n].join('\\n');\n\n// Spelled out per coin because a small fallback model otherwise copies the\n// example phrase \"followed the market\" onto a coin that beat it by 2.7pp.\nconst HINT = {\n  with_market: 'Про рынок: можно написать, что монета следовала за рынком.',\n  outperformed: 'Про рынок: монета была СИЛЬНЕЕ рынка. Не пиши, что она следовала за рынком.',\n  underperformed: 'Про рынок: монета была СЛАБЕЕ рынка. Не пиши, что она следовала за рынком.',\n};\nconst coinBlocks = coins.map((c) => {\n  const vs = typeof c.vs_market_pp === 'number' ? `${c.vs_market_pp >= 0 ? '+' : ''}${c.vs_market_pp} п.п. к среднему` : '';\n  const out = [`### ${c.ticker} (${c.name}): за 24ч ${pct(c.change24h)}, ${REL[c.relative] || ''} (${vs})`];\n  if (typeof c.range_pct === 'number') {\n    out.push(`Диапазон за сутки ${c.range_pct}%: максимум $${fmt(c.high)} в ${c.high_at} UTC, минимум $${fmt(c.low)} в ${c.low_at} UTC.`);\n  }\n  if (c.sharpest_hour) {\n    out.push(`Самый резкий час: ${pct(c.sharpest_hour.pct)} (${c.sharpest_hour.from}–${c.sharpest_hour.to} UTC).`);\n  }\n  if (typeof c.change_1h === 'number') {\n    out.push(`Последний час ${pct(c.change_1h)}, последние 4 часа ${pct(c.change_4h)}.`);\n  }\n  if (HINT[c.relative]) out.push(HINT[c.relative]);\n  if (c.health && c.health !== 'ok') out.push(`ВНИМАНИЕ, проблема с данными: ${c.health_note || c.health}.`);\n  if ((c.alerts || []).length) out.push('Сработавшие алерты: ' + c.alerts.join(' | '));\n  out.push((c.headlines || []).length\n    ? 'Новости:\\n' + c.headlines.map(line).join('\\n')\n    : 'Новости: ни одной по этой монете.');\n  return out.join('\\n');\n});\n\n// The heading of each coin (price, 24h change, with/against the market) is\n// printed by code. The model is told NOT to restate it: asked to, an 8B model\n// turned \"outperformed by 2.69pp\" into \"lagging by 2.69pp\".\nconst system = [\n  'Ты криптоаналитик и пишешь утреннюю сводку для Telegram на русском языке.',\n  'Цена, изменение за 24 часа и сравнение с рынком уже напечатаны в заголовке каждой монеты. НЕ повторяй их.',\n  'Твоя задача для каждой монеты: 1-2 коротких предложения (до 40 слов) —',\n  '  а) что происходило внутри суток: самый резкий час, диапазон, сработавшие алерты;',\n  '  б) почему: только если причину прямо подтверждает заголовок из списка. Ссылайся номером в квадратных скобках.',\n  'Если подходящего заголовка нет, напиши «явных новостных причин нет» и, если монета шла в унисон с рынком, — что она следовала за рынком.',\n  'Нельзя: придумывать новости, события и источники; считать причиной прогнозы, рекламу, обзоры и сработавшие алерты (алерты — это наши сигналы, а не новости).',\n  'Причина должна совпадать с направлением: рост не объясняют «давлением», падение не объясняют хорошими новостями.',\n  'market: 2-3 предложения о рынке в целом и о новостях рынка, которые на него повлияли, тоже со ссылками [n].',\n  'Без markdown, эмодзи и HTML. Тикеры латиницей, остальное по-русски.',\n  '',\n  'Пример хорошего ответа для монеты:',\n  '\"Резче всего падала с 14:00 до 15:00 UTC, потеряв 2.5% за час. Давление усилилось после новости о расширении сервисов кошелька в Telegram [7].\"',\n  'Пример, когда новостей нет:',\n  '\"Самый резкий час — рост на 2.2% ночью, в остальное время торговалась в узком диапазоне. Явных новостных причин нет, монета следовала за рынком.\"',\n].join('\\n');\n\nconst user = `Данные за последние 24 часа.\\n\\n== РЫНОК ==\\n${marketBlock}\\n\\n== МОНЕТЫ ==\\n${coinBlocks.join('\\n\\n')}`;\n\n// A schema with one required key per ticker: the model cannot skip a coin.\nconst schema = {\n  type: 'object',\n  properties: {\n    market: { type: 'string' },\n    coins: {\n      type: 'object',\n      properties: Object.fromEntries(coins.map((c) => [c.ticker, { type: 'string' }])),\n      required: coins.map((c) => c.ticker),\n    },\n  },\n  required: ['market', 'coins'],\n};\n\n// OpenAI-compatible APIs take no schema, so the expected shape is spelled out\n// in the system prompt instead. Built HERE, not in the HTTP node's expression:\n// a literal \"}}\" inside an n8n {{ }} expression ends the expression early and\n// the node fails with a bare \"invalid syntax\".\nconst shape = '{\"market\": \"...\", \"coins\": {' + coins.map((c) => `\"${c.ticker}\": \"...\"`).join(', ') + '}}';\nconst system_json = system + '\\n\\nОтветь строго JSON-объектом такого вида: ' + shape;\n\nreturn [{ json: {\n  system, system_json, user, schema, refs,\n  market: { avg_change: m.avg_change, up: m.up, count: m.count },\n  coins: coins.map((c) => ({ ticker: c.ticker, price: c.price, change24h: c.change24h,\n                             relative: c.relative, health: c.health })),\n} }];"
       },
-      "id": "52df3ce5-fbbe-4f89-b49e-1a209d6f19e8",
+      "id": "e538218d-eefe-4e27-bb54-a5664e986eee",
       "name": "Build prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -66,58 +66,110 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://ollama:11434/api/chat",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, think: false, options: { temperature: 0.3, num_ctx: 8192 }, messages: [ { role: 'system', content: $json.system }, { role: 'user', content: $json.user } ] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: 'nvidia/nemotron-3-super-120b-a12b:free', temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: $json.system_json }, { role: 'user', content: $json.user } ] }) }}",
         "options": {
           "timeout": 300000
         }
       },
-      "id": "3e9f7a21-b3c6-49ac-b1bd-052afc54b606",
-      "name": "Ollama qwen3:8b",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        300,
-        180
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://openrouter.ai/api/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'deepseek/deepseek-chat-v3-0324:free', temperature: 0.3, messages: [ { role: 'system', content: $json.system }, { role: 'user', content: $json.user } ] }) }}",
-        "options": {
-          "timeout": 120000
-        }
-      },
-      "id": "ad7cc57e-9f7a-4e97-8671-958c53fd391d",
+      "id": "1a36e7e1-71a5-453c-944a-020934e67c6b",
       "name": "OpenRouter",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         300,
-        430
+        300
       ],
-      "disabled": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
       "notesInFlow": true,
-      "notes": "Not wired in. Drag its output to Compose message and remove the Ollama link to use it."
+      "notes": "Primary. Free models hit 429s: 3 tries, then the error output falls back to Ollama."
     },
     {
       "parameters": {
-        "jsCode": "// Accepts either shape: Ollama returns {message:{content}}, OpenAI-compatible\n// APIs (OpenRouter) return {choices:[{message:{content}}]}. Handling both is\n// what lets the model be swapped without touching anything downstream.\nconst r = $json;\nconst raw = (r?.message?.content ?? r?.choices?.[0]?.message?.content ?? '').trim();\nif (!raw) {\n  throw new Error('LLM returned no text: ' + JSON.stringify(r).slice(0, 300));\n}\n\n// Telegram parses this message as HTML. A stray tag from the model would make\n// the whole send fail with \"can't parse entities\", so strip them.\nconst comment = raw.replace(/<[^>]*>/g, '').trim();\n\nconst p = $('Build prompt').first().json;\nconst day = new Date().toLocaleDateString('ru-RU', {\n  day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Oslo',\n});\n\nconst text = [\n  `📊 <b>Криптосводка за 24 часа</b> — ${day}`,\n  '',\n  p.table,\n  '',\n  '💬 <i>' + comment + '</i>',\n].join('\\n');\n\nreturn [{ json: { text } }];"
+        "jsCode": "// Free OpenRouter models sometimes answer HTTP 200 with an error body, or with\n// prose instead of JSON. Only a parseable answer carrying both keys goes on to\n// Compose; anything else is routed to the local model instead of failing the run.\nconst r = $json;\nlet c = r?.choices?.[0]?.message?.content;\nlet ok = false;\nif (typeof c === 'string') {\n  c = c.trim().replace(/^```(?:json)?\\s*/, '').replace(/\\s*```$/, '');\n  try { const o = JSON.parse(c); ok = !!(o && o.market && o.coins); } catch (e) { ok = false; }\n}\nreturn [{ json: { ...r, ok } }];"
       },
-      "id": "444fedb2-5beb-43de-b96a-d98c272a54ce",
+      "id": "0910f880-8130-432d-85e8-78a79da21b71",
+      "name": "Valid answer?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "13b33f80-50f1-4a94-9f07-528097964cbe",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c56e35b4-9289-4b11-a928-78d0e428dad8",
+      "name": "Use it",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, think: true, format: $('Build prompt').first().json.schema, options: { temperature: 0.2, num_ctx: 16384, num_predict: 6000 }, messages: [ { role: 'system', content: $('Build prompt').first().json.system }, { role: 'user', content: $('Build prompt').first().json.user } ] }) }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "4ba966ca-8ae1-425e-ae6f-198669815a19",
+      "name": "Ollama qwen3:8b (fallback)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        460
+      ],
+      "notesInFlow": true,
+      "notes": "Local fallback: only runs if OpenRouter failed or answered badly."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assembles the Telegram message(s). Headings -- ticker, price, 24h change --\n// come from the digest, not from the model, so the model's text can never\n// alter a figure. [n] citations become links to the actual article.\nconst r = $json;\nlet raw = (r?.message?.content ?? r?.choices?.[0]?.message?.content ?? '').trim();\nraw = raw.replace(/^```(?:json)?\\s*/, '').replace(/\\s*```$/, '');\nlet out;\ntry { out = JSON.parse(raw); } catch (e) {\n  throw new Error('model did not return JSON: ' + raw.slice(0, 300));\n}\n\nconst p = $('Build prompt').first().json;\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst fmt = (v) => {\n  if (typeof v !== 'number') return 'n/a';\n  if (v >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 });\n  if (v >= 1) return v.toFixed(2);\n  return v.toPrecision(4);\n};\nconst pct = (v) => (typeof v === 'number' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : 'n/a');\nconst REL = { with_market: 'в унисон с рынком', outperformed: 'сильнее рынка', underperformed: 'слабее рынка' };\n\n// \"[3]\", \"[3, 5]\" or \"[3][5]\" -> linked source names. A number with no matching\n// headline is removed outright rather than left dangling: it would be an\n// invented source. Adjacent groups merge, a repeated outlet is linked once,\n// and at most two links are shown so a sentence does not end in a wall of them.\nconst cite = (s) => esc(String(s || '').replace(/<[^>]*>/g, ''))\n  .replace(/(?:\\s*\\[\\d+(?:\\s*,\\s*\\d+)*\\])+/g, (group) => {\n    const seen = new Set();\n    const links = (group.match(/\\d+/g) || []).map(Number)\n      .filter((n) => p.refs[n - 1] && p.refs[n - 1].url)\n      .filter((n) => { const k = p.refs[n - 1].source; if (seen.has(k)) return false; seen.add(k); return true; })\n      .slice(0, 2)\n      .map((n) => `<a href=\"${esc(p.refs[n - 1].url)}\">${esc(p.refs[n - 1].source)}</a>`);\n    return links.length ? ` (${links.join(', ')})` : '';\n  })\n  .trim();\n\nconst day = new Date().toLocaleDateString('ru-RU', {\n  day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Oslo',\n});\nconst m = p.market;\nconst blocks = [\n  `📊 <b>Криптосводка за 24 часа</b> — ${day}`,\n  `🌍 <b>Рынок</b> · в среднем ${pct(m.avg_change)}, в плюсе ${m.up} из ${m.count}\\n${cite(out.market) || '<i>нет комментария</i>'}`,\n];\nfor (const c of p.coins) {\n  const ch = c.change24h ?? 0;\n  const mark = ch > 0 ? '🟢' : ch < 0 ? '🔴' : '⚪';\n  const warn = c.health && c.health !== 'ok' ? ' ⚠️' : '';\n  const txt = (out.coins || {})[c.ticker];\n  const rel = REL[c.relative] ? ` · <i>${REL[c.relative]}</i>` : '';\n  blocks.push(`${mark} <b>${c.ticker}</b>  $${fmt(c.price)} · ${pct(c.change24h)}${rel}${warn}\\n${txt ? cite(txt) : '<i>нет комментария</i>'}`);\n}\n\n// Say which model wrote it, so a weaker fallback day is recognisable as such.\nconst model = String(r.model || '');\nconst hosted = model.includes('/');\nblocks.push(`<i>🤖 ${esc(model.replace(/:free$/, '') || 'unknown')} · ${hosted ? 'OpenRouter' : 'локально, резервная модель'}</i>`);\n\n// Telegram caps a message at 4096 visible characters (link targets do not\n// count). Split on block boundaries so no coin is cut in half.\nconst visible = (s) => s.replace(/<[^>]+>/g, '').length;\nconst msgs = [];\nlet cur = '';\nfor (const b of blocks) {\n  const next = cur ? cur + '\\n\\n' + b : b;\n  if (cur && visible(next) > 3900) { msgs.push(cur); cur = b; } else { cur = next; }\n}\nif (cur) msgs.push(cur);\nreturn msgs.map((text) => ({ json: { text } }));"
+      },
+      "id": "d91abbee-621c-4472-8795-179f458e182b",
       "name": "Compose message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        540,
+        960,
         300
       ]
     },
@@ -131,29 +183,29 @@
           "disable_web_page_preview": true
         }
       },
-      "id": "6b3857bb-14d5-4d45-a35c-3d3c4aece1f2",
+      "id": "8b22ef96-a99d-4e15-a29c-ab7691c271f3",
       "name": "Send to Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        760,
+        1180,
         300
       ]
     },
     {
       "parameters": {
-        "width": 820,
-        "height": 300,
+        "width": 900,
+        "height": 360,
         "color": 4,
-        "content": "## Daily crypto summary\nReads the tracker's live state, asks a model for a short comment, sends it to Telegram.\n\n**The price table is built in code from real numbers.** The model only writes the prose around it, and the ranking/averages are pre-computed, so it cannot invent or misorder a price.\n\n### Before the first run\n1. Open **Send to Telegram** and create a Telegram credential (same bot token as the tracker).\n2. Replace `PUT_YOUR_CHAT_ID_HERE` with your chat id.\n3. **Execute workflow** once to test, then toggle **Active**.\n\n### Switching to OpenRouter\nThe node is already configured but left unconnected. Enable it, drag **Build prompt** -> **OpenRouter** -> **Compose message**, delete the Ollama link, and add a *Header Auth* credential with name `Authorization` and value `Bearer <your key>`.\n\n*(Do not simply run both in parallel: a disabled n8n node passes its input through, so the idle branch would feed Compose message the raw prompt.)*"
+        "content": "## Daily crypto summary\nReads the tracker's `/api/digest` (24h stats from its own candles + last-24h news per coin), asks a model to explain each move, and sends the result to Telegram.\n\n**The model never supplies a number, and cannot invent a source.** Every figure and heading comes from the digest. A reason must cite a numbered headline as [n]; Compose turns that into a link and silently drops any number that does not exist.\n\n### Before the first run\n1. **Send to Telegram**: pick a Telegram credential, replace `PUT_YOUR_CHAT_ID_HERE`.\n2. **Test manually -> Execute workflow**, then publish/activate.\n\n### Models\n**OpenRouter** (Nemotron 120B, free tier) is primary: 3 tries on failure. If it still fails, or answers with something that is not the expected JSON, the run falls back to **local qwen3:8b** instead of sending nothing. The message footer says which model wrote it. The fallback is measurably weaker at attributing causes -- that is why it is not primary."
       },
-      "id": "053249be-c4e9-4b05-b992-a49b817e4a5f",
+      "id": "2eab0a66-0aca-44ba-b1e7-bbed2ed0645e",
       "name": "README",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         -400,
-        -140
+        -170
       ]
     }
   ],
@@ -162,7 +214,7 @@
       "main": [
         [
           {
-            "node": "Get crypto state",
+            "node": "Get digest",
             "type": "main",
             "index": 0
           }
@@ -173,14 +225,14 @@
       "main": [
         [
           {
-            "node": "Get crypto state",
+            "node": "Get digest",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get crypto state": {
+    "Get digest": {
       "main": [
         [
           {
@@ -195,14 +247,61 @@
       "main": [
         [
           {
-            "node": "Ollama qwen3:8b",
+            "node": "OpenRouter",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama qwen3:8b": {
+    "OpenRouter": {
+      "main": [
+        [
+          {
+            "node": "Valid answer?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama qwen3:8b (fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid answer?": {
+      "main": [
+        [
+          {
+            "node": "Use it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use it": {
+      "main": [
+        [
+          {
+            "node": "Compose message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama qwen3:8b (fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama qwen3:8b (fallback)": {
       "main": [
         [
           {
