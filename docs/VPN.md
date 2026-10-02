@@ -138,12 +138,17 @@ crontab -e
 Because the certificate is issued for the domain, reach the panel by hostname —
 `https://<domain>:<port>/<path>/` — not by raw IP, or it will not validate.
 
-### AmneziaWG inbounds: give users the config, not the link
+### AmneziaWG inbounds
 
-The AmneziaWG app imports only a plain `.conf`. A `vpn://` link or a subscription
-URL fails with **"Unknown section"**, whatever the app version. In the panel, use
-the inbound's **"Peer N config"** (QR or `.conf` download). The `vpn://` "link" is
-for the full AmneziaVPN app.
+- **AmneziaWG app:** imports only a plain `.conf` (QR or file). A `vpn://` link or a
+  subscription URL fails with **"Unknown section"**, whatever the version. In the panel,
+  use the inbound's **"Peer N config"**.
+- **AmneziaVPN app:** reads the `vpn://` link. It needs version 5.0.1.5 or later; older
+  versions drop the AWG 3.x keys and hang on "Connecting…".
+- **Don't attach one client to two AmneziaWG inbounds** (3x-ui 3.8.5). The server keeps a
+  separate address per inbound, but subscription links use the client's single shared
+  address. One of the two tunnels then gets the other's address: it handshakes but passes
+  no traffic. Use one client per AWG inbound.
 
 ### Upgrading
 
