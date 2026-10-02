@@ -138,6 +138,13 @@ crontab -e
 Because the certificate is issued for the domain, reach the panel by hostname —
 `https://<domain>:<port>/<path>/` — not by raw IP, or it will not validate.
 
+### AmneziaWG inbounds: give users the config, not the link
+
+The AmneziaWG app imports only a plain `.conf`. A `vpn://` link or a subscription
+URL fails with **"Unknown section"**, whatever the app version. In the panel, use
+the inbound's **"Peer N config"** (QR or `.conf` download). The `vpn://` "link" is
+for the full AmneziaVPN app.
+
 ### Upgrading
 
 The panel's own Update button does not work in Docker. Xray is bundled in the
