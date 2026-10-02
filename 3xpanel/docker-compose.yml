@@ -10,8 +10,11 @@ name: ${XUI_PROJECT_NAME:-meowstack-xui}
 services:
   3xui:
     # Pinned BY DIGEST, not tag. A panel upgrade migrates its own database and
-    # is not always reversible — pin it, test it, then move the digest.
-    image: ${XUI_IMAGE}
+    # is not always reversible — move it only with scripts/3xui-upgrade.sh, which
+    # tests, backs up and arms an auto-rollback. Xray is bundled in this image.
+    # The default is what runs when you `cd 3xpanel && docker compose up -d`
+    # (that does not read the root .env); XUI_IMAGE in the environment overrides it.
+    image: ${XUI_IMAGE:-ghcr.io/mhsanaei/3x-ui@sha256:e0f90c10902e0e74f947d5a9efe017b273804477430233bbfc4918542ffe366c}   # 3.8.5
     container_name: ${XUI_PROJECT_NAME:-meowstack-xui}_panel
     restart: unless-stopped
     network_mode: host

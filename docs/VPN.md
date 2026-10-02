@@ -138,6 +138,42 @@ crontab -e
 Because the certificate is issued for the domain, reach the panel by hostname —
 `https://<domain>:<port>/<path>/` — not by raw IP, or it will not validate.
 
+### Upgrading
+
+The panel's own Update button does not work in Docker. Xray is bundled in the
+image, so upgrading the panel also upgrades Xray. A newer Xray switched in from
+the panel is lost when the container is recreated.
+
+```bash
+scripts/3xui-upgrade.sh --test ghcr.io/mhsanaei/3x-ui:vX.Y.Z   # migrate a copy of the DB
+scripts/3xui-upgrade.sh ghcr.io/mhsanaei/3x-ui:vX.Y.Z          # the real thing
+scripts/3xui-upgrade.sh --confirm                               # keep it, within 15 min
+scripts/3xui-upgrade.sh --rollback                              # or go back now
+```
+
+`--test` runs the new image against a **copy** of `x-ui.db`, in a bridge-network
+container (no live ports, Telegram bot off), and prints what it started and which
+ports it bound.
+
+The real run backs up `x-ui.db` + `-wal` + `-shm` together, because the DB is in
+WAL mode and a hot copy of the main file alone is stale. It then pins the new
+digest in `3xpanel/docker-compose.yml`, restarts the panel (about 15 s of VPN
+downtime) and arms a detached watchdog. Without `--confirm` within 15 minutes
+(`WATCH_MIN`), the watchdog restores the old compose file and DB. So a dropped
+SSH session mid-upgrade cannot leave the VPN down.
+
+Before confirming:
+
+- the logs show `Xray … started` with no errors;
+- `ss -lntu` lists every inbound port;
+- subscriptions return the same links;
+- a real client passes traffic through each Reality inbound.
+
+Read the release notes' **"Before you upgrade"** section first. The trap in this
+project's history: Xray 26.7.11+ under panel 3.7.x treated an empty REALITY
+`minClientVer` as "26.3.27", silently refusing older clients. Setting it to
+`1.0.0` on every Reality inbound keeps old apps working.
+
 ### Riding :443
 
 Inbounds can share port 443 with the web stack. Caddy's layer4 router matches

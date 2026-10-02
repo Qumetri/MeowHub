@@ -109,8 +109,9 @@ skipped major leaves the instance unable to start and the fix is a restore.
 This is the reason nothing here uses `:latest`.
 
 **3x-ui is pinned by digest**, not tag, because a panel upgrade migrates its own
-database and is not reliably reversible. Back up `3xpanel/db/x-ui.db` first,
-and keep the old digest so you can roll back.
+database and is not reliably reversible. Use `scripts/3xui-upgrade.sh`: it dry-runs
+on a copy, backs up, and rolls back by itself unless you confirm. See
+[VPN.md](VPN.md#upgrading).
 
 Before any upgrade: back up the database, note the current tag, and read the
 project's release notes for migration steps.
