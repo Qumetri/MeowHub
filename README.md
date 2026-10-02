@@ -254,6 +254,13 @@ logins for your services, in a message that deletes itself after a minute.
 Setup is two lines in `.env` — `HELPER_BOT_TOKEN` and your Telegram id as
 `HELPER_OWNER_ID`. Full details in **[docs/HELPER.md](docs/HELPER.md)**.
 
+## Movies and series into Plex
+
+Nextcloud gets a **Plex** folder with `Movies`, `TV Shows` and `Anime` inside.
+Move a file there from your phone or laptop, and a few seconds later it's in
+Plex with poster, summary and cast. `scripts/plex-library.sh` sets up both sides
+in one go. Naming rules and the anime caveats are in **[docs/PLEX.md](docs/PLEX.md)**.
+
 ## Requirements
 
 - Linux, Docker Engine, Compose v2
@@ -285,7 +292,7 @@ helper/                 Telegram helper bot (dependency-free Python)
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
-docs/                   deploy · operations · vpn · architecture
+docs/                   deploy · operations · vpn · plex · architecture
 ```
 
 The VPNs are **separate Compose projects on purpose**. `docker compose up -d` in
@@ -301,6 +308,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram helper bot — health alerts, links, downloads, logins |
+| 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly

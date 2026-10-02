@@ -170,6 +170,7 @@ services:
     volumes:
       - ./nextcloud/html:/var/www/html
       - ${NEXTCLOUD_DATA}:/var/www/html/data
+      - ${PLEX_MEDIA:-/srv/media/plex}:/mnt/plex   # shown in Nextcloud as the folder "Plex" (scripts/plex-library.sh)
     environment:
       MYSQL_HOST: nextcloud-db
       MYSQL_DATABASE: nextcloud
@@ -199,6 +200,7 @@ services:
     volumes:
       - ./nextcloud/html:/var/www/html
       - ${NEXTCLOUD_DATA}:/var/www/html/data
+      - ${PLEX_MEDIA:-/srv/media/plex}:/mnt/plex   # shown in Nextcloud as the folder "Plex" (scripts/plex-library.sh)
 
   nextcloud-db:
     container_name: ${STACK_NAME:-meowstack}_nextcloud_db

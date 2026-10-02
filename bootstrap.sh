@@ -138,7 +138,7 @@ open(f, "w").write(s)
 }
 for k in CLOUD_HOST PHOTOS_HOST MATRIX_HOST TURN_HOST AWG_ENDPOINT \
          NEXTCLOUD_DATA IMMICH_UPLOAD IMMICH_DB_DATA MATRIX_MEDIA MATRIX_DB_DATA \
-         METUBE_DOWNLOADS PHOTOS_EXTERNAL UPLOAD_LOCATION DB_DATA_LOCATION; do
+         METUBE_DOWNLOADS PLEX_MEDIA PHOTOS_EXTERNAL UPLOAD_LOCATION DB_DATA_LOCATION; do
   resolve "$k"
 done
 set -a; . "$ENV_FILE"; set +a
@@ -274,6 +274,7 @@ mk "$MATRIX_MEDIA"
 mk "$MATRIX_DB_DATA"
 mk "$METUBE_DOWNLOADS"
 mk "$PHOTOS_EXTERNAL"
+mk "$PLEX_MEDIA"; mk "$PLEX_MEDIA/Movies"; mk "$PLEX_MEDIA/TV Shows"; mk "$PLEX_MEDIA/Anime"
 mk ./caddy/data
 mk ./caddy/config
 mk ./dashboard/dist
@@ -287,6 +288,10 @@ mk ./helper/data
 # and MeTube run as PUID/PGID so their dirs stay host-editable.
 if [[ $(id -u) -eq 0 ]]; then
   chown -R 33:33 "$NEXTCLOUD_DATA"                            && c_ok "chown $NEXTCLOUD_DATA -> 33:33 (www-data)"
+  # Nextcloud writes the Plex folder, Plex reads it: owner www-data, group plex
+  # (when Plex is installed), setgid so new subfolders keep the group.
+  pg=$(getent group plex >/dev/null && echo plex || echo 33)
+  chown -R "33:$pg" "$PLEX_MEDIA" && chmod -R 2775 "$PLEX_MEDIA" && c_ok "chown $PLEX_MEDIA -> 33:$pg, setgid"
   chown -R "${PUID:-1000}:${PGID:-1000}" "$MATRIX_MEDIA" "$METUBE_DOWNLOADS" \
                                                               && c_ok "chown matrix media + downloads -> ${PUID:-1000}"
   chown -R "${PUID:-1000}:${PGID:-1000}" ./matrix/synapse     && c_ok "chown ./matrix/synapse -> ${PUID:-1000}"
