@@ -9,7 +9,8 @@ Two rule kinds:
                 from producing a stream of alerts.
 
   fluctuation   a swing of N% within a rolling window, then one more alert for
-                every further N% while the move continues. Past the urgent
+                every further N% while the move continues, and one per whole
+                N% it pulls back from its extreme. Past the urgent
                 level the alert is sent several times, a minute apart, with
                 the live price in each.
 """
@@ -70,6 +71,9 @@ class Engine:
         self._targets = []
         self._fluct = {}
         self._coins = {}
+        self._peaks = {}                       # symbol -> extreme of the open episode
+        self._peak_saved = {}                  # symbol -> when that was last written
+        self._counter_sent = {}                # symbol -> (ts, step) of the last pullback sent
         self.refresh_rules(force=True)
 
     # ---------- rule cache ----------
@@ -191,7 +195,21 @@ class Engine:
     # The window is scanned for its low AND high rather than compared with the
     # price exactly `window_s` ago: a V -- down 4%, then up 6% from the bottom --
     # is a 6% move within the hour even though it is +2% end to end.
+    #
+    # Inside an episode a counter-move is measured from ONE reference: the
+    # move's own extreme (the high of a rise, the low of a fall). Measuring it
+    # against the window's opposite extreme instead made each reversal the
+    # reference for the next one -- RVN alternated +8% / -5.7% every tick on
+    # 2026-10-05. Now a pullback is reported once per whole step off the
+    # extreme, and that count only resets when the move makes a new step, so
+    # chop under a top stays quiet. Only when the whole move is given back
+    # (price crosses the anchor) does the episode turn into a move the other
+    # way, measured from the old extreme. Sideways chop would still produce a
+    # pullback/bounce per swing, so within one window only a DEEPER counter-move
+    # than the last one sent is reported; the steps of the move itself never are
+    # muted.
     FOLLOWUP_GAP_S = 60
+    PEAK_SAVE_S = 15        # how often a moving extreme is written to sqlite
 
     def _window_extremes(self, symbol, since):
         with self._lock:
@@ -199,6 +217,21 @@ class Engine:
         if not pts:
             return None, None
         return min(pts), max(pts)
+
+    def _track_peak(self, symbol, r, price, d, now):
+        """The extreme of the open episode in its own direction. Held in
+        memory (the rule cache is re-read from sqlite every second) and saved
+        every PEAK_SAVE_S so a restart resumes from about the same point."""
+        peak = self._peaks.get(symbol) or float(r.get("ep_peak") or 0) \
+            or float(r.get("last_price") or 0) or price
+        if (price - peak) * d > 0:
+            peak = price
+        self._peaks[symbol] = peak
+        if peak != float(r.get("ep_peak") or 0) and now - self._peak_saved.get(symbol, 0) >= self.PEAK_SAVE_S:
+            self._peak_saved[symbol] = now
+            self.store.set_fluctuation(symbol, ep_peak=peak)
+            r["ep_peak"] = peak
+        return peak
 
     def _check_fluctuation(self, symbol, price, now):
         r = self._fluct.get(symbol)
@@ -211,20 +244,29 @@ class Engine:
 
         if open_ep:
             anchor = r["ep_anchor"]
+            peak = self._track_peak(symbol, r, price, d, now)
             move = (price - anchor) / anchor * 100
             step = int(abs(move) // step_pct)
             if move * d > 0 and step > r["ep_step"]:
-                self._fire_fluct(symbol, price, move, anchor, d, step, r, now, continuing=True)
+                self._fire_fluct(symbol, price, move, anchor, d, step, r, now,
+                                 prev_step=int(r["ep_step"]))
                 return
-            # A full step back the other way is a new move, not noise.
-            lo, hi = self._window_extremes(symbol, now - window)
-            if lo is None:
-                return
-            rev_anchor = hi if d > 0 else lo
-            rev = (price - rev_anchor) / rev_anchor * 100
-            if abs(rev) >= step_pct and rev * d < 0:
-                self._fire_fluct(symbol, price, rev, rev_anchor, -d,
-                                 int(abs(rev) // step_pct), r, now, continuing=False)
+            back = (price - peak) / peak * 100
+            pb = int(abs(back) // step_pct) if back * d < 0 else 0
+            if pb > int(r.get("ep_pb") or 0):
+                self._fire_pullback(symbol, price, back, peak, anchor, d, pb, r, now)
+            if move * d <= 0:
+                # The whole move is given back: from here it is a move the other
+                # way, measured from the old extreme. The pullback steps already
+                # sent count as its steps, so nothing is announced twice.
+                state = {"last_fired": now, "ep_dir": -d, "ep_anchor": peak,
+                         "ep_step": max(pb, int(r.get("ep_pb") or 0)),
+                         "ep_peak": price, "ep_pb": 0}
+                self.store.set_fluctuation(symbol, **state)
+                r.update(state)
+                self._peaks[symbol] = price
+                log.info("fluctuation turned: %s now %s from %s", self.ticker(symbol),
+                         "down" if d > 0 else "up", fmt_price(peak))
             return
 
         # No open episode. Only look at prices since the last alert, so a move
@@ -238,20 +280,55 @@ class Engine:
         if abs(move) < step_pct:
             return
         self._fire_fluct(symbol, price, move, anchor, direction,
-                         int(abs(move) // step_pct), r, now, continuing=False)
+                         int(abs(move) // step_pct), r, now, prev_step=0)
 
-    def _fire_fluct(self, symbol, price, move, anchor, direction, step, r, now, continuing):
-        prev_step = r["ep_step"] if continuing else 0
+    def _fire_pullback(self, symbol, price, back, peak, anchor, d, pb, r, now):
+        """A retracement inside an open move: one plain message per whole step
+        off the extreme -- never a burst and never sent to n8n."""
+        state = {"last_fired": now, "last_price": price, "ep_pb": pb, "ep_peak": peak}
+        self.store.set_fluctuation(symbol, **state)
+        r.update(state)
+        last = self._counter_sent.get(symbol)
+        if last and now - last[0] < int(r["window_s"]) and pb <= last[1]:
+            log.info("pullback muted (chop): %s %.2f%%", symbol, back)
+            return
+        urgent_pct = float(r.get("urgent_pct") or 0)
+        urgent = urgent_pct > 0 and abs(back) >= urgent_pct
+        if not urgent and in_quiet_hours(self.store.get("quiet_hours")):
+            log.info("pullback suppressed by quiet hours: %s %.2f%%", symbol, back)
+            return
+        tick = self.ticker(symbol)
+        gain = (peak - anchor) / anchor * 100
+        what = "high" if d > 0 else "low"
+        icon = ("🚨" if urgent else "") + ("↘️" if d > 0 else "↗️")
+        lines = [f"{icon} <b>{tick} {'pulling back' if d > 0 else 'bouncing'} "
+                 f"{fmt_pct(back)} from the {what}</b>", "",
+                 f"<b>Price</b>   ${fmt_price(price)}",
+                 f"<b>{what.capitalize()}</b>    ${fmt_price(peak)}  "
+                 f"({fmt_pct(gain)} from ${fmt_price(anchor)})"]
+        ch = self.change_24h(symbol)
+        if ch is not None:
+            lines.append(f"<b>24h</b>     {fmt_pct(ch)}")
+        lines.append("")
+        lines.append(f"<code>{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} UTC</code>")
+        log.info("pullback fired: %s %.2f%% from %s step=%d", tick, back, fmt_price(peak), pb)
+        self._counter_sent[symbol] = (now, pb)
+        self.notifier.dispatch("fluctuation", "\n".join(lines), symbol=symbol, price=price)
+
+    def _fire_fluct(self, symbol, price, move, anchor, direction, step, r, now, prev_step):
+        continuing = prev_step > 0
         urgent_pct = float(r.get("urgent_pct") or 0)
         urgent = urgent_pct > 0 and abs(move) >= urgent_pct
         # The burst goes out once per episode: on the step that first crosses
         # the urgent level. Steps beyond it are single (still 🚨) messages.
         first_urgent = urgent and prev_step * float(r["pct"]) < urgent_pct
 
+        # A new step resets the pullback count and the extreme starts here.
         state = {"last_fired": now, "last_price": price, "ep_dir": direction,
-                 "ep_anchor": anchor, "ep_step": step}
+                 "ep_anchor": anchor, "ep_step": step, "ep_peak": price, "ep_pb": 0}
         self.store.set_fluctuation(symbol, **state)
         r.update(state)
+        self._peaks[symbol] = price
 
         # Quiet hours silence ordinary volatility, never an urgent move. The
         # episode is still recorded, so the same move is not announced later.

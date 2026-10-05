@@ -203,14 +203,32 @@ Design points, each of which exists because the simpler version was wrong:
 - **A reported move is never reported twice.** When no episode is open, only
   prices *since the last alert* are considered, so a move that stops and goes
   flat does not re-fire when the episode expires.
-- **A full step the other way is a new move.** Up 7% then down 6% from the top
-  opens a new down episode.
+- **A counter-move is measured from the move's own extreme — one reference.**
+  Up 20% and then 5% off the top is reported **once**, as
+  "↘️ pulling back −5% from the high" (a fall: "↗️ bouncing"). Another note comes
+  only at the next whole step off the top (−10%, −15% …), and the count resets
+  only when the move makes a new step. A pullback is never a burst and is not
+  sent to n8n for an explanation.
+  *Why:* the first version measured a reversal against the window's opposite
+  extreme. Each reversal then became the reference for the next one, and on
+  2026-10-05 RVN (+20%, then chopping ±6% under the top) alternated
+  "up +8%" / "down −5.7%" on **every tick** — 176 messages in 10 minutes.
+- **The move only turns when it is given back.** Once price crosses back
+  through the anchor, the episode becomes a move the other way, measured from
+  the old extreme; the pullback steps already sent count as its steps, so a
+  20% rise that rolls over into a crash reports −5, −10, −15 off the top and
+  then "down −20% — still going".
+- **Chop is muted.** Within one window only a *deeper* pullback/bounce than the
+  last one sent goes out, so a coin swinging 6% back and forth gives one note an
+  hour, not one per swing. The steps of the move itself are never muted.
 - **Urgent moves ignore quiet hours.** Ordinary 5% alerts respect them — but the
   episode is still recorded, so the same move is not announced when quiet hours
   end.
 
-Covered by a 23-check test harness (flat market, V-shapes, slow drift, a rise and a fall each run 5% → 10% → 15%, flash
-crash straight to −12%, reversals, quiet hours, migration of an old database).
+Covered by `crypto/tests/test_fluctuation.py` (stdlib, no network or DB:
+`python3 crypto/tests/test_fluctuation.py`) — flat market, V-shape, steps,
+urgent burst, flash crash, the 2026-10-05 chop, a top that rolls over, sideways
+chop, dead-cat bounces, quiet hours. Run it after any change to `alerts.py`.
 
 Changing *Step* or *Window* on a coin closes its open episode.
 

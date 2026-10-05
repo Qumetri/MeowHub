@@ -328,7 +328,7 @@ def make_handler(app):
                     fields["urgent_repeat"] = min(5, max(1, int(b["urgent_repeat"])))
                 # A changed threshold or window invalidates the open episode.
                 if {"pct", "window_s"} & set(fields):
-                    fields.update(ep_dir=0, ep_anchor=0, ep_step=0)
+                    fields.update(ep_dir=0, ep_anchor=0, ep_step=0, ep_peak=0, ep_pb=0)
                 app.store.set_fluctuation(sym, **fields)
                 app.engine.refresh_rules(force=True)
                 return self._json({"ok": True})

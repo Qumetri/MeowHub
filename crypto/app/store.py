@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS targets (
 -- reported again at every further `pct` step while the move keeps going. At
 -- `urgent_pct` the alert is sent `urgent_repeat` times (follow-ups carry the
 -- live price). ep_* is the open episode: direction, the price it is measured
--- from, and the last step reported. cooldown_s is unused since episodes; it
+-- from, the last step reported, the move's extreme so far (ep_peak) and the
+-- last pullback step reported from that extreme (ep_pb). cooldown_s is unused since episodes; it
 -- stays so older databases keep working.
 CREATE TABLE IF NOT EXISTS fluctuation (
     symbol        TEXT PRIMARY KEY,
@@ -82,7 +83,9 @@ CREATE TABLE IF NOT EXISTS fluctuation (
     urgent_repeat INTEGER NOT NULL DEFAULT 3,
     ep_dir        INTEGER NOT NULL DEFAULT 0,
     ep_anchor     REAL NOT NULL DEFAULT 0,
-    ep_step       INTEGER NOT NULL DEFAULT 0
+    ep_step       INTEGER NOT NULL DEFAULT 0,
+    ep_peak       REAL NOT NULL DEFAULT 0,
+    ep_pb         INTEGER NOT NULL DEFAULT 0
 );
 
 -- 1-minute candles, used for the charts and the daily summary.
@@ -163,6 +166,8 @@ class Store:
                 "ep_dir": "INTEGER NOT NULL DEFAULT 0",
                 "ep_anchor": "REAL NOT NULL DEFAULT 0",
                 "ep_step": "INTEGER NOT NULL DEFAULT 0",
+                "ep_peak": "REAL NOT NULL DEFAULT 0",
+                "ep_pb": "INTEGER NOT NULL DEFAULT 0",
             }
             for col, decl in add.items():
                 if col not in cols:
@@ -328,7 +333,8 @@ class Store:
 
     def set_fluctuation(self, symbol, **fields):
         allowed = {"pct", "window_s", "cooldown_s", "enabled", "last_fired", "last_price",
-                   "urgent_pct", "urgent_repeat", "ep_dir", "ep_anchor", "ep_step"}
+                   "urgent_pct", "urgent_repeat", "ep_dir", "ep_anchor", "ep_step",
+                   "ep_peak", "ep_pb"}
         sets, args = [], []
         for k, v in fields.items():
             if k in allowed:
