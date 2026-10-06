@@ -120,6 +120,16 @@
 		}
 	}
 #ENDIF
+#IF:sensor
+	# ESP32 sensor dashboard. No basic_auth: the page only shows room
+	# temperature/humidity, and the ESP32 posts here too -- POST /api/readings is
+	# guarded by the app's own X-Sensor-Token check. handle_path strips the
+	# prefix; the page uses relative URLs.
+	redir /{$SENSOR_PATH} /{$SENSOR_PATH}/ 308
+	handle_path /{$SENSOR_PATH}/* {
+		reverse_proxy sensor:3001
+	}
+#ENDIF
 #IF:n8n
 	# n8n automation.
 	#

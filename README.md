@@ -33,6 +33,7 @@ on hardware you control.
 | 💬 | **Matrix + Element** — private chat, voice, video | `matrix.yourdomain` |
 | ⬇️ | **MeTube** — yt-dlp downloader, self-cleaning | `yourdomain/<secret>` |
 | 📈 | **Crypto Tracker** — live prices, Telegram price alerts | `yourdomain/<secret>` |
+| 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
 | 🤖 | **Helper bot** — health alerts, links, downloads, logins over Telegram | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
@@ -103,7 +104,7 @@ Not everyone wants all of it. One line in `.env` decides:
 
 ```ini
 # everything
-COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,n8n,ollama,helper
+COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,sensor,n8n,ollama,helper
 
 # just files and photos
 COMPOSE_PROFILES=nextcloud,immich
@@ -116,7 +117,7 @@ COMPOSE_PROFILES=immich
 |---|---|
 | `nextcloud` | 6 |
 | `nextcloud,immich` | 10 |
-| all eight | 23 |
+| all nine | 24 |
 
 Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
@@ -132,7 +133,7 @@ The dashboard is responsive, so the hub works from a phone as well as a desk.
 
 ## Everything is in one file
 
-`.env` holds **99 settings**, each documented where it sits. Only two have no
+`.env` holds **112 settings**, each documented where it sits. Only two have no
 sensible default, because they can't:
 
 ```ini
@@ -152,10 +153,10 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `CRYPTO_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
-| Secrets | 11 passwords and shared secrets, all generated |
+| Secrets | 12 passwords and shared secrets, all generated |
 | VPN | subnet, endpoint, MTU, port, SNI passthrough |
 | Branding | `HUB_NAME`, `ELEMENT_BRAND` |
 
@@ -287,6 +288,7 @@ caddy/                  custom image + Caddyfile template
 dashboard/              hub page (Vite + React) — cards in src/services.js
 stats/                  host metrics, dependency-free Python
 crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
+sensor/data/            ESP32 sensor readings (the app is built from its own repo)
 n8n/workflows/          importable automation workflows
 helper/                 Telegram helper bot (dependency-free Python)
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
@@ -306,6 +308,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
+| 🌡️ **[SENSOR.md](docs/SENSOR.md)** | The ESP32 room sensor — posting from another network, token, certificate check, importing old readings |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram helper bot — health alerts, links, downloads, logins |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |

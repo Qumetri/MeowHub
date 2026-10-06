@@ -15,6 +15,7 @@ matrix/element/config.json
 
 # Runtime data
 caddy/data/
+sensor/data/
 caddy/config/
 nextcloud/
 immich/

@@ -61,6 +61,12 @@ const paths = {
   chat: (
     <path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
   ),
+  thermometer: (
+    <>
+      <path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0Z" />
+      <path d="M12 9v7" />
+    </>
+  ),
   download: (
     <>
       <path d="M12 4v10m0 0 4-4m-4 4-4-4" />

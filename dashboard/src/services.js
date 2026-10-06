@@ -15,6 +15,7 @@ const AWG     = E.VITE_AWG_ADMIN_PATH || ''
 const METUBE  = E.VITE_METUBE_PATH   || ''
 const CRYPTO  = E.VITE_CRYPTO_PATH   || ''
 const N8N     = E.VITE_N8N_PATH      || ''
+const SENSOR  = E.VITE_SENSOR_PATH   || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -81,6 +82,15 @@ export const services = [
     icon: 'chart',
     gradient: ['#f7931a', '#fbbf24'],
     status: CRYPTO ? 'live' : 'soon',
+  },
+  {
+    id: 'sensor',
+    name: 'Room Sensor',
+    description: 'ESP32 temperature & humidity',
+    url: `https://${BASE}/${SENSOR}/`,
+    icon: 'thermometer',
+    gradient: ['#e4572e', '#3b82f6'],
+    status: SENSOR ? 'live' : 'soon',
   },
   {
     id: 'n8n',

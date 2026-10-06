@@ -85,6 +85,9 @@ set_env N8N_ENCRYPTION_KEY         "$(hex 32)"
 # Shared secret between the crypto tracker and n8n's "explain this move"
 # webhook (header X-Hook-Secret). See docs/CRYPTO.md.
 set_env CRYPTO_EXPLAIN_SECRET      "$(hex 24)"
+# The ESP32 sends this as X-Sensor-Token; the sensor app rejects posts without
+# it. Also goes into the device's secrets.py. See docs/SENSOR.md.
+set_env SENSOR_TOKEN               "$(hex 24)"
 
 # Secret paths: the placeholder defaults are guessable, so give each a random
 # suffix on first run. Once randomised they look nothing like the default and
@@ -114,6 +117,7 @@ randomise_path AWG_ADMIN_PATH  awg
 randomise_path CRYPTO_PATH     crypto
 randomise_path XUI_PANEL_PATH  panel
 randomise_path N8N_PUBLIC_PATH n8n
+randomise_path SENSOR_PATH     sensor
 
 # Reload so the rendering below sees everything we just wrote.
 set -a; . "$ENV_FILE"; set +a
@@ -280,6 +284,7 @@ mk ./caddy/config
 mk ./dashboard/dist
 mk ./immich/model-cache
 mk ./crypto/data
+mk ./sensor/data
 mk ./n8n/data
 mk ./helper/data
 [[ -n ${OLLAMA_MODELS:-} ]] && mk "$OLLAMA_MODELS"
@@ -298,6 +303,8 @@ if [[ $(id -u) -eq 0 ]]; then
   # The crypto container runs as uid 1000; without this its sqlite db is
   # unwritable, because Docker creates a missing bind-mount source as root.
   chown -R 1000:1000 ./crypto/data                            && c_ok "chown ./crypto/data -> 1000"
+  # The sensor app runs as uid 1000 (node) and owns its sqlite db.
+  chown -R 1000:1000 ./sensor/data                            && c_ok "chown ./sensor/data -> 1000"
   # n8n runs as uid 1000 (node) and owns its sqlite db the same way.
   chown -R 1000:1000 ./n8n/data                               && c_ok "chown ./n8n/data -> 1000"
   # The helper bot (uid 1000) keeps its token in ./helper/data and reads the
@@ -342,6 +349,7 @@ VITE_AWG_ADMIN_PATH=${AWG_ADMIN_PATH}
 VITE_METUBE_PATH=${METUBE_PATH}
 VITE_CRYPTO_PATH=${CRYPTO_PATH}
 VITE_N8N_PATH=${N8N_PUBLIC_PATH}
+VITE_SENSOR_PATH=${SENSOR_PATH}
 VITE_XUI_PANEL_PORT=${XUI_PANEL_PORT}
 VITE_XUI_PANEL_PATH=${XUI_PANEL_PATH}
 EOF
