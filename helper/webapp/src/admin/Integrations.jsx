@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../icons.jsx'
-import { Button, Dot, ErrorBox, Field, Sheet, Skeleton, toast } from '../ui.jsx'
+import { Button, Dot, ErrorBox, Field, Sheet, Skeleton, toast, useAuthedImage } from '../ui.jsx'
 import { api, relUrl } from '../api.js'
 import { useApi } from '../hooks.js'
 import { confirmDialog, haptic } from '../tg.js'
@@ -25,7 +25,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 function BotAvatar({ item }) {
   const [bad, setBad] = useState(false)
   const b = item.bot
-  const src = item.kind === 'bot' && b?.id ? (b.avatar_url ? relUrl(b.avatar_url) : './api/admin/bot-avatar/' + b.id) : null
+  const raw = item.kind === 'bot' && b?.id ? (b.avatar_url ? relUrl(b.avatar_url) : './api/admin/bot-avatar/' + b.id) : null
+  const img = useAuthedImage(raw)
+  const src = img.bad ? null : img.src
   return (
     <span className="keyav" aria-hidden="true">
       <Icon name={META[item.id]?.icon || 'bot'} size={22} />

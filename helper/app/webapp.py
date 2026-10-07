@@ -810,6 +810,7 @@ class App:
             raise ApiError(404, "not_found", "Участник не найден.")
         v = self.h.members.view(m)
         traffic = links = None
+        online = False
         xui = self.h.xui
         if xui is not None:
             try:
@@ -817,10 +818,11 @@ class App:
                 if traffic is None:
                     traffic = next((traffic_of(c) for c in xui.clients() if c.get("email") == v["vpn_email"]), None)
                 links = len(xui.client_links(v["vpn_email"]) or [])
+                online = v["vpn_email"] in (xui.onlines() or [])
             except Exception as e:
                 log.warning("xui member lookup failed: %s", type(e).__name__)
         v.update(events=self.h.members.events(uid, 50), vpn_links_count=links, traffic=traffic,
-                 matrix_accounts=self.accounts(uid))
+                 online=online, matrix_accounts=self.accounts(uid))
         return jr(v)
 
     def api_member_action(self, req, ctx, uid):

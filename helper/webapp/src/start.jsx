@@ -6,4 +6,4 @@ import App from './App.jsx'
 
 setLang(isTg ? tgUser?.language_code : 'ru')
 startTg()
-createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>)
+createRoot(document.getElementById('root')).render(<React.StrictMode><Crash><App /></Crash></React.StrictMode>)

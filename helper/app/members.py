@@ -87,7 +87,10 @@ def awg_limited(ids, by_id):
     return out
 
 
-DATE_SUFFIX = re.compile(r" · \d{2}\.\d{2}\.\d{2}$")
+# Inbound labels start with their creation date ("07.10.26 · ⚡ Speed …") so users can
+# tell new configs from old ones; on the left because long labels get cut off on the right.
+DATE_PREFIX = re.compile(r"^\d{2}\.\d{2}\.\d{2} · ")
+DATE_SUFFIX = re.compile(r" · \d{2}\.\d{2}\.\d{2}$")     # old placement, migrated to the prefix
 
 
 class Members:
@@ -616,6 +619,16 @@ class Reconciler:
                     raise RuntimeError("; ".join(errors))
 
     # -------------------------------------------------------------- reminders --
+    def _just_started(self, uid, now, window=2 * 3600):
+        """True when the newest redeem/grant/extend is within `window` and no manual
+        expiry change came after it (the owner moving the date should still remind)."""
+        for e in self.m.events(uid, 20):                 # newest first
+            if e["kind"] == "expire" and e["detail"] != "reminder":
+                return False
+            if e["kind"] in ("redeem", "grant", "extend"):
+                return now - e["ts"] < window
+        return False
+
     def reminders(self):
         now = time.time()
         owner = self.owner_id()
@@ -641,8 +654,12 @@ class Reconciler:
                                   {"text": "👤 Открыть", "callback_data": f"m:open:{uid}"}]]})
             elif left <= DAY:
                 if flag in (0, 3):
-                    text = (f"⏳ Подписка MeowHub закончится завтра (до {ru_date(exp)}). "
-                            "Чтобы продлить, пришли новый код.")
+                    # A membership started or extended moments ago with under a day left
+                    # (a 1-day code) shouldn't greet the user with "expires tomorrow".
+                    if not self._just_started(uid, now):
+                        text = (f"⏳ Подписка MeowHub закончится через 24 часа — {ru_date(exp)} "
+                                f"в {time.strftime('%H:%M', time.localtime(exp))}. "
+                                "Чтобы продлить, пришли новый код.")
                     self.m.set_reminded(uid, 1)
             elif left <= 3 * DAY:
                 if flag == 0:
@@ -668,10 +685,9 @@ class Reconciler:
             for i in inbounds:
                 if i["id"] in known:
                     continue
-                # Every inbound's label ends with its creation date (" · 07.10.26"), so
-                # users can tell new configs from old ones in their apps.
-                if not DATE_SUFFIX.search(str(i.get("remark", ""))):
-                    dated = f"{i.get('remark', '')} · {time.strftime('%d.%m.%y')}"
+                # Every inbound's label starts with its creation date (see DATE_PREFIX).
+                if not DATE_PREFIX.search(str(i.get("remark", ""))):
+                    dated = f"{time.strftime('%d.%m.%y')} · {i.get('remark', '')}"
                     try:
                         self.xui.inbound_set_remark(i["id"], dated)
                         i["remark"] = dated

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from './icons.jsx'
 import { t } from './i18n.js'
-import { avatarSrc } from './api.js'
+import { avatarSrc, loadAuthedImage } from './api.js'
 import { haptic, isTg } from './tg.js'
 import { useBack, useMainButton } from './hooks.js'
 import { copyText, hueOf, initials } from './util.js'
@@ -70,9 +70,24 @@ export function Switch({ checked, onChange, disabled, label }) {
   )
 }
 
+// Resolves an image URL that may need the Telegram auth header (see loadAuthedImage).
+export function useAuthedImage(url) {
+  const [state, setState] = useState({ src: null, bad: false })
+  useEffect(() => {
+    let live = true
+    setState({ src: null, bad: false })
+    if (!url) return
+    loadAuthedImage(url).then((src) => live && setState({ src, bad: false }), () => live && setState({ src: null, bad: true }))
+    return () => { live = false }
+  }, [url])
+  return state
+}
+
 export function Avatar({ uid, member, size = 40, src }) {
   const [bad, setBad] = useState(false)
-  const url = src === undefined ? (uid != null ? avatarSrc(uid) : null) : src
+  const raw = src === undefined ? (uid != null ? avatarSrc(uid) : null) : src
+  const img = useAuthedImage(raw)
+  const url = img.bad ? null : img.src
   const m = member || { first_name: '?' }
   return (
     <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.4, '--h': hueOf(uid ?? m.id ?? 0) }}>

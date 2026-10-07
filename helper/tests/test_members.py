@@ -436,11 +436,11 @@ class ReconcilerTest(Base):
     def test_new_inbound_gets_dated_once(self):
         self.rec.sync_all()
         self.xui._inbounds.append({"id": 6, "remark": "Fresh", "protocol": "vless", "port": 1, "enable": True})
-        self.xui._inbounds.append({"id": 9, "remark": "Old · 01.02.26", "protocol": "vless", "port": 2, "enable": True})
+        self.xui._inbounds.append({"id": 9, "remark": "01.02.26 · Old", "protocol": "vless", "port": 2, "enable": True})
         self.rec.detect_new_inbounds()
         self.rec.detect_new_inbounds()
         renames = [c for c in self.xui.calls if c[0] == "inbound_set_remark"]
-        self.assertEqual(renames, [("inbound_set_remark", 6, "Fresh · " + mm.time.strftime("%d.%m.%y"))])
+        self.assertEqual(renames, [("inbound_set_remark", 6, mm.time.strftime("%d.%m.%y") + " · Fresh")])
 
     def test_new_inbound_notified_once(self):
         self.rec.sync_all()                                        # defaults + known
@@ -452,7 +452,7 @@ class ReconcilerTest(Base):
         chat, text, markup = self.sent[0]
         self.assertEqual(chat, 1000)
         today = mm.time.strftime("%d.%m.%y")
-        self.assertIn(f"🆕 Новый инбаунд в 3x-ui: <b>New &lt;one&gt; · {today}</b> (trojan, :8443). Выдать его участникам?", text)
+        self.assertIn(f"🆕 Новый инбаунд в 3x-ui: <b>{today} · New &lt;one&gt;</b> (trojan, :8443). Выдать его участникам?", text)
         btns = markup["inline_keyboard"][0]
         self.assertEqual([b["callback_data"] for b in btns], ["inb:add:6", "inb:skip:6"])
         self.assertIn(6, self.m.known_inbounds())
@@ -483,7 +483,7 @@ class ReconcilerTest(Base):
         self.rec.reminders()
         self.rec.reminders()
         self.assertEqual(len(self.sent), 2)
-        self.assertIn("завтра", self.sent[1][1])
+        self.assertIn("через 24 часа", self.sent[1][1])
         self.m.set_expiry(7, now - 10)
         self.rec.reminders()
         self.rec.reminders()
@@ -508,6 +508,22 @@ class ReconcilerTest(Base):
         self.m.set_expiry(2, None)
         self.rec.reminders()
         self.assertEqual(self.sent, [])
+
+    def test_24h_reminder_skipped_right_after_short_redeem(self):
+        code = self.m.new_code(days=1)
+        self.m.redeem(8, FRM, code)                                # 1-day code: already inside 24 h
+        self.rec.reminders()
+        self.assertEqual(self.sent, [])                            # no "expires in 24 h" on day one
+        self.assertEqual(self.m.get(8)["reminded"], 1)             # and none later for this expiry
+
+    def test_24h_reminder_sent_after_window(self):
+        self.m.grant(9, FRM, days=30)
+        with self.m.s.lock:                                         # pretend the grant was 3 h ago
+            self.m.s.db.execute("UPDATE events SET ts=ts-3*3600 WHERE uid=9")
+        self.m._exec("UPDATE members SET expires_ts=? WHERE id=9", int(time.time()) + 20 * 3600)
+        self.rec.reminders()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("через 24 часа", self.sent[0][1])
 
 
 if __name__ == "__main__":

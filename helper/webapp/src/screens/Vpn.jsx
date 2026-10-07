@@ -139,7 +139,7 @@ export default function Vpn() {
 
             <Section title={t('vpn.add')} footer={t('vpn.add_foot')}>
               {apps.map((a) => (
-                <Cell key={a.id} icon="external" title={a.name} sub={(a.platforms || []).join(' · ')} chevron
+                <Cell key={a.id} icon="external" title={a.name} sub={Array.isArray(a.platforms) ? a.platforms.join(' · ') : (a.platforms || '')} chevron
                   onClick={() => { haptic.impact('light'); openLink(new URL(a.go_url, location.href).href) }} />
               ))}
             </Section>

@@ -528,3 +528,9 @@ html[data-mode='browser'] .keycard { backdrop-filter: blur(12px); }
 }
 .topbar .pvbar { padding-inline: max(24px, calc((100vw - 1200px) / 2 + 24px)); }
 @media (max-width: 520px) { .topbar .pvbar { padding-inline: 16px; } }
+
+/* render-crash fallback (start.jsx) */
+.crash { padding: 32px 20px; max-width: 520px; margin: 0 auto; }
+.crash h2 { margin: 0 0 8px; font-size: 22px; }
+.crash p { margin: 0 0 16px; color: var(--hint, #888); line-height: 1.45; }
+.crash pre { margin-top: 20px; font-size: 12px; white-space: pre-wrap; opacity: .6; }

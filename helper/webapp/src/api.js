@@ -69,3 +69,17 @@ export function avatarSrc(uid) {
   }
   return './api/avatar/' + uid
 }
+
+// <img src="./api/..."> cannot carry the X-Tg-Init-Data header, so in Telegram the
+// server answers 401. Fetch such images with the header and hand back a blob: URL.
+const imgCache = new Map()
+export function loadAuthedImage(url) {
+  if (!url || !isTg || !/^\.\/api\//.test(url) || previewApi) return Promise.resolve(url)
+  if (!imgCache.has(url)) {
+    imgCache.set(url, fetch(url, { headers: { 'X-Tg-Init-Data': initData } })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('http ' + r.status))))
+      .then((b) => URL.createObjectURL(b))
+      .catch((e) => { imgCache.delete(url); throw e }))
+  }
+  return imgCache.get(url)
+}

@@ -104,8 +104,11 @@ Matrix.
 - **Reconciler** (`members.py`): runs every 120 s and immediately on any change,
   and brings 3x-ui and Synapse in line with the database. Don't edit the `mh-…`
   clients in the panel by hand — the next pass reverts it.
-- **Reminders**: to the member 3 days and 1 day before expiry and at expiry; the
-  owner gets an expiry notice with a "+30 days" button.
+- **Reminders**: to the member 3 days before expiry, 24 hours before (with the exact
+  date and time) and at expiry; the owner gets an expiry notice with a "+30 days"
+  button. The 24-hour one is skipped when the membership was started or extended in
+  the last 2 hours (e.g. a 1-day code), so nobody is told "expires in 24 h" right
+  after joining.
 
 ### Setting it up
 
@@ -239,12 +242,13 @@ that points at `host.docker.internal`, that rewrite did not run.
 ## Inbound auto-dating
 
 Members cannot tell new configs from old ones in their apps, so every inbound's
-remark ends with its creation date, `Name · 07.10.26` (day.month.year). The
+remark starts with its creation date, `07.10.26 · Name` (`"DD.MM.YY · "`, on the
+left because apps truncate long labels on the right). The
 reconciler adds it **once**, the first time it sees an inbound it does not know
 yet: it renames the inbound through the panel API (the full inbound is sent
 back with only `remark` changed, so clients and keys survive) and the "new
 inbound" notice already shows the dated name. An inbound whose remark already
-ends in such a date is left alone, so renaming is idempotent; inbounds that
+starts with such a date is left alone, so renaming is idempotent; inbounds that
 existed before the feature keep their names. A failed rename is logged and
 skipped, never fatal.
 
@@ -270,6 +274,9 @@ accounts) and a place to enter a new code. The Bots page shows KPIs, a 30-day
 activity chart, the bots (helper, member and the crypto tracker's, via `getMe`),
 the tokens block, the reconciler's sync status, the member-inbounds editor, members with their
 profile photos (cached 24 h in `helper/data/avatars/`) and codes.
+
+In Telegram mode the avatars are fetched with the `initData` header and shown as
+blobs, because an `<img>` tag cannot send headers (the endpoint would answer 401).
 
 **`BOT_APP_PATH`, `BOT_ADMIN_PATH` and `BOT_ADMIN_KEY` carry `:?` guards in
 caddy's `environment:`** — an empty value would turn the route into `/*` and

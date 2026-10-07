@@ -222,11 +222,11 @@ export async function handle(method, path, body) {
       ],
       traffic: { up: 1.2e9, down: 18.7e9 }, online: true,
       apps: [
-        { id: 'happ', name: 'Happ', platforms: ['iOS', 'Android', 'macOS'], go_url: go('happ') },
-        { id: 'hiddify', name: 'Hiddify', platforms: ['iOS', 'Android', 'Windows'], go_url: go('hiddify') },
-        { id: 'v2raytun', name: 'v2RayTun', platforms: ['iOS', 'Android'], go_url: go('v2raytun') },
-        { id: 'streisand', name: 'Streisand', platforms: ['iOS'], go_url: go('streisand') },
-        { id: 'v2rayng', name: 'v2rayNG', platforms: ['Android'], go_url: go('v2rayng') },
+        { id: 'happ', name: 'Happ', platforms: 'iOS · Android · macOS', go_url: go('happ') },
+        { id: 'hiddify', name: 'Hiddify', platforms: 'iOS · Android · Windows', go_url: go('hiddify') },
+        { id: 'v2raytun', name: 'v2RayTun', platforms: 'iOS · Android', go_url: go('v2raytun') },
+        { id: 'streisand', name: 'Streisand', platforms: 'iOS', go_url: go('streisand') },
+        { id: 'v2rayng', name: 'v2rayNG', platforms: 'Android', go_url: go('v2rayng') },
       ],
     }
   }
