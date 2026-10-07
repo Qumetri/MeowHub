@@ -152,6 +152,9 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       HELPER_BOT_TOKEN: ${HELPER_BOT_TOKEN:-}
+      # Optional second bot for members; the owner keeps this one for ops (docs/HELPER.md
+      # "Two bots"). Empty -> single-bot mode; can also be pasted on the Bots page.
+      MEMBER_BOT_TOKEN: ${MEMBER_BOT_TOKEN:-}
       HELPER_OWNER_ID: ${HELPER_OWNER_ID:-}
       HELPER_REPORT_HOUR: ${HELPER_REPORT_HOUR:-9}
       BASE_DOMAIN: ${BASE_DOMAIN}
@@ -193,6 +196,8 @@ services:
       MATRIX_MAX_PER_MEMBER: ${MATRIX_MAX_PER_MEMBER:-2}
       # The crypto tracker's bot, shown on the admin "Bots" page (getMe only).
       CRYPTO_TG_TOKEN: ${CRYPTO_TG_TOKEN:-}
+      # Where the Bots page pushes a new crypto-bot token (the tracker's settings API).
+      CRYPTO_URL: ${CRYPTO_URL:-http://crypto:9102/api/settings}
     volumes:
       - ./helper/data:/data
       - ./dashboard/dist:/hub:ro

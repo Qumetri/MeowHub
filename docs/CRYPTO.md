@@ -152,6 +152,20 @@ once automatically, and the *Alerts enabled* switch still works after that.
 A value saved in the UI remains only as a fallback for when the variable is
 empty. **Send test** and **Detect chat** use the effective (`.env`) token.
 
+**Third source: the helper bot's Bots page.** With the [helper bot](HELPER.md#tokens-on-the-bots-page)
+you can change the crypto bot's token from the owner's Bots page; it is sent to
+the tracker as `tg_token_override` (empty clears it). Effective token:
+
+1. the override from the Bots page,
+2. `CRYPTO_TG_TOKEN` in `.env`,
+3. the value saved in the Telegram tab.
+
+The Telegram tab says which one is in use and read-only-locks the field whenever
+the override or `.env` supplies it. Resetting the override on the Bots page falls
+back to `.env`. The override is stored in `crypto.db` like the other settings and
+is applied immediately, no restart. n8n keeps its own copy of the token in its
+Telegram credential — change it there too if workflows send through this bot.
+
 ## Alert types
 
 ### Price targets

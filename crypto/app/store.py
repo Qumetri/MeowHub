@@ -112,6 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts DESC);
 
 DEFAULT_SETTINGS = {
     "tg_token": "",
+    "tg_token_override": "",    # set by the helper bot's Bots page; wins over .env
     "tg_chat_id": "",
     "tg_enabled": "0",
     "summary_enabled": "0",
@@ -208,10 +209,22 @@ class Store:
         with self._lock:
             out = {r["key"]: r["value"]
                    for r in self.db.execute("SELECT key,value FROM settings")}
+        # Effective token: page override > .env > value saved in the UI.
+        ui_tok = (out.get("tg_token") or "").strip()
         for k, var in ENV_SETTINGS.items():
             v = os.environ.get(var, "").strip()
             if v:
                 out[k] = v
+        override = (out.get("tg_token_override") or "").strip()
+        if override:
+            out["tg_token"] = override
+            out["tg_token_source"] = "override"
+        elif os.environ.get("CRYPTO_TG_TOKEN", "").strip():
+            out["tg_token_source"] = "env"
+        elif ui_tok:
+            out["tg_token_source"] = "ui"
+        else:
+            out["tg_token_source"] = "none"
         return out
 
     def get(self, key, default=""):

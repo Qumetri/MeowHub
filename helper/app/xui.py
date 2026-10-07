@@ -176,6 +176,15 @@ class XUI:
     def client_delete(self, email):
         self._call("POST", f"/panel/api/clients/del/{self._q(email)}", query={"keepTraffic": 0})
 
+    def inbound_set_remark(self, inbound_id, remark):
+        """Rename an inbound. /update replaces the whole inbound, so send back the full
+        record /get returns (including settings.clients) with only the remark changed;
+        verified on 3.8.5 that clients, keys and AWG addresses survive."""
+        inb = self._call("GET", f"/panel/api/inbounds/get/{int(inbound_id)}")
+        body = {k: v for k, v in inb.items() if k not in ("id", "clientStats")}
+        body["remark"] = remark
+        self._call("POST", f"/panel/api/inbounds/update/{int(inbound_id)}", body)
+
     def client_links(self, email):
         return self._call("GET", f"/panel/api/clients/links/{self._q(email)}") or []
 

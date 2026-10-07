@@ -175,7 +175,9 @@ class App:
             "tg_token": server.mask_token(s.get("tg_token", "")),
             "tg_token_set": bool(s.get("tg_token")),
             # Managed by .env (CRYPTO_TG_TOKEN / CRYPTO_TG_CHAT_ID): read-only in the UI.
-            "tg_token_env": "tg_token" in store_mod.env_managed(),
+            "tg_token_env": ("tg_token" in store_mod.env_managed()
+                             and s.get("tg_token_source") != "override"),
+            "tg_token_source": s.get("tg_token_source", "none"),
             "tg_chat_env": "tg_chat_id" in store_mod.env_managed(),
             "tg_chat_id": s.get("tg_chat_id", ""),
             "tg_enabled": s.get("tg_enabled", "0"),

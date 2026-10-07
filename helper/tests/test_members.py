@@ -16,13 +16,19 @@ FRM = {"username": "bob", "first_name": "Bob", "last_name": "", "language_code":
 
 class FakeXUI:
     def __init__(self, inbounds=None):
-        self._inbounds = inbounds if inbounds is not None else []
+        self._inbounds = [dict(i) for i in inbounds] if inbounds is not None else []   # copy: tests mutate it
         self.store = {}                   # email -> client record (with inboundIds)
         self.calls = []
 
     def inbounds(self):
         self.calls.append(("inbounds",))
         return [dict(i) for i in self._inbounds]
+
+    def inbound_set_remark(self, inbound_id, remark):
+        self.calls.append(("inbound_set_remark", inbound_id, remark))
+        for i in self._inbounds:
+            if i["id"] == inbound_id:
+                i["remark"] = remark
 
     def clients(self):
         self.calls.append(("clients",))
@@ -427,6 +433,15 @@ class ReconcilerTest(Base):
         rec.detect_new_inbounds()
         self.assertTrue(rec.last_sync["ok"])
 
+    def test_new_inbound_gets_dated_once(self):
+        self.rec.sync_all()
+        self.xui._inbounds.append({"id": 6, "remark": "Fresh", "protocol": "vless", "port": 1, "enable": True})
+        self.xui._inbounds.append({"id": 9, "remark": "Old · 01.02.26", "protocol": "vless", "port": 2, "enable": True})
+        self.rec.detect_new_inbounds()
+        self.rec.detect_new_inbounds()
+        renames = [c for c in self.xui.calls if c[0] == "inbound_set_remark"]
+        self.assertEqual(renames, [("inbound_set_remark", 6, "Fresh · " + mm.time.strftime("%d.%m.%y"))])
+
     def test_new_inbound_notified_once(self):
         self.rec.sync_all()                                        # defaults + known
         self.xui._inbounds.append({"id": 6, "remark": "New <one>", "protocol": "trojan",
@@ -436,7 +451,8 @@ class ReconcilerTest(Base):
         self.assertEqual(len(self.sent), 1)
         chat, text, markup = self.sent[0]
         self.assertEqual(chat, 1000)
-        self.assertIn("🆕 Новый инбаунд в 3x-ui: <b>New &lt;one&gt;</b> (trojan, :8443). Выдать его участникам?", text)
+        today = mm.time.strftime("%d.%m.%y")
+        self.assertIn(f"🆕 Новый инбаунд в 3x-ui: <b>New &lt;one&gt; · {today}</b> (trojan, :8443). Выдать его участникам?", text)
         btns = markup["inline_keyboard"][0]
         self.assertEqual([b["callback_data"] for b in btns], ["inb:add:6", "inb:skip:6"])
         self.assertIn(6, self.m.known_inbounds())

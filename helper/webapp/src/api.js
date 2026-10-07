@@ -14,7 +14,15 @@ export class ApiError extends Error {
   }
 }
 
+// Owner "preview as member": App.jsx loads mock.js lazily and installs its
+// handler here, so every screen keeps calling api() but is served mock data and
+// never touches the server.
+let previewApi = null
+export function setPreviewApi(fn) { previewApi = fn }
+export const inPreview = () => !!previewApi
+
 export async function api(path, { method = 'GET', body } = {}) {
+  if (previewApi) return previewApi(method, path, body)
   if (import.meta.env.DEV && MOCK) {
     const m = await import('./mock.js')
     return m.handle(method, path, body)
@@ -52,8 +60,8 @@ export function relUrl(u) {
   return './' + u.replace(/^\/+/, '')
 }
 export function avatarSrc(uid) {
-  if (import.meta.env.DEV && MOCK) {
-    // Dev mock: a few fake photos, the rest exercise the initials fallback.
+  if ((import.meta.env.DEV && MOCK) || previewApi) {
+    // Dev mock / preview: a few fake photos, the rest exercise the initials fallback.
     if (uid % 3 === 0) return null
     const h = (Number(uid) * 47) % 360
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h} 60% 62%)"/><stop offset="1" stop-color="hsl(${(h + 50) % 360} 55% 38%)"/></linearGradient></defs><rect width="80" height="80" fill="url(#g)"/><circle cx="40" cy="31" r="13" fill="#fff" fill-opacity=".85"/><path d="M12 80c3-19 17-26 28-26s25 7 28 26z" fill="#fff" fill-opacity=".85"/></svg>`

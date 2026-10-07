@@ -85,6 +85,8 @@ const ru = {
   // vpn
   'vpn.title': 'VPN',
   'vpn.sub': 'Подписка',
+  'vpn.sub_all': 'Всё сразу — подписка',
+  'vpn.connect': 'Подключить',
   'vpn.sub_link': 'Ссылка подписки',
   'vpn.show_qr': 'Показать QR',
   'vpn.hide_qr': 'Скрыть QR',
@@ -221,6 +223,8 @@ const en = {
   'svc.tools_desc': 'Bot tools: server checks, links, video downloads',
 
   'vpn.sub': 'Subscription',
+  'vpn.sub_all': 'All at once — subscription',
+  'vpn.connect': 'Connect',
   'vpn.sub_link': 'Subscription link',
   'vpn.show_qr': 'Show QR',
   'vpn.hide_qr': 'Hide QR',

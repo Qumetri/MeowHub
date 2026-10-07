@@ -1,14 +1,18 @@
-// Dev mock only. api.js reaches this file solely behind `import.meta.env.DEV`,
-// so production builds never contain it. Enabled with ?mock=member|owner|stranger|expired
-// (+ &mode=tg for the fake Telegram shell, &theme=dark, &lang=en, &pending=1, &fail=<path part>).
+// Mock data. api.js reaches it behind `import.meta.env.DEV` (?mock=...), and
+// App.jsx loads it lazily via import() for the owner's "preview as member" -
+// either way it is its own chunk, never part of the main bundle. Dev switches: ?mock=member|owner|stranger|expired
+// (+ &mode=tg for the fake Telegram shell, &theme=dark, &lang=en, &pending=1, &fail=<path part>,
+// &member_bot=1 (member bot configured), &via=member, &preview=guest|member|expired, &tab=overview).
 import { ApiError } from './api.js'
 import { MOCK_USERS } from './mock-users.js'
+import { getLang } from './i18n.js'
 
 const P = new URLSearchParams(location.search)
-const ROLE = P.get('mock')
+let ROLE = P.get('mock')
+let previewOn = false
 const D = 86400
 const now = () => Math.floor(Date.now() / 1000)
-const lang = P.get('lang') === 'en' ? 'en' : 'ru'
+const L = () => (previewOn ? getLang() : P.get('lang') === 'en' ? 'en' : 'ru')
 const SERVER = 'example.org'
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -62,9 +66,35 @@ const state = {
     { id: 10, remark: 'MTProto proxy', protocol: 'mtproto', port: 9443, enable: true, member: false },
   ],
   sync: { ts: now() - 340, ok: true, error: '', vpn_clients: 11 },
+  keys: {
+    helper: { source: 'env', masked: '8123…a9Zk', bot: { id: 8123, username: 'ExampleBot', name: 'MeowHub Helper', ok: true, error: '' } },
+    member: P.get('member_bot') === '1'
+      ? { source: 'page', masked: '7345…Qm2x', bot: { id: 7345, username: 'ExampleMemberBot', name: 'MeowHub', ok: true, error: '' } }
+      : { source: 'none', masked: '', bot: null },
+    crypto: { source: 'env', masked: '6011…Lp0d', bot: { id: 6011, username: 'ExampleCryptoBot', name: 'Crypto News', ok: false, error: 'api.telegram.org: timeout' } },
+    xui: { source: 'page', masked: 'x7Kq…93Fa', check: { ok: true, error: '', detail: '25 инбаундов' } },
+  },
 }
-const SELF = ROLE === 'stranger' ? null : (ROLE === 'owner' ? MOCK_USERS.owner : ROLE === 'expired' ? MOCK_USERS.expired : MOCK_USERS.member)
-const TG_USER = MOCK_USERS[ROLE] || MOCK_USERS.member
+const NOTE_CRYPTO = 'n8n хранит свою копию токена крипто-бота: после смены обнови токен в его Telegram-credential в n8n.'
+const keyItem = (id) => {
+  const k = state.keys[id]
+  return {
+    id, kind: id === 'xui' ? 'api' : 'bot', configured: k.source !== 'none', source: k.source, masked: k.masked,
+    updated_ts: k.source === 'page' ? now() - 3600 : null, restart_on_change: id === 'helper' || id === 'member',
+    ...(k.bot !== undefined ? { bot: k.bot } : {}), ...(k.check ? { check: k.check } : {}),
+    ...(id === 'crypto' ? { note: NOTE_CRYPTO } : {}),
+  }
+}
+const pickSelf = (r) => (r === 'stranger' ? null : (r === 'owner' ? MOCK_USERS.owner : r === 'expired' ? MOCK_USERS.expired : MOCK_USERS.member))
+let SELF = pickSelf(ROLE)
+let TG_USER = MOCK_USERS[ROLE] || MOCK_USERS.member
+// Owner preview: act as 'stranger' | 'member' | 'expired'; configure(null) goes back to the URL's role.
+export function configure(role) {
+  previewOn = !!role
+  ROLE = role || P.get('mock')
+  SELF = pickSelf(ROLE)
+  TG_USER = MOCK_USERS[ROLE] || MOCK_USERS.member
+}
 let pendingOnce = P.get('pending') === '1'
 
 const find = (id) => state.members.find((m) => m.id === Number(id))
@@ -127,12 +157,17 @@ export async function handle(method, path, body) {
 
   if (path === 'me') {
     const m = selfMember()
+    // ?via=member: the owner opened the app through the member bot - plain member/stranger.
+    const viaMember = !previewOn && ROLE === 'owner' && P.get('via') === 'member'
     return {
-      role: ROLE === 'owner' ? 'owner' : m ? 'member' : 'stranger',
+      role: ROLE === 'owner' && !viaMember ? 'owner' : m ? 'member' : 'stranger',
       mode: P.get('mode') === 'tg' ? 'tg' : 'browser',
-      user: { ...TG_USER, language_code: lang },
+      user: { ...TG_USER, language_code: L() },
       member: m ? view(m) : null, contact: '@owner', bot_username: 'ExampleBot',
-      services: SERVICES.map((s) => ({ id: s.id, name: s[lang][0], description: s[lang][1] })),
+      via: viaMember ? 'member' : P.get('mode') === 'tg' ? 'helper' : 'browser',
+      member_bot_username: state.keys.member.bot?.username || '',
+      can_preview: ROLE === 'owner',
+      services: SERVICES.map((s) => ({ id: s.id, name: s[L()][0], description: s[L()][1] })),
     }
   }
 
@@ -165,6 +200,25 @@ export async function handle(method, path, body) {
         { name: 'Resistance · XHTTP', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':443?type=xhttp&security=reality&sni=dl.google.com#Resistance' },
         { name: 'Trojan TLS', url: 'trojan://q7Zp2mXk9d@' + SERVER + ':8443?sni=' + SERVER + '#Trojan' },
         { name: 'Shadowsocks 2022', url: 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206a2V5@' + SERVER + ':8388#SS' },
+      ],
+      groups: [
+        { id: 'main', title: 'VLESS и Shadowsocks', apps: ['Happ', 'v2RayTun', 'v2rayNG', 'Hiddify'],
+          hint: 'Скопируй → в приложении «+» → «Импорт из буфера».',
+          links: [
+            { name: 'Speed · Vision Reality', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':443?security=reality&flow=xtls-rprx-vision&sni=www.icloud.com#Speed', action: 'copy' },
+            { name: 'Resistance · XHTTP', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':443?type=xhttp&security=reality&sni=dl.google.com#Resistance', action: 'copy' },
+            { name: 'Trojan TLS', url: 'trojan://q7Zp2mXk9d@' + SERVER + ':8443?sni=' + SERVER + '#Trojan', action: 'copy' },
+            { name: 'Shadowsocks 2022', url: 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206a2V5@' + SERVER + ':8388#SS', action: 'copy' },
+          ] },
+        { id: 'new', title: '🧪 Новые протоколы (тест)', apps: ['Happ', 'v2RayTun'],
+          hint: 'Нужна последняя версия Happ или v2RayTun. Скопируй → «+» → «Из буфера».',
+          links: [{ name: 'VLESS Encryption (ML-KEM)', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':2096?encryption=mlkem768x25519plus.native.0rtt.xxxx&type=tcp#🧪 Enc', action: 'copy' }] },
+        { id: 'udp', title: 'Hysteria2 (UDP)', apps: ['Happ', 'Hiddify', 'v2RayTun'],
+          hint: 'Если обычные не работают. Скопируй → «+» → «Из буфера».',
+          links: [{ name: 'Hysteria2', url: 'hysteria2://k3x9a7fq2m@' + SERVER + ':4443?sni=' + SERVER + '#Hysteria2', action: 'copy' }] },
+        { id: 'tg', title: 'Прокси для Telegram', apps: ['Telegram'],
+          hint: 'Нажми — Telegram сам предложит включить.',
+          links: [{ name: 'MTProto-прокси', url: 'https://t.me/proxy?server=' + SERVER + '&port=9443&secret=ee1f2e3d4c5b6a79880a1b2c3d4e5f6a7b', action: 'telegram' }] },
       ],
       traffic: { up: 1.2e9, down: 18.7e9 }, online: true,
       apps: [
@@ -220,6 +274,27 @@ export async function handle(method, path, body) {
       }
     }
     if (rest[0] === 'sync') { state.sync = { ts: now(), ok: true, error: '', vpn_clients: state.members.filter((m) => m.services.includes('vpn')).length }; return state.sync }
+    if (rest[0] === 'integrations') {
+      await delay(300)
+      if (rest.length === 1) return { items: ['helper', 'member', 'crypto', 'xui'].map(keyItem) }
+      const id = rest[1], k = state.keys[id]
+      if (!k) err(404, 'not_found', 'Неизвестный ключ')
+      if (rest[2] === 'reset') {
+        if (k.source !== 'page') err(404, 'no_override', 'Нет ключа, заданного здесь')
+        k.source = id === 'member' ? 'none' : 'env'; k.masked = id === 'member' ? '' : k.masked
+        if (id === 'member') k.bot = null
+        return { item: keyItem(id), restarting: id === 'helper' || id === 'member' }
+      }
+      const tok = String(body.token || '').trim()
+      if (tok.length < 8) err(400, 'bad_token', 'Telegram ответил: Unauthorized — токен не подошёл.')
+      if (tok.includes('bad')) err(400, 'bad_token', 'Telegram ответил: Unauthorized — токен не подошёл.')
+      if (id === 'member' && tok.includes('same')) err(400, 'same_bot', 'Это тот же бот, что и служебный. Нужен отдельный бот от @BotFather.')
+      if (id === 'crypto' && tok.includes('apply')) err(502, 'crypto_apply_failed', 'Крипто-сервис не принял токен (502). Ничего не сохранено.')
+      k.source = 'page'; k.masked = tok.slice(0, 4) + '…' + tok.slice(-4)
+      if (id === 'xui') k.check = { ok: true, error: '', detail: '25 инбаундов' }
+      else k.bot = { id: 9000 + id.length, username: id === 'member' ? 'ExampleMemberBot' : 'NewBot', name: id === 'member' ? 'MeowHub' : 'New Bot', ok: true, error: '' }
+      return { item: keyItem(id), restarting: id === 'helper' || id === 'member' }
+    }
     if (rest[0] === 'inbounds') {
       if (method === 'POST') {
         const ids = body.member_ids

@@ -87,6 +87,9 @@ def awg_limited(ids, by_id):
     return out
 
 
+DATE_SUFFIX = re.compile(r" · \d{2}\.\d{2}\.\d{2}$")
+
+
 class Members:
     def __init__(self, store):
         self.s = store
@@ -665,6 +668,15 @@ class Reconciler:
             for i in inbounds:
                 if i["id"] in known:
                     continue
+                # Every inbound's label ends with its creation date (" · 07.10.26"), so
+                # users can tell new configs from old ones in their apps.
+                if not DATE_SUFFIX.search(str(i.get("remark", ""))):
+                    dated = f"{i.get('remark', '')} · {time.strftime('%d.%m.%y')}"
+                    try:
+                        self.xui.inbound_set_remark(i["id"], dated)
+                        i["remark"] = dated
+                    except Exception as e:
+                        log.warning("dating inbound %s failed: %s", i["id"], e)
                 self.send(owner,
                           f"🆕 Новый инбаунд в 3x-ui: <b>{esc(i.get('remark', ''))}</b> "
                           f"({esc(i.get('protocol', ''))}, :{esc(i.get('port', ''))}). Выдать его участникам?",

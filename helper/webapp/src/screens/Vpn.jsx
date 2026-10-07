@@ -4,7 +4,7 @@ import Icon from '../icons.jsx'
 import { Cell, Dot, ErrorBox, Section, Skeleton, doCopy, Button, Empty } from '../ui.jsx'
 import { api } from '../api.js'
 import { t } from '../i18n.js'
-import { haptic, openLink } from '../tg.js'
+import { haptic, openLink, openTelegramLink } from '../tg.js'
 import { fmtBytes, shortUrl } from '../util.js'
 import { useApp } from '../ctx.js'
 import { Title } from './shared.jsx'
@@ -56,11 +56,45 @@ function useVpn() {
   return { ...st, reload: load }
 }
 
+function LinkCell({ l, i }) {
+  if (l.action === 'telegram') {
+    const go = () => { haptic.impact('light'); openTelegramLink(l.url) }
+    return (
+      <Cell icon="send" title={l.name || `#${i + 1}`} onClick={go}
+        right={<Button kind="tonal" size="s" onClick={(e) => { e.stopPropagation(); go() }}>{t('vpn.connect')}</Button>} />
+    )
+  }
+  const copy = () => { haptic.impact('light'); doCopy(l.url) }
+  return (
+    <Cell icon="key" title={l.name || `#${i + 1}`} onClick={copy}
+      right={<button type="button" className="iconbtn" aria-label={t('common.copy')} onClick={(e) => { e.stopPropagation(); copy() }}><Icon name="copy" size={20} /></button>} />
+  )
+}
+
+// One config family = one set of apps that can use it.
+function Group({ g, defaultOpen }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className="sec vgrp">
+      <button type="button" className="sec__h sec__h--btn" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <h3>{g.title}</h3>
+        <Icon name="chevdown" size={16} className={'rot' + (open ? ' open' : '')} />
+      </button>
+      {g.apps?.length > 0 && <div className="appchips">{g.apps.map((a) => <span key={a} className="appchip">{a}</span>)}</div>}
+      {open && (
+        <>
+          <div className="group">{g.links.map((l, i) => <LinkCell key={i} l={l} i={i} />)}</div>
+          {g.hint && <p className="sec__f">{g.hint}</p>}
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function Vpn() {
   const { go } = useApp()
   const { data, error, loading, pending, reload } = useVpn()
   const [qr, setQr] = useState(false)
-  const [cfg, setCfg] = useState(false)
 
   let body
   if (loading && !data) {
@@ -83,27 +117,34 @@ export default function Vpn() {
     }
   } else {
     const { sub_url: sub, links = [], traffic, online, apps = [] } = data
+    // An older server has no groups: show everything as one.
+    const groups = (data.groups?.length ? data.groups : links.length ? [{ id: 'all', title: t('vpn.configs'), apps: [], hint: '', links }] : [])
+    const hasSub = !!sub
     body = (
       <>
-        <Section title={t('vpn.sub')}>
-          <Cell icon="link" title={t('vpn.sub_link')} sub={<span className="mono">{shortUrl(sub)}</span>}
-            right={<button type="button" className="iconbtn" aria-label={t('common.copy')} onClick={(e) => { e.stopPropagation(); haptic.impact('light'); doCopy(sub) }}><Icon name="copy" size={20} /></button>} />
-          <Cell icon="qr" title={qr ? t('vpn.hide_qr') : t('vpn.show_qr')} onClick={() => { haptic.impact('light'); setQr(!qr) }}
-            right={<Icon name="chevdown" size={18} className={'cell__chev rot' + (qr ? ' open' : '')} />} />
-          {qr && (
-            <div className="qrbox">
-              <Qr text={sub} />
-              <p>{t('vpn.qr_hint')}</p>
-            </div>
-          )}
-        </Section>
+        {hasSub && (
+          <>
+            <Section title={t('vpn.sub_all')}>
+              <Cell icon="link" title={t('vpn.sub_link')} sub={<span className="mono">{shortUrl(sub)}</span>}
+                right={<button type="button" className="iconbtn" aria-label={t('common.copy')} onClick={(e) => { e.stopPropagation(); haptic.impact('light'); doCopy(sub) }}><Icon name="copy" size={20} /></button>} />
+              <Cell icon="qr" title={qr ? t('vpn.hide_qr') : t('vpn.show_qr')} onClick={() => { haptic.impact('light'); setQr(!qr) }}
+                right={<Icon name="chevdown" size={18} className={'cell__chev rot' + (qr ? ' open' : '')} />} />
+              {qr && (
+                <div className="qrbox">
+                  <Qr text={sub} />
+                  <p>{t('vpn.qr_hint')}</p>
+                </div>
+              )}
+            </Section>
 
-        <Section title={t('vpn.add')} footer={t('vpn.add_foot')}>
-          {apps.map((a) => (
-            <Cell key={a.id} icon="external" title={a.name} sub={(a.platforms || []).join(' · ')} chevron
-              onClick={() => { haptic.impact('light'); openLink(new URL(a.go_url, location.href).href) }} />
-          ))}
-        </Section>
+            <Section title={t('vpn.add')} footer={t('vpn.add_foot')}>
+              {apps.map((a) => (
+                <Cell key={a.id} icon="external" title={a.name} sub={(a.platforms || []).join(' · ')} chevron
+                  onClick={() => { haptic.impact('light'); openLink(new URL(a.go_url, location.href).href) }} />
+              ))}
+            </Section>
+          </>
+        )}
 
         <Section title={t('vpn.traffic')}
           action={<span className="online"><Dot on={online} />{online ? t('vpn.online') : t('vpn.offline')}</span>}>
@@ -111,25 +152,9 @@ export default function Vpn() {
           <Cell icon="up" title={t('vpn.up')} value={fmtBytes(traffic?.up)} />
         </Section>
 
-        <section className="sec">
-          <button type="button" className="sec__h sec__h--btn" aria-expanded={cfg} onClick={() => setCfg(!cfg)}>
-            <h3>{t('vpn.configs_n', { n: links.length })}</h3>
-            <Icon name="chevdown" size={16} className={'rot' + (cfg ? ' open' : '')} />
-          </button>
-          {cfg && (
-            <>
-              <div className="group">
-                {links.length === 0 && <Cell icon="info" tone="mute" title={t('vpn.cfg_empty')} />}
-                {links.map((l, i) => (
-                  <Cell key={i} icon="key" title={l.name || `#${i + 1}`} sub={<span className="mono">{shortUrl(l.url, 30)}</span>}
-                    right={<button type="button" className="iconbtn" aria-label={t('common.copy')} onClick={(e) => { e.stopPropagation(); haptic.impact('light'); doCopy(l.url) }}><Icon name="copy" size={20} /></button>} />
-                ))}
-              </div>
-              <p className="sec__f">{t('vpn.configs_foot')}</p>
-            </>
-          )}
-        </section>
-        <p className="foot">{t('vpn.foot')}</p>
+        {groups.length === 0 && !hasSub && <Section><Cell icon="info" tone="mute" title={t('vpn.cfg_empty')} /></Section>}
+        {groups.map((g) => <Group key={g.id} g={g} defaultOpen={!hasSub} />)}
+        {hasSub && <p className="foot">{t('vpn.foot')}</p>}
       </>
     )
   }

@@ -341,6 +341,12 @@ def make_handler(app):
                 tok = b.get("tg_token")
                 if tok and "*" not in tok:
                     out["tg_token"] = tok.strip()
+                # Set by the helper bot's Bots page; saved even when .env has a token.
+                if "tg_token_override" in b:
+                    ov = str(b.get("tg_token_override") or "").strip()
+                    if len(ov) > 200:
+                        return self._json({"ok": False, "error": "tg_token_override too long"}, 400)
+                    out["tg_token_override"] = ov
                 if out:
                     app.store.set_many(out)
                 return self._json({"ok": True, "settings": app.public_settings()})

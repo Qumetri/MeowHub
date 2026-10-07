@@ -33,6 +33,8 @@ Without access to `.env` (e.g. from a phone shell), `ctl.py token` stores the
 token in `helper/data/helper.db` instead; `.env` wins when both are set.
 `ctl.py status` shows which one is in use.
 
+For a separate bot for members, see [Two bots](#two-bots) below.
+
 ## Who can do what
 
 | | Owner | Member (active) | Stranger |
@@ -137,6 +139,115 @@ half shows "not configured" and the rest keeps working.
 4. `docker compose up -d helper`, then open the Mini App from the bot's menu
    button and the Bots page from the hub card, and mint a first code.
 
+## Two bots
+
+By default one bot does everything. If you also set a **member bot**
+(`MEMBER_BOT_TOKEN`, or paste it on the Bots page — see [Tokens on the Bots
+page](#tokens-on-the-bots-page)), the roles split:
+
+| | Helper bot (`HELPER_BOT_TOKEN`) | Member bot (`MEMBER_BOT_TOKEN`) |
+|---|---|---|
+| For | you, the owner: health, links, downloads, logins, members and codes | members and strangers — **including you**: you are treated by your own membership (a member if you have one, else a stranger), with no owner menus |
+| Anyone else writes to it | gets "this is a service bot, MeowHub is in @member_bot" with an *Open* button, and — if the text was an access code — a one-tap *Activate in @member_bot* | gets the member or stranger experience |
+| Menu button | only your chat gets the "MeowHub" Mini App button; everyone else's is the plain command list | "MeowHub" → the Mini App |
+| Commands | the full set | `start`, `help`, `vpn`, `matrix`, `sub` |
+
+Both bots long-poll **in the same process** and share the database, the 3x-ui
+and Synapse clients, the reconciler and the web server; each has its own update
+offset. Messages to members (welcome, reminders, extend/suspend notices) go out
+through the member bot, messages to you through the helper bot — one routing
+function decides by recipient. "A stranger wrote to the bot" notices, with their
+grant buttons, always come from the **helper** bot. Access-code share links
+(`https://t.me/<member_bot>?start=<CODE>`) use the member bot's username.
+
+The Mini App accepts Telegram's signed `initData` from **either** bot and
+remembers which one it came from (`via`: `helper`, `member`, or `browser`
+without Telegram). Opened through the member bot, even the owner is shown the
+member or stranger view. With no member bot configured everything behaves as a
+single-bot install. A member token that is invalid, or the same bot as the
+helper's, is refused (and ignored at startup) rather than breaking the helper.
+
+## Tokens on the Bots page
+
+The owner's Bots page (and the Mini App's admin view) has a **Bots and keys**
+block with four secrets. Each shows where its current value comes from
+(`page`, `env`, `ctl` or none) and a masked form (first and last four
+characters — a full token is never sent to the browser). **Change** validates
+the new value *before* saving; **Reset** drops the page override so the `.env`
+value applies again.
+
+| Secret | `.env` fallback | Validated by | Applying a change |
+|---|---|---|---|
+| Helper bot | `HELPER_BOT_TOKEN` (then the legacy `ctl.py token`) | `getMe` | the container **restarts itself** about 1.5 s later (`restart:` policy brings it back with the new token) |
+| Member bot | `MEMBER_BOT_TOKEN` | `getMe`, and it must not be the helper's bot | same restart |
+| Crypto bot | `CRYPTO_TG_TOKEN` | `getMe` | **no restart** — pushed to the crypto tracker (below) |
+| 3x-ui API token | `XUI_API_TOKEN` | listing inbounds with it | **hot-swapped** in the running process, no restart |
+
+**Precedence everywhere: page override > `.env` > (helper bot only) the old
+`ctl.py token` value.** A token that fails validation is never saved. Telegram
+`getMe` answers are cached for 10 minutes and dropped on any change.
+
+**Crypto bot.** The tracker is a separate container, so the helper hands the
+override to the tracker's settings API (`CRYPTO_URL`, default
+`http://crypto:9102/api/settings`, i.e. the `crypto` profile on the same
+network) as `tg_token_override`. If the tracker is not running or refuses it,
+the change fails with `crypto_apply_failed` and **nothing is saved**. In the
+tracker the override wins over `CRYPTO_TG_TOKEN` and over a token typed in its
+UI (see [CRYPTO.md](CRYPTO.md#setting-up-telegram)).
+
+> **n8n caveat.** n8n keeps its **own encrypted copy** of the Telegram bot
+> token in a credential. Changing the crypto bot here does not touch it, so if
+> your n8n workflows send through that bot, update the token in the Telegram
+> credential in n8n too. The Bots page shows this reminder next to the crypto
+> row.
+
+Because Telegram only lets one `getUpdates` poller per token, never put the
+same token in two places that both poll.
+
+## Previewing the member experience
+
+The owner (opening the Mini App through the helper bot, or in a browser) gets
+**View as a member** with three choices: *Guest*, *Member*, *Expired*. It
+renders the real member screens with sample data inside a clear "Preview"
+banner and an exit button. It makes **no API calls** — nothing is created and
+nothing is sent — and the sample data is loaded only when a preview starts, so
+it is not part of the main bundle. To see the real thing, open the member bot.
+
+## VPN configs by app
+
+`GET /api/vpn` still returns the flat `links` list and adds `groups`, which the
+Mini App shows as sections named after what the user must install:
+
+| Group | Contains | Apps |
+|---|---|---|
+| VLESS and Shadowsocks | plain `vless://`, `vmess://`, `trojan://`, `ss://` | Happ, v2RayTun, v2rayNG, Hiddify |
+| 🧪 New protocols (test) | `vless://` with `encryption` other than `none`, or an `fm` parameter, or 🧪 in its name | recent Happ / v2RayTun |
+| Hysteria2 (UDP) | `hysteria2://`, `hy2://`, `hysteria://` | Happ, Hiddify, v2RayTun |
+| Telegram proxy | `tg://proxy` / `https://t.me/proxy` (MTProto), always rewritten to the `https://t.me/proxy?…` form so one tap opens Telegram | Telegram |
+
+Empty groups are omitted. A link's name is its URL-decoded `#fragment` with the
+trailing `-<client email>` removed (`MTProto-прокси` for an unnamed proxy link).
+
+**Gotcha: the link host.** The panel builds share links with the host of the
+*request*, and the helper asks over the Docker network, so raw links come back
+as `host.docker.internal` (or `localhost`/`127.0.0.1`). The helper rewrites
+those hosts to `BASE_DOMAIN` — both in the `@host:port` part and in `server=` of
+proxy links, and inside a `vmess://` JSON blob — for `links` and `groups` alike.
+A host that is already a real name is left alone. If a client imports a config
+that points at `host.docker.internal`, that rewrite did not run.
+
+## Inbound auto-dating
+
+Members cannot tell new configs from old ones in their apps, so every inbound's
+remark ends with its creation date, `Name · 07.10.26` (day.month.year). The
+reconciler adds it **once**, the first time it sees an inbound it does not know
+yet: it renames the inbound through the panel API (the full inbound is sent
+back with only `remark` changed, so clients and keys survive) and the "new
+inbound" notice already shows the dated name. An inbound whose remark already
+ends in such a date is left alone, so renaming is idempotent; inbounds that
+existed before the feature keep their names. A failed rename is logged and
+skipped, never fatal.
+
 ## Mini App and Bots page
 
 One backend (`helper/app/webapp.py`, stdlib HTTP server on `:8095`, also on
@@ -156,8 +267,8 @@ Inside the Mini App a member sees their subscription, a VPN screen (the
 subscription link with QR code and one-tap import for Happ, Hiddify, v2RayTun,
 Streisand and v2rayNG), a Matrix screen (create and reset-password for their
 accounts) and a place to enter a new code. The Bots page shows KPIs, a 30-day
-activity chart, the bots (this one and the crypto tracker's, via `getMe`), the
-reconciler's sync status, the member-inbounds editor, members with their
+activity chart, the bots (helper, member and the crypto tracker's, via `getMe`),
+the tokens block, the reconciler's sync status, the member-inbounds editor, members with their
 profile photos (cached 24 h in `helper/data/avatars/`) and codes.
 
 **`BOT_APP_PATH`, `BOT_ADMIN_PATH` and `BOT_ADMIN_KEY` carry `:?` guards in
@@ -173,6 +284,8 @@ npm run build` — no container restart. For development, `npm run dev` and open
 `?mock=member|owner|stranger|expired&mode=tg&theme=dark&p=vpn|matrix|admin`
 (the mock is dev-only and not in the production bundle). Every contact or
 domain the UI shows comes from `/api/me`; nothing is hardcoded.
+Append `&member_bot=1` to simulate a configured member bot, `&via=member` for the owner
+opening the app through it, `&preview=guest|member|expired` to start a preview.
 
 **API**: every POST must be `Content-Type: application/json` (the CSRF guard).
 Modules: `webapp.py`, `members.py` (domain + reconciler), `xui.py`, `synapse.py`.

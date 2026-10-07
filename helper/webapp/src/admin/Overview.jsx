@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import Icon from '../icons.jsx'
-import { Avatar, Button, Cell, Dot, ErrorBox, Pill, Section, Skeleton, Switch, toast } from '../ui.jsx'
-import { api, relUrl } from '../api.js'
+import { Button, Cell, ErrorBox, Section, Skeleton, Switch, toast } from '../ui.jsx'
+import { api } from '../api.js'
 import { useApi } from '../hooks.js'
-import { haptic } from '../tg.js'
+import { haptic, isTg } from '../tg.js'
 import { ago, fmtDateTime } from '../util.js'
 import { useApp } from '../ctx.js'
 import Chart from './Chart.jsx'
+import Integrations from './Integrations.jsx'
 
 const TWO_AWG = 'Нельзя выдавать два AmneziaWG/WireGuard инбаунда одновременно'
 const isAwg = (i) => i.protocol === 'wireguard' || i.protocol === 'amneziawg'
@@ -73,7 +74,7 @@ function Inbounds() {
 }
 
 export default function Overview() {
-  const { version } = useApp()
+  const { version, openPreview } = useApp()
   const { data, error, loading, reload, setData } = useApi('admin/overview', [version])
   const [syncing, setSyncing] = useState(false)
 
@@ -103,13 +104,12 @@ export default function Overview() {
           <Inbounds />
         </div>
         <div>
-          <Section title="Боты">
-            {(data.bots || []).map((b) => (
-              <Cell key={b.id} lead={<Avatar uid={b.id} member={{ first_name: b.name }} size={40} src={b.avatar_url ? relUrl(b.avatar_url) : null} />}
-                title={b.name} sub={b.username ? '@' + b.username : b.error}
-                right={<span className={'botstate ' + (b.ok ? 'ok' : 'bad')}><Dot on={b.ok} />{b.ok ? 'работает' : 'ошибка'}</span>} />
-            ))}
-          </Section>
+          <Integrations />
+          {openPreview && isTg && (
+            <Section footer="Экран гостя, участника и участника с истёкшим сроком — на тестовых данных.">
+              <Cell icon="eye" title="Посмотреть как участник" chevron onClick={() => { haptic.impact('light'); openPreview() }} />
+            </Section>
+          )}
           <Section title="Синхронизация"
             footer={!data.vpn_configured || !data.matrix_configured
               ? `Не настроено: ${[!data.vpn_configured && 'VPN', !data.matrix_configured && 'Matrix'].filter(Boolean).join(', ')}.` : undefined}>

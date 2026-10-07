@@ -325,12 +325,15 @@ function renderSettings() {
   const s = state.settings || {};
   const tok = document.getElementById('tgToken');
   // Set in .env (CRYPTO_TG_TOKEN / CRYPTO_TG_CHAT_ID): shown, not editable here.
-  tok.disabled = !!s.tg_token_env;
+  tok.disabled = !!s.tg_token_env || s.tg_token_source === 'override';
   if (document.activeElement !== tok) {
     tok.value = '';
     tok.placeholder = s.tg_token_env ? `${s.tg_token}  (set in .env: CRYPTO_TG_TOKEN)`
       : s.tg_token_set ? s.tg_token : '123456:ABC-DEF…';
   }
+  const srcNote = document.getElementById('tgTokenSrc');
+  if (srcNote) srcNote.textContent = {override: 'Токен задан на странице ботов MeowHub',
+    env: 'Токен из .env', ui: 'Токен сохранён здесь'}[s.tg_token_source] || '';
   const chat = document.getElementById('tgChat');
   chat.disabled = !!s.tg_chat_env;
   chat.title = s.tg_chat_env ? 'Set in .env: CRYPTO_TG_CHAT_ID' : '';

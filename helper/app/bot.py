@@ -12,6 +12,12 @@ Roles:
   stranger  told the bot is closed and to send an access code; the owner gets
             one notice with a "give access" button.
 
+Two bots (when a member bot token is configured -- tokens.py): this helper bot
+is then the owner's ops bot and everyone else is sent to the member bot, which
+gives even the owner the member/stranger experience. Both run in this process
+and share one Helper (store, Members, 3x-ui, Synapse, Reconciler, web server);
+the member bot's handlers are the same methods run through a MemberFront.
+
 Long polling, not a webhook: nothing new listens on the internet for the bot
 itself. The Mini App web server (webapp.py) is started from here.
 """
@@ -22,12 +28,14 @@ import re
 import secrets
 import threading
 import time
+import types
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from urllib.parse import quote
 
 import health
 import hub
+import tokens
 import webapp
 import ytdl
 from members import (AWG_PROTOCOLS, DEFAULT_SERVICES, SERVICES, Members, Reconciler, ask_owner, norm_code,
@@ -35,7 +43,6 @@ from members import (AWG_PROTOCOLS, DEFAULT_SERVICES, SERVICES, Members, Reconci
 from store import Store
 from synapse import Synapse
 from tg import Bot, TelegramError
-from xui import XUI
 
 log = logging.getLogger("bot")
 
@@ -93,16 +100,22 @@ def ident(m):
 
 
 class Helper:
+    kind = "helper"
+
     def __init__(self, store):
         self.store = store
-        self.bot = None
+        self.bot = None                   # the helper bot (tg.Bot) once its token is known
+        self.member_bot = None            # the member bot, only when configured and valid
+        self.member_bot_username = ""
+        self.member_front = None          # MemberFront for member_bot
+        self.helper_id = None             # numeric id of the helper bot (from getMe)
         self.pool = ThreadPoolExecutor(8)
         self.pending_urls = {}            # token -> (url, user id, ts)
         self.nagged = set()               # strangers already reported to the owner
         self.seen_from = {}               # stranger uid -> Telegram `from` (for the grant welcome)
         self.wiz = {}                     # message id -> code wizard state
         self.members = Members(store)
-        self.xui = XUI.from_env()
+        self.xui = tokens.xui_from(store)
         self.syn = Synapse.from_env(lambda: store.get("matrix_admin_token"),
                                     lambda t: store.set("matrix_admin_token", t))
         self.rec = Reconciler(self.members, self.xui, self.syn, send=self.notify, owner_id=self.owner_id)
@@ -111,17 +124,34 @@ class Helper:
         path = os.environ.get("BOT_APP_PATH", "").strip().strip("/")
         self.webapp_url = f"https://{base}/{path}/" if base and path else ""
 
+    @property
+    def core(self):
+        """The shared object (a MemberFront returns the Helper it fronts)."""
+        return self
+
+    def bot_tokens(self):
+        """{"helper": token|None, "member": token|None} for Mini App initData checks."""
+        return {"helper": self.bot.token if self.bot is not None else None,
+                "member": self.member_bot.token if self.member_bot is not None else None}
+
     # ---------------------------------------------------------------- access --
     def owner_id(self):
         v = os.environ.get("HELPER_OWNER_ID", "").strip() or self.store.get("owner_id")
         return int(v) if v.lstrip("-").isdigit() else None
 
     def role(self, uid):
-        """'owner' | 'member' (a row exists, any status) | None."""
+        """'owner' | 'member' (a row exists, any status) | None.
+
+        Only the helper bot knows an owner. With a member bot configured it is
+        closed to everyone else, and the member bot treats the owner by their
+        membership like anybody."""
         if uid is None:
             return None
-        if uid == self.owner_id():
-            return "owner"
+        if self.kind == "helper":
+            if uid == self.owner_id():
+                return "owner"
+            if self.core.member_bot is not None:
+                return None
         return "member" if self.members.get(uid) else None
 
     def tools_ok(self, uid, role=None):
@@ -164,12 +194,34 @@ class Helper:
         return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
 
     # ------------------------------------------------------------- messaging --
+    def bot_for_chat(self, chat_id):
+        """Owner -> the helper bot; everybody else -> the member bot (the helper
+        bot again when there is none)."""
+        core = self.core
+        if core.member_bot is not None and chat_id != core.owner_id():
+            return core.member_bot
+        return core.bot
+
+    def front_for(self, chat_id):
+        """The Helper / MemberFront whose bot talks to `chat_id` (see bot_for_chat)."""
+        core = self.core
+        if core.member_bot is not None and core.member_front is not None and chat_id != core.owner_id():
+            return core.member_front
+        return core
+
+    def share_username(self):
+        """Bot that access-code links point to: the member bot when there is one."""
+        core = self.core
+        return (core.member_bot_username if core.member_bot is not None else "") or core.bot_username
+
     def notify(self, chat_id, text, reply_markup=None):
-        """HTML message that never raises; the message dict or None."""
-        if self.bot is None:
+        """HTML message that never raises; the message dict or None. Routed by
+        recipient (bot_for_chat); this is also what the Reconciler sends through."""
+        bot = self.bot_for_chat(chat_id)
+        if bot is None:
             return None
         try:
-            return self.bot.send(chat_id, text, reply_markup=reply_markup)
+            return bot.send(chat_id, text, reply_markup=reply_markup)
         except TelegramError as e:
             log.info("notify %s: %s", chat_id, e)
             return None
@@ -195,10 +247,10 @@ class Helper:
     # ------------------------------------------------------------------ loop --
     def run(self):
         while True:
-            # .env (HELPER_BOT_TOKEN) first; a token saved with ctl.py is the fallback.
-            token = os.environ.get("HELPER_BOT_TOKEN", "").strip() or self.store.get("tg_token")
+            # Page override, then .env (HELPER_BOT_TOKEN); a token saved with ctl.py is the last fallback.
+            token = tokens.resolve(self.store, "helper")[0]
             if not token:
-                log.warning("no bot token yet -- set HELPER_BOT_TOKEN in .env "
+                log.warning("no bot token yet -- set HELPER_BOT_TOKEN in .env, or on the Bots page "
                             "(or: docker compose exec -it helper python3 /app/app/ctl.py token)")
                 self._beat()
                 time.sleep(30)
@@ -208,34 +260,77 @@ class Helper:
                 me = self.bot.call("getMe")
                 log.info("running as @%s", me.get("username"))
                 self.bot_username = me.get("username") or ""
-                self._commands()
+                self.helper_id = me.get("id") or tokens.bot_id(token)
                 break
             except TelegramError as e:
                 log.error("token rejected: %s", e)
                 self._beat()
                 time.sleep(60)
+        self._start_member_bot()
+        for front in (self, self.member_front):
+            if front is not None:
+                try:
+                    front._commands()
+                except TelegramError as e:
+                    log.warning("setMyCommands (%s): %s", front.kind, e)
         try:
             webapp.start(self)
         except Exception:                                   # noqa: BLE001
             log.exception("webapp failed to start")
         threading.Thread(target=self.rec.run, daemon=True, name="reconciler").start()
         self._menu_button()
+        if self.member_front is not None:
+            self.member_front._menu_button()
+            threading.Thread(target=self.poll, args=(self.member_front, "offset_member"),
+                             daemon=True, name="member-poll").start()
         threading.Thread(target=Monitor(self).run, daemon=True, name="monitor").start()
-        offset = int(self.store.get("offset", "0") or 0)
+        self.poll(self, "offset")
+
+    def _start_member_bot(self):
+        """Attach the member bot when its token is configured and sane; otherwise
+        stay in single-bot mode (never fatal)."""
+        token = tokens.resolve(self.store, "member")[0]
+        if not token:
+            return
+        bot = Bot(token)
+        me = None
+        for attempt in range(3):
+            try:
+                me = bot.call("getMe")
+                break
+            except TelegramError as e:
+                log.error("member bot token rejected: %s", e)
+                if not str(e).startswith("network") or attempt == 2:
+                    return
+                time.sleep(3)
+        if me.get("id") == self.helper_id:
+            log.error("member bot token is the helper bot's own -- ignoring it")
+            return
+        log.info("member bot running as @%s", me.get("username"))
+        self.attach_member_bot(bot, me.get("username") or "")
+
+    def attach_member_bot(self, bot, username):
+        self.member_bot = bot
+        self.member_bot_username = username
+        self.member_front = MemberFront(self, bot, username)
+
+    def poll(self, front, offset_key):
+        """Long-poll one bot; its updates are handled by `front` (Helper or MemberFront)."""
+        offset = int(self.store.get(offset_key, "0") or 0)
         while True:
             self._beat()
             try:
-                ups = self.bot.call("getUpdates", _timeout=70, offset=offset or None,
-                                    allowed_updates=["message", "callback_query"], timeout=50)
+                ups = front.bot.call("getUpdates", _timeout=70, offset=offset or None,
+                                     allowed_updates=["message", "callback_query"], timeout=50)
             except TelegramError as e:
-                log.warning("getUpdates: %s", e)
+                log.warning("getUpdates (%s): %s", front.kind, e)
                 time.sleep(5)
                 continue
             for u in ups:
                 offset = u["update_id"] + 1
-                self.pool.submit(self._safe, u)
+                self.pool.submit(front._safe, u)
             if ups:
-                self.store.set("offset", offset)
+                self.store.set(offset_key, offset)
 
     def _beat(self):
         try:
@@ -247,11 +342,18 @@ class Helper:
     def _menu_button(self):
         if not self.webapp_url:
             return
+        web_app = {"type": "web_app", "text": "MeowHub", "web_app": {"url": self.webapp_url}}
         try:
-            self.bot.call("setChatMenuButton", menu_button={
-                "type": "web_app", "text": "MeowHub", "web_app": {"url": self.webapp_url}})
+            if self.kind == "helper" and self.core.member_bot is not None:
+                # the ops bot: only the owner's chat gets the app button
+                self.bot.call("setChatMenuButton", menu_button={"type": "commands"})
+                oid = self.owner_id()
+                if oid:
+                    self.bot.call("setChatMenuButton", chat_id=oid, menu_button=web_app)
+            else:
+                self.bot.call("setChatMenuButton", menu_button=web_app)
         except TelegramError as e:
-            log.warning("setChatMenuButton: %s", e)
+            log.warning("setChatMenuButton (%s): %s", self.kind, e)
 
     def _commands(self):
         base = [{"command": "start", "description": "Начало"},
@@ -259,7 +361,14 @@ class Helper:
                 {"command": "vpn", "description": "Мой VPN"},
                 {"command": "matrix", "description": "Мессенджер"},
                 {"command": "sub", "description": "Моя подписка"}]
-        self.bot.call("setMyCommands", commands=base)
+        if self.kind == "member":
+            try:
+                self.bot.call("setMyCommands", commands=base)
+            except TelegramError as e:
+                log.warning("member bot commands: %s", e)
+            return
+        two = self.core.member_bot is not None
+        self.bot.call("setMyCommands", commands=base[:2] if two else base)
         oid = self.owner_id()
         if oid:
             try:
@@ -298,6 +407,8 @@ class Helper:
 
         cmd, _, arg = text.partition(" ")
         cmd = cmd.split("@")[0].lower()
+        if role is None and self.kind == "helper" and self.core.member_bot is not None:
+            return self.redirect_to_member_bot(cid, arg if cmd == "/start" and CODE_RE.match(arg) else text)
         # An access code works from anyone, also as the /start deep-link payload.
         if cmd == "/start" and CODE_RE.match(arg):
             return self.redeem_code(cid, uid, frm, arg)
@@ -460,6 +571,17 @@ class Helper:
                     break
             self.notify_owner(f"🎉 {ident(mem)} активировал(а) код <code>{esc(code_fmt(norm))}</code>{extra}")
 
+    def redirect_to_member_bot(self, cid, text):
+        """The ops bot is for the owner only: point everyone else at the member bot,
+        with a one-tap activation when they sent (or deep-linked) an access code."""
+        u = self.core.member_bot_username
+        rows = [[{"text": f"Открыть @{u}", "url": f"https://t.me/{u}"}]]
+        if CODE_RE.match(text):
+            code = code_fmt(norm_code(text))
+            rows.append([{"text": f"Активировать в @{u}", "url": f"https://t.me/{u}?start={code}"}])
+        self.bot.send(cid, f"🔒 Это служебный бот. MeowHub — в @{esc(u)}.",
+                      reply_markup={"inline_keyboard": rows})
+
     def stranger(self, frm, cid):
         uid = frm.get("id")
         name = from_name(frm)
@@ -470,7 +592,7 @@ class Helper:
                            "Если у тебя есть код приглашения — просто пришли его сюда.\n"
                            f"Нет кода? {ask_owner(True)}.",
                       reply_markup=self.app_markup("📱 Открыть MeowHub"))
-        if uid not in self.nagged:
+        if uid not in self.nagged and uid != self.owner_id():
             self.nagged.add(uid)
             un = f" @{frm['username']}" if frm.get("username") else ""
             self.notify_owner(f"👤 Боту пишет {esc(name)}{esc(un)} (ID <code>{uid}</code>).",
@@ -540,8 +662,8 @@ class Helper:
     def code_card(self, code, days, svcs):
         t = [f"🎟 Код: <code>{esc(code)}</code>"]
         rows = []
-        if self.bot_username:
-            link = f"https://t.me/{self.bot_username}?start={code}"
+        if self.share_username():
+            link = f"https://t.me/{self.share_username()}?start={code}"
             t.append(f"Ссылка: {esc(link)}")
             rows.append([{"text": "📤 Поделиться", "url": "https://t.me/share/url?url=" + quote(link, safe="")
                           + "&text=" + quote("Приглашение в MeowHub", safe="")}])
@@ -749,9 +871,9 @@ class Helper:
                            f"{ru_date(mem['expires_ts'])}.")
 
     def notify_welcome(self, mem):
-        """Welcome a freshly granted member (never raises)."""
+        """Welcome a freshly granted member (never raises), from the bot they use."""
         try:
-            self.send_menu(mem["id"], mem["id"], self.welcome(mem))
+            self.front_for(mem["id"]).send_menu(mem["id"], mem["id"], self.welcome(mem))
         except TelegramError as e:
             log.info("welcome %s: %s", mem["id"], e)
 
@@ -989,6 +1111,35 @@ class Helper:
         text, alert = res if isinstance(res, tuple) else (res, False)
         self.bot.answer(q["id"], text, alert=alert)
 
+
+
+class MemberFront:
+    """The member bot's side of the shared Helper.
+
+    The handlers are the Helper's own methods, re-bound to this object so that
+    `self.bot` is the member bot and `self.kind` is "member"; everything else
+    (store, members, xui, ...) is read from -- and assigned to -- the Helper, so a
+    hot-swapped 3x-ui client or a new pending-download map is seen by both bots."""
+    _OWN = ("core", "bot", "kind", "bot_username")
+
+    def __init__(self, core, bot, username):
+        object.__setattr__(self, "core", core)
+        object.__setattr__(self, "bot", bot)
+        object.__setattr__(self, "kind", "member")
+        object.__setattr__(self, "bot_username", username)
+
+    def __getattr__(self, name):
+        value = getattr(self.core, name)
+        func = getattr(value, "__func__", None)
+        if func is not None and getattr(value, "__self__", None) is self.core:
+            return types.MethodType(func, self)
+        return value
+
+    def __setattr__(self, name, value):
+        if name in self._OWN:
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.core, name, value)
 
 
 class Monitor:

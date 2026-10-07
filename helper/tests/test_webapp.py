@@ -142,7 +142,13 @@ class FakeHelper:
         self.syn = FakeSyn()
         self.rec = FakeRec(self.xui)
         self.bot = FakeBot()
+        self.member_bot = None
+        self.member_bot_username = ""
         self.sent = []
+
+    def bot_tokens(self):
+        return {"helper": self.bot.token if self.bot else None,
+                "member": self.member_bot.token if self.member_bot else None}
 
     def owner_id(self):
         return OWNER

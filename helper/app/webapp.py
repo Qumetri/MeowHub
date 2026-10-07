@@ -12,6 +12,7 @@ Caddy strips the secret path prefix, so paths here are `/`, `/api/...`,
 Reconciler); the request thread only talks to 3x-ui for the two cases the
 contract allows (/api/vpn pending client, /api/admin/sync).
 """
+import base64
 import hashlib
 import hmac
 import html
@@ -22,10 +23,13 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import members as mem
+import tokens
 from synapse import SynapseError
 from tg import Bot, TelegramError
 from xui import XUIError
@@ -38,6 +42,8 @@ TOUCH_EVERY = 600                    # seconds between "app" activity bumps per 
 AVATAR_TTL = 24 * 3600
 GETME_TTL = 600
 LOCKED_TTL = 60
+XUI_CHECK_TTL = 60
+RESTART_DELAY = 1.5
 SYNC_TIMEOUT = 20
 
 mimetypes.add_type("text/javascript", ".js")
@@ -73,7 +79,14 @@ MESSAGES = {
     "not_found": "Не найдено.",
     "bad_request": "Некорректный запрос.",
     "internal": "Внутренняя ошибка.",
+    "bad_token": "Токен не подошёл.",
+    "same_bot": "Это токен того же бота, что и служебный: нужен отдельный бот.",
+    "crypto_apply_failed": "Не удалось передать токен крипто-трекеру.",
+    "no_override": "Токен не менялся на странице — сбрасывать нечего.",
+    "no_fallback": "Без токена бот не запустится: в .env его нет.",
 }
+CRYPTO_NOTE = ("n8n хранит свою копию токена крипто-бота: после смены обнови токен "
+               "в его Telegram-credential в n8n.")
 
 
 def esc(s):
@@ -103,8 +116,8 @@ def jr(obj, status=200, headers=None):
 
 
 class Ctx:
-    def __init__(self, uid, role, mode, user):
-        self.uid, self.role, self.mode, self.user = uid, role, mode, user
+    def __init__(self, uid, role, mode, user, via="browser"):
+        self.uid, self.role, self.mode, self.user, self.via = uid, role, mode, user, via
 
 
 # --------------------------------------------------------------- initData --
@@ -202,6 +215,141 @@ def sub_base():
     return env("VPN_SUB_BASE", f"https://{env('BASE_DOMAIN')}:2096/sub/")
 
 
+def schedule_restart():
+    """Exit shortly, after the HTTP response went out; compose `restart: always`
+    brings the container back with the new token."""
+    threading.Timer(RESTART_DELAY, os._exit, (0,)).start()
+
+
+def crypto_apply(token):
+    """Hand the crypto tracker its bot-token override ("" clears it). True on 2xx."""
+    url = env("CRYPTO_URL", "http://crypto:9102/api/settings")
+    if urllib.parse.urlsplit(url).path in ("", "/"):
+        url = url.rstrip("/") + "/api/settings"
+    req = urllib.request.Request(url, data=json.dumps({"tg_token_override": token}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return 200 <= r.status < 300
+    except (urllib.error.URLError, OSError, ValueError):     # HTTPError is a URLError
+        return False
+
+
+def plural_inbounds(n):
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} инбаунд"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"{n} инбаунда"
+    return f"{n} инбаундов"
+
+
+# ------------------------------------------------------- VPN link grouping --
+# The panel builds share links with the host of the request it answered, so links the
+# bot fetches say host.docker.internal / localhost: swap those for the public domain.
+BAD_HOSTS = {"host.docker.internal", "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+AUTHORITY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)([^@/?#]*@)?(\[[^\]]*\]|[^:/?#]*)")
+UDP_SCHEMES = ("hysteria2", "hy2", "hysteria")
+TG_PREFIXES = ("tg://proxy", "https://t.me/proxy")
+LINK_GROUPS = [
+    ("main", "VLESS и Shadowsocks", ["Happ", "v2RayTun", "v2rayNG", "Hiddify"],
+     "Скопируй → в приложении «+» → «Импорт из буфера».", "copy"),
+    ("new", "🧪 Новые протоколы (тест)", ["Happ", "v2RayTun"],
+     "Нужна последняя версия Happ или v2RayTun. Скопируй → «+» → «Из буфера».", "copy"),
+    ("udp", "Hysteria2 (UDP)", ["Happ", "Hiddify", "v2RayTun"],
+     "Если обычные не работают. Скопируй → «+» → «Из буфера».", "copy"),
+    ("tg", "Прокси для Telegram", ["Telegram"],
+     "Нажми — Telegram сам предложит включить.", "telegram"),
+]
+
+
+def _query_of(url):
+    return url.split("#", 1)[0].partition("?")[2]
+
+
+def _fragment_of(url):
+    return urllib.parse.unquote(url.split("#", 1)[1]) if "#" in url else ""
+
+
+def link_group(url):
+    """Which app family a share link needs: 'tg' | 'udp' | 'new' | 'main'."""
+    low = url.lower()
+    if low.startswith(TG_PREFIXES):
+        return "tg"
+    scheme = low.split("://", 1)[0]
+    if scheme in UDP_SCHEMES:
+        return "udp"
+    if scheme == "vless":
+        q = urllib.parse.parse_qs(_query_of(url), keep_blank_values=True)
+        enc = (q.get("encryption") or ["none"])[0].strip().lower()
+        if enc not in ("", "none") or "fm" in q or "🧪" in _fragment_of(url):
+            return "new"
+    return "main"
+
+
+def _fix_vmess(url, domain):
+    """vmess:// carries its host inside a base64 JSON blob (`add`)."""
+    body, sep, frag = url[len("vmess://"):].partition("#")
+    try:
+        raw = body + "=" * (-len(body) % 4)
+        obj = json.loads(base64.b64decode(raw, validate=False).decode())
+        if str(obj.get("add", "")).lower() not in BAD_HOSTS:
+            return url
+        obj["add"] = domain
+        enc = base64.b64encode(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()).decode()
+    except (ValueError, TypeError, AttributeError):
+        return url
+    return "vmess://" + enc + sep + frag
+
+
+def fix_host(url, domain):
+    """Replace a local host (authority part) with the public `domain`."""
+    if not domain:
+        return url
+    if url.lower().startswith("vmess://"):
+        return _fix_vmess(url, domain)
+    m = AUTHORITY_RE.match(url)
+    if m and m.group(3).lower() in BAD_HOSTS:
+        return url[:m.start(3)] + domain + url[m.end(3):]
+    return url
+
+
+def tg_proxy_url(url, domain):
+    """tg://proxy?... or https://t.me/proxy?... -> https://t.me/proxy?... with a
+    public `server=`; the other parameters are kept byte for byte."""
+    parts = []
+    for kv in _query_of(url).split("&"):
+        k, eq, v = kv.partition("=")
+        if k == "server" and domain and urllib.parse.unquote(v).lower() in BAD_HOSTS:
+            v = domain
+        parts.append(k + eq + v)
+    return "https://t.me/proxy?" + "&".join(p for p in parts if p)
+
+
+def link_name(url, email, i):
+    name = _fragment_of(url).strip()
+    if email and name.endswith("-" + email):
+        name = name[:-len(email) - 1].strip()
+    return name or ("MTProto-прокси" if link_group(url) == "tg" else f"Конфиг {i}")
+
+
+def build_links(urls, email, domain):
+    """-> (links, groups) for /api/vpn: host-fixed, named, grouped by app family."""
+    links, by_group = [], {}
+    for i, url in enumerate(urls or [], 1):
+        if not isinstance(url, str) or not url.strip():
+            continue
+        url = url.strip()
+        g = link_group(url)
+        url = tg_proxy_url(url, domain) if g == "tg" else fix_host(url, domain)
+        item = {"name": link_name(url, email, i), "url": url}
+        links.append(item)
+        by_group.setdefault(g, []).append(item)
+    groups = [{"id": gid, "title": title, "apps": list(apps), "hint": hint,
+               "links": [dict(l, action=action) for l in by_group[gid]]}
+              for gid, title, apps, hint, action in LINK_GROUPS if by_group.get(gid)]
+    return links, groups
+
+
 # -------------------------------------------------------------------- app --
 class App:
     def __init__(self, helper):
@@ -212,10 +360,14 @@ class App:
         self._getme = {}                    # bot id -> (ts, dict)
         self._alocks = {}
         self._create_lock = threading.Lock()
+        self._integ_lock = threading.Lock()
+        self._xui_chk = None                # (key, ts, result) of the last 3x-ui token check
 
     # ------------------------------------------------------------- auth --
-    def role_of(self, uid):
-        if uid is not None and uid == self.h.owner_id():
+    def role_of(self, uid, via="helper"):
+        """owner | member | stranger. Through the member bot even the owner is
+        just a member (or a stranger): that bot shows the member experience."""
+        if via != "member" and uid is not None and uid == self.h.owner_id():
             return "owner"
         return "member" if uid is not None and self.h.members.get(uid) else "stranger"
 
@@ -229,23 +381,29 @@ class App:
                      "username": m["username"], "language_code": m["lang"]} if m else
                     {"id": uid, "first_name": "Владелец", "last_name": "", "username": "",
                      "language_code": "ru"})
-            return Ctx(uid, "owner", "browser", user)
+            return Ctx(uid, "owner", "browser", user, "browser")
         raw = headers.get("X-Tg-Init-Data", "")
         if not raw:
             raise ApiError(401, "unauthorized")
-        bot = self.h.bot
-        if bot is None or not getattr(bot, "token", ""):
+        cands = [(via, t) for via, t in self.h.bot_tokens().items() if t]
+        if not cands:
             raise ApiError(503, "bot_not_ready", "Бот ещё запускается, попробуй через минуту.")
         try:
             max_age = int(env("WEBAPP_INITDATA_MAX_AGE", "86400"))
         except ValueError:
             max_age = 86400
-        try:
-            user = verify_init_data(raw, bot.token, max_age)
-        except InitDataError as e:
-            raise ApiError(401, e.code, "Сессия недействительна, открой приложение заново.") from None
+        user = via = None
+        for via, tok in cands:                  # valid if the HMAC matches either bot's token
+            try:
+                user = verify_init_data(raw, tok, max_age)
+                break
+            except InitDataError as e:
+                if e.code != "bad_init_data":   # right token, but expired
+                    raise ApiError(401, e.code, "Сессия недействительна, открой приложение заново.") from None
+        if user is None:
+            raise ApiError(401, "bad_init_data", "Сессия недействительна, открой приложение заново.")
         uid = user["id"]
-        ctx = Ctx(uid, self.role_of(uid), "tg", user)
+        ctx = Ctx(uid, self.role_of(uid, via), "tg", user, via)
         now = time.time()
         with self._lock:
             due = now - self._touched.get(uid, 0) >= TOUCH_EVERY
@@ -313,19 +471,33 @@ class App:
             return 2
 
     # ------------------------------------------------------------ avatars --
+    def _known_bots(self):
+        """Every bot token we talk to: helper, member (when running), crypto (page > env)."""
+        toks = self.h.bot_tokens()
+        out = [t for t in (toks.get("helper"), toks.get("member")) if t]
+        crypto = tokens.resolve(self.h.store, "crypto")[0]
+        if crypto and crypto not in out:
+            out.append(crypto)
+        return out
+
+    def _bot_obj(self, token):
+        """The live tg.Bot for `token` when it is one of ours, else a fresh one."""
+        for own in (self.h.bot, self.h.member_bot):
+            if own is not None and own.token == token:
+                return own
+        return Bot(token)
+
     def bot_for(self, bot_id):
-        """(Bot, id) for the helper's own token or the crypto bot's, by numeric id."""
-        cands = []
-        if self.h.bot is not None:
-            cands.append(self.h.bot.token)
-        crypto = env("CRYPTO_TG_TOKEN")
-        if crypto:
-            cands.append(crypto)
-        for tok in cands:
+        """tg.Bot for one of our tokens, by numeric id."""
+        for tok in self._known_bots():
             if tok.split(":", 1)[0] == str(bot_id):
-                own = self.h.bot
-                return own if own is not None and own.token == tok else Bot(tok)
+                return self._bot_obj(tok)
         return None
+
+    @staticmethod
+    def _me_val(token, me):
+        return {"id": tokens.bot_id(token) or int(me.get("id") or 0), "name": me.get("first_name", ""),
+                "username": me.get("username", ""), "ok": True, "error": ""}
 
     def get_me(self, token):
         bid = token.split(":", 1)[0]
@@ -335,14 +507,11 @@ class App:
         if hit and now - hit[0] < GETME_TTL:
             return hit[1]
         try:
-            own = self.h.bot
-            bot = own if own is not None and own.token == token else Bot(token)
-            me = bot.call("getMe", _timeout=10)
-            val = {"id": int(bid), "name": me.get("first_name", ""),
-                   "username": me.get("username", ""), "ok": True, "error": ""}
+            me = self._bot_obj(token).call("getMe", _timeout=10)
+            val = self._me_val(token, me)
         except TelegramError as e:
             val = {"id": int(bid) if bid.isdigit() else 0, "name": "", "username": "",
-                   "ok": False, "error": str(e)[:200]}
+                   "ok": False, "error": tokens.scrub(str(e), token)[:200]}
         with self._lock:
             self._getme[bid] = (now, val)
         return val
@@ -413,6 +582,9 @@ class App:
                 log.warning("avatar cache write failed: %s", e.strerror)
             return data
 
+    def member_username(self):
+        return (self.h.member_bot_username or "") if self.h.member_bot is not None else ""
+
     # ---------------------------------------------------------- endpoints --
     def api_me(self, req, ctx):
         m = self.h.members.get(ctx.uid) if ctx.uid is not None else None
@@ -425,7 +597,9 @@ class App:
             "contact": env("OWNER_CONTACT"),
             "services": [{"id": k, "name": v["name_" + loc], "description": v["desc_" + loc]}
                          for k, v in mem.SERVICES.items()],
-            "bot_username": self.h.bot_username or ""})
+            "bot_username": self.h.bot_username or "",
+            "via": ctx.via, "member_bot_username": self.member_username(),
+            "can_preview": ctx.role == "owner" and ctx.via in ("helper", "browser")})
 
     def api_redeem(self, req, ctx):
         if ctx.mode != "tg":
@@ -474,10 +648,7 @@ class App:
             if client is None or not (m["vpn_sub_id"] or client.get("subId")):
                 raise ApiError(409, "pending", "Конфиг ещё создаётся, повтори через несколько секунд.")
         sub = sub_base() + (m["vpn_sub_id"] or client.get("subId"))
-        links = []
-        for i, url in enumerate(xui.client_links(email) or [], 1):
-            frag = urllib.parse.unquote(url.split("#", 1)[1]) if "#" in url else ""
-            links.append({"name": frag.strip() or f"Конфиг {i}", "url": url})
+        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"))
         tr = traffic_of(client)
         if tr is None:
             tr = next((traffic_of(c) for c in xui.clients() if c.get("email") == email), None)
@@ -487,12 +658,12 @@ class App:
             online = False
         apps = [{"id": a[0], "name": a[1], "platforms": a[2],
                  "go_url": f"./go/{a[0]}?u={urllib.parse.quote(sub, safe='')}"} for a in VPN_APPS]
-        return jr({"sub_url": sub, "links": links, "traffic": tr or {"up": 0, "down": 0},
-                   "online": online, "apps": apps})
+        return jr({"sub_url": sub, "links": links, "groups": groups,
+                   "traffic": tr or {"up": 0, "down": 0}, "online": online, "apps": apps})
 
     def api_matrix(self, req, ctx):
         uid = self.need_service(ctx, "matrix")
-        client = "https://" + env("MATRIX_HOST", "matrix." + env("BASE_DOMAIN"))
+        client = "https://matrix." + env("BASE_DOMAIN")
         accts = self.accounts(uid)
         mx = self.matrix_max()
         syn = self.h.syn
@@ -554,10 +725,20 @@ class App:
         uid = int(uid)
         if ctx.role != "owner" and uid != ctx.uid:
             raise ApiError(403, "forbidden")
-        return self._avatar_resp(str(uid), self.h.bot, uid)
+        # members talk to the member bot (when there is one); a profile photo is only
+        # reachable for users the asking bot has met.
+        bot = self.h.member_bot if self.h.member_bot is not None and uid != self.h.owner_id() else self.h.bot
+        return self._avatar_resp(str(uid), bot, uid)
 
     def api_bot_avatar(self, req, ctx, bot_id):
+        """By numeric bot id, or by integration id (helper | member | crypto)."""
         self.need_owner(ctx)
+        if bot_id in tokens.IDS:
+            tok = (self.h.bot_tokens().get(bot_id) if bot_id in ("helper", "member")
+                   else tokens.resolve(self.h.store, bot_id)[0] if bot_id == "crypto" else "")
+            if not tok:
+                raise ApiError(404, "not_found")
+            bot_id = str(tokens.bot_id(tok))
         bot = self.bot_for(bot_id)
         if bot is None:
             raise ApiError(404, "not_found")
@@ -574,15 +755,15 @@ class App:
     # -------------------------------------------------------------- admin --
     def api_overview(self, req, ctx):
         self.need_owner(ctx)
-        tokens = []
-        if self.h.bot is not None:
-            tokens.append(self.h.bot.token)
-        crypto = env("CRYPTO_TG_TOKEN")
-        if crypto and crypto not in tokens:
-            tokens.append(crypto)
-        bots = []
-        for tok in tokens:
-            me = dict(self.get_me(tok))
+        toks = self.h.bot_tokens()
+        shown = [(tid, tokens.resolve(self.h.store, "crypto")[0] if tid == "crypto" else toks.get(tid))
+                 for tid in ("helper", "member", "crypto")]
+        bots, seen = [], set()
+        for tid, tok in shown:
+            if not tok or tok in seen:
+                continue
+            seen.add(tok)
+            me = dict(self.get_me(tok), integration=tid)
             me["avatar_url"] = f"./api/admin/bot-avatar/{me['id']}" if me["ok"] else None
             bots.append(me)
         rec = self.h.rec
@@ -698,7 +879,7 @@ class App:
         return jr(self.h.members.view(row))
 
     def share_url(self, code):
-        u = self.h.bot_username
+        u = self.member_username() or self.h.bot_username
         return f"https://t.me/{u}?start={code}" if u else None
 
     def api_codes(self, req, ctx):
@@ -759,6 +940,147 @@ class App:
         self.h.members.set_member_inbounds(ids)
         self.h.members.set_known_inbounds(set(self.h.members.known_inbounds()) | set(ids))
         return jr(self._inbound_rows(inbounds))
+
+    # ------------------------------------------------------- integrations --
+    def _bot_info(self, token):
+        if not token:
+            return None
+        me = self.get_me(token)
+        return {k: me[k] for k in ("id", "username", "name", "ok", "error")}
+
+    @staticmethod
+    def _with_avatar(info, tid):
+        if info is not None:
+            info["avatar_url"] = f"./api/admin/bot-avatar/{tid}" if info["ok"] else None
+        return info
+
+    def _xui_check(self, token):
+        """{"ok", "error", "detail"} from a real inbounds() call, cached a minute."""
+        if not token:
+            return {"ok": False, "error": "", "detail": "не настроен"}
+        ck = hashlib.sha256(token.encode()).hexdigest()
+        with self._lock:
+            hit = self._xui_chk
+        if hit and hit[0] == ck and time.time() - hit[1] < XUI_CHECK_TTL:
+            return hit[2]
+        client = self.h.xui if self.h.xui is not None and getattr(self.h.xui, "token", None) == token \
+            else tokens.make_xui(token)
+        try:
+            n = len(client.inbounds())
+            res = {"ok": True, "error": "", "detail": plural_inbounds(n)}
+        except XUIError as e:
+            res = {"ok": False, "error": tokens.scrub(e, token)[:200], "detail": ""}
+        with self._lock:
+            self._xui_chk = (ck, time.time(), res)
+        return res
+
+    def _integration(self, tid):
+        st = self.h.store
+        tok, src = tokens.resolve(st, tid)
+        item = {"id": tid, "kind": "api" if tid == "xui" else "bot", "configured": bool(tok),
+                "source": src, "masked": tokens.mask(tok), "updated_ts": tokens.updated_ts(st, tid),
+                "restart_on_change": tid in ("helper", "member")}
+        if tid == "xui":
+            item["check"] = self._xui_check(tok)
+        else:
+            item["bot"] = self._with_avatar(self._bot_info(tok), tid)
+        if tid == "crypto":
+            item["note"] = CRYPTO_NOTE
+        return item
+
+    def api_integrations(self, req, ctx):
+        self.need_owner(ctx)
+        return jr({"items": [self._integration(t) for t in tokens.IDS]})
+
+    def _check_bot(self, token):
+        """getMe on a candidate token -> the raw answer; ApiError 400 bad_token otherwise."""
+        if not tokens.BOT_TOKEN_RE.match(token):
+            raise ApiError(400, "bad_token", "Это не похоже на токен бота: нужен вид 123456789:AAH…")
+        try:
+            return self._bot_obj(token).call("getMe", _timeout=10)
+        except TelegramError as e:
+            raise ApiError(400, "bad_token", f"Telegram ответил: {tokens.scrub(e, token)[:150]}") from None
+
+    def _check_xui(self, token):
+        if not tokens.API_TOKEN_RE.match(token):
+            raise ApiError(400, "bad_token", "Токен 3x-ui не должен содержать пробелов и спецсимволов.")
+        try:
+            n = len(tokens.make_xui(token).inbounds())
+        except XUIError as e:
+            raise ApiError(400, "bad_token", f"3x-ui ответил: {tokens.scrub(e, token)[:150]}") from None
+        return n
+
+    def _other_bot_ids(self, tid):
+        """Numeric bot id behind the *other* of helper/member (0 when none)."""
+        other = "member" if tid == "helper" else "helper"
+        tok = tokens.resolve(self.h.store, other)[0]
+        ids = {tokens.bot_id(tok)} if tok else set()
+        if other == "helper" and getattr(self.h, "helper_id", None):
+            ids.add(self.h.helper_id)
+        return {i for i in ids if i}
+
+    def _swap_xui(self, token):
+        """Hot swap: the next 3x-ui call, from the API or a running sync, uses it."""
+        new = tokens.make_xui(token)
+        self.h.xui = new
+        if self.h.rec is not None:
+            self.h.rec.xui = new
+
+    def _apply_integration(self, tid, new, reset):
+        st = self.h.store
+        old = tokens.resolve(st, tid)[0]
+        me = None
+        if reset:
+            if not (st.get(tokens.key(tid)) or "").strip():
+                raise ApiError(404, "no_override")
+            new = tokens.fallback(st, tid)[0]
+            if tid == "helper" and not new:
+                raise ApiError(400, "no_fallback")
+        elif tid == "xui":
+            self._check_xui(new)
+        else:
+            me = self._check_bot(new)
+            if tid in ("helper", "member") and int(me.get("id") or 0) in self._other_bot_ids(tid):
+                raise ApiError(400, "same_bot")
+        if tid == "crypto" and not crypto_apply("" if reset else new):
+            raise ApiError(502, "crypto_apply_failed")
+        if reset:
+            tokens.clear_override(st, tid)
+        else:
+            tokens.set_override(st, tid, new)
+        with self._lock:
+            self._getme.clear()
+            self._xui_chk = None
+            if me is not None and tid in ("helper", "member"):
+                self._getme[new.split(":", 1)[0]] = (time.time(), self._me_val(new, me))
+        if tid == "xui":
+            self._swap_xui(new)
+        restart = tid in ("helper", "member") and new != old
+        if restart:
+            schedule_restart()
+        return jr({"item": self._integration(tid), "restarting": restart})
+
+    def api_integration_set(self, req, ctx, tid):
+        self.need_owner(ctx)
+        if tid not in tokens.IDS:
+            raise ApiError(404, "not_found")
+        tok = req.json().get("token")
+        if not isinstance(tok, str):
+            raise ApiError(400, "bad_request", "Поле token: ожидается строка.")
+        tok = tok.strip()
+        if not tok:
+            raise ApiError(400, "bad_token", "Токен пустой.")
+        if len(tok) > tokens.MAX_LEN:
+            raise ApiError(400, "bad_token", "Токен слишком длинный.")
+        with self._integ_lock:
+            return self._apply_integration(tid, tok, False)
+
+    def api_integration_reset(self, req, ctx, tid):
+        self.need_owner(ctx)
+        if tid not in tokens.IDS:
+            raise ApiError(404, "not_found")
+        with self._integ_lock:
+            return self._apply_integration(tid, "", True)
 
     def api_sync(self, req, ctx):
         self.need_owner(ctx)
@@ -845,7 +1167,7 @@ ROUTES = [
     ("POST", r"/api/matrix/password", "any", "api_matrix_password"),
     ("GET", r"/api/avatar/(-?\d{1,20})", "any", "api_avatar"),
     ("GET", r"/api/admin/overview", "any", "api_overview"),
-    ("GET", r"/api/admin/bot-avatar/(\d{1,20})", "any", "api_bot_avatar"),
+    ("GET", r"/api/admin/bot-avatar/(\d{1,20}|helper|member|crypto)", "any", "api_bot_avatar"),
     ("GET", r"/api/admin/members", "any", "api_members"),
     ("GET", r"/api/admin/members/(\d{1,20})", "any", "api_member"),
     ("POST", r"/api/admin/members/(\d{1,20})", "any", "api_member_action"),
@@ -856,6 +1178,9 @@ ROUTES = [
     ("GET", r"/api/admin/inbounds", "any", "api_inbounds"),
     ("POST", r"/api/admin/inbounds", "any", "api_inbounds_set"),
     ("POST", r"/api/admin/sync", "any", "api_sync"),
+    ("GET", r"/api/admin/integrations", "any", "api_integrations"),
+    ("POST", r"/api/admin/integrations/([a-z]{1,10})", "any", "api_integration_set"),
+    ("POST", r"/api/admin/integrations/([a-z]{1,10})/reset", "any", "api_integration_reset"),
 ]
 ROUTES = [(m, re.compile(p + r"\Z"), a, f) for m, p, a, f in ROUTES]
 GO_RE = re.compile(r"/go/([a-z0-9]{1,20})\Z")
