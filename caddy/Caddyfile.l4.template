@@ -97,8 +97,18 @@
 	# `handle`, NOT handle_path: the prefix must survive, because MeTube is
 	# configured with URL_PREFIX and builds its asset URLs under it. Stripping
 	# it gives a blank page. reverse_proxy carries the websocket automatically.
+	#
+	# basic_auth (the same login as the bot admin page below): with several
+	# people using the downloader the secret path alone would be the only
+	# credential, and MeTube's API can add and delete downloads and upload
+	# cookies. Members never use this route -- the helper bot talks to
+	# metube:8081 on the compose network and hands files out through its own
+	# signed links. The hash comes from secrets/bot-admin.hash (see bootstrap.sh).
 	redir /{$METUBE_PATH} /{$METUBE_PATH}/ 308
 	handle /{$METUBE_PATH}/* {
+		basic_auth {
+			{$BOT_ADMIN_USER} @@BOT_ADMIN_HASH@@
+		}
 		reverse_proxy metube:8081
 	}
 #ENDIF
@@ -212,6 +222,23 @@
 				tls
 				tls_server_name {$BASE_DOMAIN}
 			}
+		}
+	}
+
+	# VLESS + XHTTP behind Caddy's own TLS: the SNI is your own domain on your own
+	# IP and a real site answers everything else, which survives SNI allow-list
+	# checks that kill look-alike (Reality) SNIs. Plain h2c to a 3x-ui inbound on
+	# 127.0.0.1:20470 (host network, NOT router-forwarded). `handle`, not
+	# handle_path: the path must reach the inbound intact. flush_interval -1 keeps
+	# stream-one/stream-up full-duplex.
+	#
+	# THIS ROUTE DOES NOTHING UNTIL YOU CREATE THE MATCHING INBOUND in the 3x-ui
+	# panel -- bootstrap only generates XHTTP_PATH. Recipe: docs/VPN.md "XHTTP behind
+	# Caddy": VLESS, transport XHTTP, security none, path /<XHTTP_PATH>, listen
+	# port 20470, external proxy (tls) -> <your domain>:443.
+	handle /{$XHTTP_PATH}/* {
+		reverse_proxy h2c://host.docker.internal:20470 {
+			flush_interval -1
 		}
 	}
 #ENDIF

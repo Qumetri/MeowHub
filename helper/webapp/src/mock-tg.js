@@ -110,6 +110,8 @@ export function installFakeTelegram(p) {
           b.onclick = () => { dlg.style.display = 'none'; cb(b.dataset.v === '1') }
         })
       },
+      isVersionAtLeast: () => true,
+      downloadFile(o, cb) { say('downloadFile ' + o.file_name + ' <- ' + o.url); cb?.(true) },
       openLink(u) { say('openLink ' + u) },
       openTelegramLink(u) { say('openTelegramLink ' + u) },
     },

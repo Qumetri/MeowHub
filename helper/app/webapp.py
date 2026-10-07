@@ -28,6 +28,8 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import downloads as dlm
+import links as signed
 import members as mem
 import tokens
 from synapse import SynapseError
@@ -38,6 +40,7 @@ log = logging.getLogger("webapp")
 
 MAX_BODY = 64 * 1024
 DRAIN_MAX = 1024 * 1024
+CHUNK = 256 * 1024
 TOUCH_EVERY = 600                    # seconds between "app" activity bumps per uid
 AVATAR_TTL = 24 * 3600
 GETME_TTL = 600
@@ -84,6 +87,8 @@ MESSAGES = {
     "crypto_apply_failed": "Не удалось передать токен крипто-трекеру.",
     "no_override": "Токен не менялся на странице — сбрасывать нечего.",
     "no_fallback": "Без токена бот не запустится: в .env его нет.",
+    "not_grantable": "Этот сервис не выдаётся участникам по одному: он включается для всех главным выключателем.",
+    "bad_link": "Ссылка недействительна или устарела.",
 }
 CRYPTO_NOTE = ("n8n хранит свою копию токена крипто-бота: после смены обнови токен "
                "в его Telegram-credential в n8n.")
@@ -106,8 +111,10 @@ class ApiError(Exception):
 
 
 class Resp:
-    def __init__(self, body, ctype, status=200, headers=None):
+    """`stream=(path, start, length)` sends that slice of a file in chunks (body stays empty)."""
+    def __init__(self, body, ctype, status=200, headers=None, stream=None):
         self.body, self.ctype, self.status, self.headers = body, ctype, status, headers or {}
+        self.stream = stream
 
 
 def jr(obj, status=200, headers=None):
@@ -179,6 +186,8 @@ def as_int(v, lo, hi, field):
 def as_services(v, field="services"):
     if not isinstance(v, list) or not all(isinstance(s, str) and s in mem.SERVICES for s in v):
         raise ApiError(400, "bad_request", f"Поле {field}: неизвестный сервис.")
+    if any(s not in mem.GRANTABLE for s in v):
+        raise ApiError(400, "not_grantable")
     return v
 
 
@@ -257,6 +266,9 @@ LINK_GROUPS = [
      "Нужна последняя версия Happ или v2RayTun. Скопируй → «+» → «Из буфера».", "copy"),
     ("udp", "Hysteria2 (UDP)", ["Happ", "Hiddify", "v2RayTun"],
      "Если обычные не работают. Скопируй → «+» → «Из буфера».", "copy"),
+    ("awg", "AmneziaWG", ["AmneziaWG", "AmneziaVPN"],
+     "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или сканируй QR). "
+     "AmneziaVPN: скопируй ссылку → «+» → «Вставить».", "copy"),
     ("tg", "Прокси для Telegram", ["Telegram"],
      "Нажми — Telegram сам предложит включить.", "telegram"),
 ]
@@ -271,11 +283,13 @@ def _fragment_of(url):
 
 
 def link_group(url):
-    """Which app family a share link needs: 'tg' | 'udp' | 'new' | 'main'."""
+    """Which app family a share link needs: 'tg' | 'awg' | 'udp' | 'new' | 'main'."""
     low = url.lower()
     if low.startswith(TG_PREFIXES):
         return "tg"
     scheme = low.split("://", 1)[0]
+    if scheme == "vpn":
+        return "awg"
     if scheme in UDP_SCHEMES:
         return "udp"
     if scheme == "vless":
@@ -301,12 +315,47 @@ def _fix_vmess(url, domain):
     return "vmess://" + enc + sep + frag
 
 
+ENDPOINT_RE = re.compile(r"^([ \t]*Endpoint[ \t]*=[ \t]*)(\[[^\]\r\n]*\]|[^:\s]+)", re.I | re.M)
+
+
+def vpn_conf(url):
+    """The .conf text inside a vpn://<urlsafe base64> link, or None."""
+    body = url[len("vpn://"):].partition("#")[0]
+    try:
+        text = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8")
+    except (ValueError, UnicodeError):
+        return None
+    return text if "[Interface]" in text or "Endpoint" in text else None
+
+
+def _fix_vpn(url, domain):
+    """vpn:// (AmneziaWG) carries a whole .conf; the panel wrote the request's host into
+    `Endpoint`. Swap a local host for `domain` and re-encode exactly like the input:
+    same alphabet, and no `=` padding unless the input was padded."""
+    body, sep, frag = url[len("vpn://"):].partition("#")
+    text = vpn_conf(url)
+    if text is None:
+        return url
+    out = ENDPOINT_RE.sub(lambda mo: mo.group(1) + (domain if mo.group(2).lower() in BAD_HOSTS else mo.group(2)),
+                          text)
+    if out == text:
+        return url
+    enc = base64.urlsafe_b64encode(out.encode("utf-8")).decode()
+    if "+" in body or "/" in body:                      # a standard-alphabet input stays that way
+        enc = enc.replace("-", "+").replace("_", "/")
+    if len(body) % 4:                                   # unpadded input (padded ones are a multiple of 4)
+        enc = enc.rstrip("=")
+    return "vpn://" + enc + sep + frag
+
+
 def fix_host(url, domain):
     """Replace a local host (authority part) with the public `domain`."""
     if not domain:
         return url
     if url.lower().startswith("vmess://"):
         return _fix_vmess(url, domain)
+    if url.lower().startswith("vpn://"):
+        return _fix_vpn(url, domain)
     m = AUTHORITY_RE.match(url)
     if m and m.group(3).lower() in BAD_HOSTS:
         return url[:m.start(3)] + domain + url[m.end(3):]
@@ -329,11 +378,28 @@ def link_name(url, email, i):
     name = _fragment_of(url).strip()
     if email and name.endswith("-" + email):
         name = name[:-len(email) - 1].strip()
-    return name or ("MTProto-прокси" if link_group(url) == "tg" else f"Конфиг {i}")
+    g = link_group(url)
+    return name or ("MTProto-прокси" if g == "tg" else "AmneziaWG" if g == "awg" else f"Конфиг {i}")
 
 
-def build_links(urls, email, domain):
-    """-> (links, groups) for /api/vpn: host-fixed, named, grouped by app family."""
+AWG_FILE = "meowhub-awg.conf"
+
+
+def awg_links(items, conf_url):
+    """The AmneziaWG group's links: copy each vpn:// link, then (for the first) a signed
+    .conf download and a QR carrying the .conf text."""
+    out = [dict(l, action="copy") for l in items]
+    conf = vpn_conf(items[0]["url"]) if items else None
+    if conf_url:
+        out.append({"name": "Файл .conf", "url": conf_url, "action": "download", "file_name": AWG_FILE})
+    if conf:
+        out.append({"name": "QR для AmneziaWG", "action": "qr", "text": conf})
+    return out
+
+
+def build_links(urls, email, domain, conf_url=None):
+    """-> (links, groups) for /api/vpn: host-fixed, named, grouped by app family.
+    `conf_url` is the (absolute) signed URL of the AmneziaWG .conf, when there is one."""
     links, by_group = [], {}
     for i, url in enumerate(urls or [], 1):
         if not isinstance(url, str) or not url.strip():
@@ -345,7 +411,8 @@ def build_links(urls, email, domain):
         links.append(item)
         by_group.setdefault(g, []).append(item)
     groups = [{"id": gid, "title": title, "apps": list(apps), "hint": hint,
-               "links": [dict(l, action=action) for l in by_group[gid]]}
+               "links": awg_links(by_group[gid], conf_url) if gid == "awg"
+               else [dict(l, action=action) for l in by_group[gid]]}
               for gid, title, apps, hint, action in LINK_GROUPS if by_group.get(gid)]
     return links, groups
 
@@ -354,6 +421,7 @@ def build_links(urls, email, domain):
 class App:
     def __init__(self, helper):
         self.h = helper
+        signed.configure(helper.store)
         self._touched = {}
         self._lock = threading.Lock()
         self._locked = {}                   # mxid -> (ts, bool|None)
@@ -595,8 +663,9 @@ class App:
             "role": ctx.role, "mode": ctx.mode, "user": user,
             "member": self.h.members.view(m) if m else None,
             "contact": env("OWNER_CONTACT"),
-            "services": [{"id": k, "name": v["name_" + loc], "description": v["desc_" + loc]}
-                         for k, v in mem.SERVICES.items()],
+            "services": [{"id": k, "name": v["name_" + loc], "description": v["desc_" + loc],
+                          "available": ctx.uid is not None and self.h.members.has(ctx.uid, k)}
+                         for k, v in mem.SERVICES.items() if self.h.members.service_enabled(k)],
             "bot_username": self.h.bot_username or "",
             "via": ctx.via, "member_bot_username": self.member_username(),
             "can_preview": ctx.role == "owner" and ctx.via in ("helper", "browser")})
@@ -648,7 +717,9 @@ class App:
             if client is None or not (m["vpn_sub_id"] or client.get("subId")):
                 raise ApiError(409, "pending", "Конфиг ещё создаётся, повтори через несколько секунд.")
         sub = sub_base() + (m["vpn_sub_id"] or client.get("subId"))
-        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"))
+        conf_url = signed.absolute(signed.sign("awg_conf", "awg", uid, store=self.h.store),
+                                   getattr(self.h, "webapp_url", ""))
+        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url)
         tr = traffic_of(client)
         if tr is None:
             tr = next((traffic_of(c) for c in xui.clients() if c.get("email") == email), None)
@@ -908,6 +979,20 @@ class App:
             raise ApiError(404, "not_found", "Код не найден.")
         return jr({"ok": True})
 
+    def api_services(self, req, ctx):
+        self.need_owner(ctx)
+        return jr(self.h.members.services_state())
+
+    def api_service_set(self, req, ctx, svc):
+        self.need_owner(ctx)
+        if svc not in mem.SERVICES:
+            raise ApiError(404, "not_found")
+        on = req.json().get("enabled")
+        if not isinstance(on, bool):
+            raise ApiError(400, "bad_request", "Поле enabled: ожидается true или false.")
+        self.h.members.set_service_enabled(svc, on)
+        return jr(self.h.members.services_state())
+
     def _inbounds(self):
         if self.h.xui is None:
             raise ApiError(503, "vpn_unconfigured", "VPN пока не настроен.")
@@ -1092,6 +1177,115 @@ class App:
         run_timeout(rec.sync_all)
         return jr(rec.last_sync)
 
+    # ---------------------------------------------------------- downloader --
+    def need_dl(self, ctx):
+        """The downloader engine, for the owner or a member with `youtube`."""
+        d = getattr(self.h, "downloads", None)
+        if d is None:
+            raise ApiError(503, "bot_not_ready", "Загрузчик ещё запускается, попробуй через минуту.")
+        if ctx.role != "owner" and not (ctx.uid is not None and self.h.members.has(ctx.uid, "youtube")):
+            raise ApiError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
+        return d
+
+    def api_dl_presets(self, req, ctx):
+        self.need_dl(ctx)
+        return jr(dlm.presets_payload())
+
+    def api_dl_new(self, req, ctx):
+        d = self.need_dl(ctx)
+        b = req.json()
+        job = d.submit(ctx.uid, b.get("url"), b.get("preset"),
+                       {k: b.get(k) for k in ("subs", "clip", "playlist", "to_chat")})
+        return jr(job)
+
+    def api_dl_list(self, req, ctx):
+        return jr(self.need_dl(ctx).jobs_for(ctx.uid))
+
+    def api_dl_cancel(self, req, ctx, jid):
+        return jr(self.need_dl(ctx).cancel(ctx.uid, int(jid)))
+
+    def api_dl_send(self, req, ctx, jid):
+        return jr(self.need_dl(ctx).send(ctx.uid, int(jid)))
+
+    def api_dl_delete(self, req, ctx, jid):
+        return jr(self.need_dl(ctx).delete(ctx.uid, int(jid)))
+
+    def api_admin_dl(self, req, ctx):
+        self.need_owner(ctx)
+        d = getattr(self.h, "downloads", None)
+        if d is None:
+            raise ApiError(503, "bot_not_ready", "Загрузчик ещё запускается, попробуй через минуту.")
+
+        def name(uid):
+            m = self.h.members.get(uid)
+            return name_of(m) if m else ("Владелец" if uid == self.h.owner_id() else str(uid))
+        return jr(d.admin(name))
+
+    # -------------------------------------------------------- /dl download --
+    def dl(self, tok, req=None):
+        """Signed link: the token is the auth (no header can be sent). What the
+        member may still do is re-checked here, at download time."""
+        try:
+            kind, _ident, uid = signed.verify(tok, store=self.h.store)
+        except signed.LinkError:
+            raise ApiError(403, "bad_link") from None
+        if kind == "awg_conf":
+            return self.dl_awg_conf(uid)
+        if kind == "file":
+            return self.dl_file(uid, _ident, req)
+        raise ApiError(404, "not_found")
+
+    def dl_file(self, uid, ident, req):
+        """A downloader result: re-check the job, the service and the file, then
+        stream it (Range supported, never read whole into memory)."""
+        d = getattr(self.h, "downloads", None)
+        if d is None:
+            raise ApiError(503, "bot_not_ready", "Загрузчик ещё запускается, попробуй через минуту.")
+        path, name = d.file_for_link(uid, ident)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            raise ApiError(404, "not_found") from None
+        headers = {"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(name, safe=""),
+                   "Access-Control-Allow-Origin": "https://web.telegram.org",
+                   "Accept-Ranges": "bytes", "Cache-Control": "no-store"}
+        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        start, length, status = 0, size, 200
+        rng = (req.headers.get("Range") if req is not None else "") or ""
+        if rng:
+            m = re.fullmatch(r"bytes=(\d*)-(\d*)", rng.strip())
+            ok = bool(m) and (m.group(1) or m.group(2))
+            if ok:
+                if m.group(1):
+                    a = int(m.group(1))
+                    b = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+                else:                                   # suffix: the last N bytes
+                    n = int(m.group(2))
+                    a, b = max(size - n, 0), size - 1
+                ok = a <= b and a < size
+            if not ok:
+                return Resp(b"", "text/plain; charset=utf-8", 416,
+                            dict(headers, **{"Content-Range": f"bytes */{size}"}))
+            start, length, status = a, b - a + 1, 206
+            headers["Content-Range"] = f"bytes {a}-{b}/{size}"
+        return Resp(b"", ctype, status, headers, stream=(path, start, length))
+
+    def dl_awg_conf(self, uid):
+        if not self.h.members.has(uid, "vpn"):
+            raise ApiError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
+        xui = self.h.xui
+        if xui is None:
+            raise ApiError(503, "vpn_unconfigured", "VPN пока не настроен.")
+        domain = env("BASE_DOMAIN")
+        for url in xui.client_links(f"mh-{uid}") or []:
+            if isinstance(url, str) and link_group(url.strip()) == "awg":
+                conf = vpn_conf(fix_host(url.strip(), domain))
+                if conf:
+                    return Resp(conf.encode("utf-8"), "text/plain; charset=utf-8", headers={
+                        "Content-Disposition": f'attachment; filename="{AWG_FILE}"',
+                        "Cache-Control": "no-store"})
+        raise ApiError(404, "not_found", "AmneziaWG-конфиг не найден.")
+
     # ----------------------------------------------------------- /go page --
     def go_page(self, app_id, query):
         spec = APPS_BY_ID.get(app_id)
@@ -1179,13 +1373,23 @@ ROUTES = [
     ("POST", r"/api/admin/codes/([A-Za-z0-9-]{1,40})/revoke", "any", "api_code_revoke"),
     ("GET", r"/api/admin/inbounds", "any", "api_inbounds"),
     ("POST", r"/api/admin/inbounds", "any", "api_inbounds_set"),
+    ("GET", r"/api/admin/services", "any", "api_services"),
+    ("POST", r"/api/admin/services/([a-z0-9_]{1,20})", "any", "api_service_set"),
     ("POST", r"/api/admin/sync", "any", "api_sync"),
+    ("GET", r"/api/dl/presets", "any", "api_dl_presets"),
+    ("POST", r"/api/dl", "any", "api_dl_new"),
+    ("GET", r"/api/dl", "any", "api_dl_list"),
+    ("POST", r"/api/dl/(\d{1,12})/cancel", "any", "api_dl_cancel"),
+    ("POST", r"/api/dl/(\d{1,12})/send", "any", "api_dl_send"),
+    ("POST", r"/api/dl/(\d{1,12})/delete", "any", "api_dl_delete"),
+    ("GET", r"/api/admin/dl", "any", "api_admin_dl"),
     ("GET", r"/api/admin/integrations", "any", "api_integrations"),
     ("POST", r"/api/admin/integrations/([a-z]{1,10})", "any", "api_integration_set"),
     ("POST", r"/api/admin/integrations/([a-z]{1,10})/reset", "any", "api_integration_reset"),
 ]
 ROUTES = [(m, re.compile(p + r"\Z"), a, f) for m, p, a, f in ROUTES]
 GO_RE = re.compile(r"/go/([a-z0-9]{1,20})\Z")
+DL_RE = re.compile(r"/dl/([A-Za-z0-9_.-]{1,512})\Z")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1199,7 +1403,10 @@ class Handler(BaseHTTPRequestHandler):
         log.debug("%s", fmt % args if args else fmt)
 
     def log_request(self, code="-", size="-"):
-        log.debug("%s %s -> %s", self.command, self.path.split("?", 1)[0], code)
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/dl/"):                  # the token is a credential
+            path = "/dl/…"
+        log.debug("%s %s -> %s", self.command, path, code)
 
     # ---- request body ----
     def json(self):
@@ -1244,6 +1451,8 @@ class Handler(BaseHTTPRequestHandler):
             resp = jr({"error": e.code, "message": e.message}, e.status)
             if e.status == 503 and e.code == "not_built":
                 resp = Resp(b"frontend not built", "text/plain; charset=utf-8", 503)
+        except dlm.DlError as e:
+            resp = jr({"error": e.code, "message": e.message}, e.status)
         except XUIError as e:
             log.warning("xui error on %s: %s", path, e)
             resp = jr({"error": "vpn_error", "message": "VPN-панель не отвечает, попробуй позже."}, 502)
@@ -1272,12 +1481,15 @@ class Handler(BaseHTTPRequestHandler):
         mo = GO_RE.match(path)
         if mo:
             return app.go_page(mo.group(1), query)
+        mo = DL_RE.match(path)
+        if mo:
+            return app.dl(mo.group(1), self)
         return app.static(path)
 
     def _send(self, resp):
         self.send_response(resp.status)
         self.send_header("Content-Type", resp.ctype)
-        self.send_header("Content-Length", str(len(resp.body)))
+        self.send_header("Content-Length", str(resp.stream[2] if resp.stream else len(resp.body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         if resp.ctype.startswith("application/json"):
@@ -1288,9 +1500,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
         self.end_headers()
         try:
-            self.wfile.write(resp.body)
+            if resp.stream:
+                path, start, left = resp.stream
+                with open(path, "rb") as f:
+                    f.seek(start)
+                    while left > 0:
+                        chunk = f.read(min(CHUNK, left))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        left -= len(chunk)
+            else:
+                self.wfile.write(resp.body)
         except OSError:
-            pass
+            self.close_connection = True
 
     def do_GET(self):
         self._handle("GET")

@@ -39,7 +39,8 @@ For a separate bot for members, see [Two bots](#two-bots) below.
 
 | | Owner | Member (active) | Stranger |
 |---|:-:|:-:|:-:|
-| 🩺 Health, 🔗 Links, 🎬 Downloads (`tools`) | ✅ | if the membership has `tools` | — |
+| 🩺 Health, 🔗 Links (`tools`) | ✅ | if the membership has `tools` | — |
+| 🎬 Downloader (`youtube`) | ✅ (always) | while the owner has switched `youtube` on | — |
 | VPN link (`vpn`), Matrix accounts (`matrix`) | ✅ | if the membership has the service | — |
 | Redeem an access code | ✅ | ✅ (extends) | ✅ (becomes a member) |
 | 🔑 Logins (`/pass`, `/setpass`, `/delpass`) | ✅ | — | — |
@@ -63,7 +64,8 @@ id of whoever pressed it. The bot also **never answers in groups**.
 |---|---|
 | `vpn` | one auto-updating 3x-ui subscription link |
 | `matrix` | up to `MATRIX_MAX_PER_MEMBER` (default 2) Matrix accounts, created in the Mini App |
-| `tools` | the bot's health / links / YouTube downloads |
+| `tools` | server health and hub links only (downloads are the separate `youtube` service) |
+| `youtube` | the downloader; mode `all`, so it is **not grantable** and cannot go in a code — see [Service toggles](#service-toggles) |
 
 **Status** — suspended (the owner's manual switch) beats expired (`expires_ts`
 passed) beats active. **Expiry never deletes a member**: the row and the Matrix
@@ -141,6 +143,30 @@ half shows "not configured" and the rest keeps working.
    `BASE_DOMAIN`.
 4. `docker compose up -d helper`, then open the Mini App from the bot's menu
    button and the Bots page from the hub card, and mint a first code.
+
+## Service toggles
+
+Every member service has a **global on/off switch**, set by the owner in the helper
+bot (`⚙️ Сервисы` / `/services`) or on the Bots page (Overview, "Сервисы для
+участников"). It is stored in the `helper.db` setting `svc_enabled`. Defaults:
+`vpn`, `matrix` and `tools` on, **`youtube` off** until you switch it on. The one
+access rule (`members.has()`): the membership is active **and** the switch is on
+**and** (the service is mode `all` **or** the member was granted it).
+
+| Mode | Services | Meaning |
+|---|---|---|
+| `grant` | `vpn`, `matrix`, `tools` | given per member (codes, member card). The switch is a master kill-switch: off means VPN clients are disabled and Matrix accounts locked for everyone, and flipping it back restores them |
+| `all` | `youtube` | switch on means every active member has it. No per-member grant, and asking for it in a code or on a member card is refused (`not_grantable`) |
+
+A service that is switched off disappears from the member's app and keyboard.
+API: `GET /api/admin/services` and `POST /api/admin/services/<id>` with
+`{"enabled": true|false}`.
+
+**Convention: every new member-facing service ships with such an owner toggle,
+default off.** Add it to `SERVICES` and `SERVICE_DEFAULTS` in
+`helper/app/members.py` (mode `grant` or `all`), gate every entry point with
+`members.has(uid, "<id>")`, and the switch, the member app catalogue and the admin
+card follow.
 
 ## Two bots
 
@@ -226,6 +252,7 @@ Mini App shows as sections named after what the user must install:
 | VLESS and Shadowsocks | plain `vless://`, `vmess://`, `trojan://`, `ss://` | Happ, v2RayTun, v2rayNG, Hiddify |
 | 🧪 New protocols (test) | `vless://` with `encryption` other than `none`, or an `fm` parameter, or 🧪 in its name | recent Happ / v2RayTun |
 | Hysteria2 (UDP) | `hysteria2://`, `hy2://`, `hysteria://` | Happ, Hiddify, v2RayTun |
+| AmneziaWG | `vpn://` (an AmneziaVPN share link carrying a whole `.conf`) | AmneziaWG, AmneziaVPN |
 | Telegram proxy | `tg://proxy` / `https://t.me/proxy` (MTProto), always rewritten to the `https://t.me/proxy?…` form so one tap opens Telegram | Telegram |
 
 Empty groups are omitted. A link's name is its URL-decoded `#fragment` with the
@@ -238,6 +265,19 @@ those hosts to `BASE_DOMAIN` — both in the `@host:port` part and in `server=` 
 proxy links, and inside a `vmess://` JSON blob — for `links` and `groups` alike.
 A host that is already a real name is left alone. If a client imports a config
 that points at `host.docker.internal`, that rewrite did not run.
+
+### AmneziaWG for members
+
+Put one AmneziaWG inbound in the member inbounds (at most one, see above) and each
+member gets one peer, which expires with the membership. The "AmneziaWG" group
+offers three things: **copy the `vpn://` link** (AmneziaVPN), **download
+`meowhub-awg.conf`** (AmneziaWG) and a **QR** that carries the `.conf` text (a long
+config falls back to error-correction level L, and past that the app says to
+download the file). The panel writes its own host (`localhost`) into the peer's
+`Endpoint`; the helper rewrites it to `BASE_DOMAIN` in both the `vpn://` link and the
+`.conf`, re-encoding the link exactly like its input. The `.conf` download is a
+[signed link](#downloader) (kind `awg_conf`) that re-checks the member's `vpn`
+access at download time.
 
 ## Inbound auto-dating
 
@@ -346,16 +386,46 @@ The list is **`dashboard/dist/services.json`**, written by the dashboard build
 from the same `src/services.js` the page renders — add a card, rebuild, and the
 bot has it. The hub's own URL comes from `BASE_DOMAIN` + `DASHBOARD_PATH`.
 
-## Downloads
+## Downloader
 
-Send any video link (YouTube and most sites yt-dlp supports) and pick **1080p**,
-**best** or **MP3**. The bot queues it in MeTube, shows progress, and answers
-with a tap-to-save link — plus the file itself when it is under 50 MB (the limit
-for bot uploads). Files are purged by the MeTube janitor after `METUBE_TTL_MIN`.
+Service `youtube` (an owner-switched, all-members service, off by default -- see
+[Service toggles](#service-toggles); the owner always has it, in the helper bot).
+Send a link to the bot, or use the Mini App page "Скачать" (`?p=downloads&url=…`).
 
-The bot recognises its own download in MeTube's history by **timestamp**, not
-by video id: MeTube re-downloads something already in its history under the same
-id with a new timestamp.
+- **Engine**: MeTube at the internal `METUBE_URL` (default `http://metube:8081`) plus
+  `/{METUBE_PATH}/`, pinned in compose (`METUBE_IMAGE`), with `DOWNLOAD_DIRS_INDEXABLE`
+  off, 2 concurrent downloads and yt-dlp upgraded nightly. The public MeTube route is
+  behind **basic_auth** (the same login as the Bots page); users never see it. MeTube
+  links are never handed out.
+- **Queue**: MeTube keys its queue and history by URL, so one global queue cannot
+  serve several people. The helper keeps its own job table (`downloads` in
+  `helper.db`): identical requests share one MeTube download (fan-out), and a different
+  preset for the same URL waits its turn.
+- **Folders**: one per user, `<download dir>/u<telegram id>`.
+- **Presets**: video 360 / 720 / 1080 / best (mp4, h264 forced -- "1080" otherwise
+  picks AV1 that phones cannot play), audio mp3 / m4a / opus. Extras in the app:
+  subtitles (separate `.srt`), a from-to clip, and a playlist (first 10).
+- **Limits** per person (the owner is exempt): `DL_ACTIVE` 2, `DL_PER_HOUR` 10,
+  `DL_PER_DAY` 30; new jobs are refused below `DL_MIN_FREE_GB` (50) free on the
+  download disk. `DL_CHAT_MAX_MB` (49) is the biggest file the bot sends itself.
+  All optional, see `.env.example`.
+- **Delivery**: a file up to `DL_CHAT_MAX_MB` is uploaded into the chat by the bot
+  the person talks to. Bigger files, and app downloads, get a **signed link**
+  `https://<domain>/<BOT_APP_PATH>/dl/<token>`: an HMAC token (key in the
+  `link_secret` setting) bound to the user and the job, valid about
+  `METUBE_TTL_MIN`. The helper serves the file itself with `Range` support,
+  `Content-Disposition` and CORS for web.telegram.org (what the Mini App's native
+  `downloadFile` needs), re-checks the job and the service on every request, and the
+  token never appears in logs.
+- **Cleanup**: when everyone who asked got the file through Telegram, the item is
+  deleted in MeTube immediately. Otherwise the `metube-janitor` deletes files
+  `METUBE_TTL_MIN` minutes (default 30) after they were last changed, by ctime.
+- **Bot**: a link gives preset buttons, progress, then the file or a link. "Ещё" opens
+  the app for subtitles, clips and playlists. Members with the service get a "Скачать
+  видео" keyboard button; members without it are told at most hourly that downloads
+  are switched off.
+- **Admin**: the Bots page "Загрузки" section (disk free, today's jobs and bytes,
+  recent jobs).
 
 ## Logins
 

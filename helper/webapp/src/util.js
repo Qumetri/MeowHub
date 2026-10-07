@@ -75,8 +75,30 @@ export const statusLabel = (m) => {
   return s === 'soon' ? t('status.soon') : t('status.' + s)
 }
 
+// Server-side effective_services (grant + switched-on "all" services) wins over the raw grants.
+export const svcList = (m) => m?.effective_services ?? m?.services ?? []
 export function hasService(m, id) {
-  return !!m && m.status === 'active' && (m.services || []).includes(id)
+  return !!m && m.status === 'active' && svcList(m).includes(id)
+}
+// Downloads: the owner always has them, a member when /api/me marks youtube available.
+export function canDownload(me) {
+  return !!me && (me.role === 'owner' || !!me.services?.find((s) => s.id === 'youtube')?.available)
+}
+
+// Seconds -> "45 с" / "3 мин" / "1 ч 05 мин".
+export function fmtDur(sec) {
+  const ru = getLang() === 'ru'
+  sec = Math.max(0, Math.round(sec))
+  if (sec < 60) return `${sec} ${ru ? 'с' : 's'}`
+  if (sec < 3600) return `${Math.round(sec / 60)} ${ru ? 'мин' : 'min'}`
+  return `${Math.floor(sec / 3600)} ${ru ? 'ч' : 'h'} ${String(Math.round((sec % 3600) / 60)).padStart(2, '0')} ${ru ? 'мин' : 'min'}`
+}
+// "1:23" / "83" / "1:02:03" -> seconds; '' -> null; garbage -> NaN.
+export function parseClock(s) {
+  s = (s || '').trim()
+  if (!s) return null
+  if (!/^\d{1,3}(:\d{1,2}){0,2}$/.test(s)) return NaN
+  return s.split(':').reduce((a, p) => a * 60 + Number(p), 0)
 }
 
 export function shortUrl(u, n = 34) {

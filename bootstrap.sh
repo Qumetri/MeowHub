@@ -120,6 +120,7 @@ randomise_path DASHBOARD_PATH  hub
 randomise_path METUBE_PATH     dl
 randomise_path MATRIXRTC_PATH  call
 randomise_path AWG_ADMIN_PATH  awg
+randomise_path XHTTP_PATH      xhttp
 randomise_path CRYPTO_PATH     crypto
 randomise_path XUI_PANEL_PATH  panel
 randomise_path N8N_PUBLIC_PATH n8n

@@ -33,13 +33,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from urllib.parse import quote
 
+import downloads
 import health
 import hub
+import links
 import tokens
 import webapp
-import ytdl
-from members import (AWG_PROTOCOLS, DEFAULT_SERVICES, SERVICES, Members, Reconciler, ask_owner, norm_code,
-                     owner_contact, ru_date)
+from members import (AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, Members, Reconciler, ask_owner,
+                     norm_code, owner_contact, ru_date)
 from store import Store
 from synapse import Synapse
 from tg import Bot, TelegramError
@@ -53,16 +54,18 @@ DAY = 86400
 WIZ_TTL = 3600
 PAGE = 8
 
-B_HEALTH, B_LINKS, B_YT, B_PASS = "🩺 Здоровье", "🔗 Ссылки", "🎬 YouTube", "🔑 Пароли"
+B_HEALTH, B_LINKS, B_YT, B_PASS = "🩺 Здоровье", "🔗 Ссылки", "🎬 Скачать видео", "🔑 Пароли"
 B_VPN, B_MX, B_SUB, B_HELP = "🔐 VPN", "💬 Мессенджер", "🗓 Подписка", "❓ Помощь"
 B_MEMBERS, B_CODE, B_APP = "👥 Участники", "🎟 Код", "📱 MeowHub"
+B_SVC = "⚙️ Сервисы"
 URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
-OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny")
+OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services")
 SHORT = {"vpn": "VPN", "matrix": "Мессенджер", "tools": "Инструменты"}
 WIZ_DAYS = (30, 90, 180, 365)
 SEEN_MAX = 500
+YT_NAG_EVERY = 3600
 
 
 def esc(s):
@@ -111,10 +114,12 @@ class Helper:
         self.helper_id = None             # numeric id of the helper bot (from getMe)
         self.pool = ThreadPoolExecutor(8)
         self.pending_urls = {}            # token -> (url, user id, ts)
+        self.yt_nag = {}                  # uid -> last "downloads are off" notice
         self.nagged = set()               # strangers already reported to the owner
         self.seen_from = {}               # stranger uid -> Telegram `from` (for the grant welcome)
         self.wiz = {}                     # message id -> code wizard state
         self.members = Members(store)
+        links.configure(store)
         self.xui = tokens.xui_from(store)
         self.syn = Synapse.from_env(lambda: store.get("matrix_admin_token"),
                                     lambda t: store.set("matrix_admin_token", t))
@@ -123,6 +128,8 @@ class Helper:
         base = os.environ.get("BASE_DOMAIN", "").strip()
         path = os.environ.get("BOT_APP_PATH", "").strip().strip("/")
         self.webapp_url = f"https://{base}/{path}/" if base and path else ""
+        self.downloads = downloads.Downloads(store, self.members, self.owner_id, self.bot_for_chat,
+                                             lambda: self.webapp_url)
 
     @property
     def core(self):
@@ -176,19 +183,21 @@ class Helper:
         app = [[{"text": B_APP, "web_app": {"url": self.app_url()}}]] if self.webapp_url else []
         if role == "owner":
             rows = [[{"text": B_HEALTH}, {"text": B_LINKS}, {"text": B_PASS}], [{"text": B_YT}],
-                    [{"text": B_MEMBERS}, {"text": B_CODE}]] + app
+                    [{"text": B_MEMBERS}, {"text": B_CODE}, {"text": B_SVC}]] + app
         elif role == "member":
             m = self.members.get(uid)
             if self.members.status(m) != "active":
                 rows = app + [[{"text": B_HELP}]]
             else:
                 rows = list(app)
-                svc = [{"text": t} for s, t in (("vpn", B_VPN), ("matrix", B_MX)) if s in m["services"]]
+                svc = [{"text": t} for s, t in (("vpn", B_VPN), ("matrix", B_MX)) if self.members.has(uid, s)]
                 if svc:
                     rows.append(svc)
                 rows.append([{"text": B_SUB}, {"text": B_HELP}])
-                if "tools" in m["services"]:
-                    rows.append([{"text": B_HEALTH}, {"text": B_LINKS}, {"text": B_YT}])
+                if self.members.has(uid, "tools"):
+                    rows.append([{"text": B_HEALTH}, {"text": B_LINKS}])
+                if self.members.has(uid, "youtube"):
+                    rows.append([{"text": B_YT}])
         else:
             return None
         return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
@@ -278,6 +287,7 @@ class Helper:
         except Exception:                                   # noqa: BLE001
             log.exception("webapp failed to start")
         threading.Thread(target=self.rec.run, daemon=True, name="reconciler").start()
+        self.downloads.start()
         self._menu_button()
         if self.member_front is not None:
             self.member_front._menu_button()
@@ -378,6 +388,7 @@ class Helper:
                     {"command": "yt", "description": "Скачать видео: /yt <ссылка>"},
                     {"command": "code", "description": "/code [дней] [vpn,matrix,tools]"},
                     {"command": "members", "description": "Участники"},
+                    {"command": "services", "description": "Включить/выключить сервисы"},
                     {"command": "pass", "description": "Пароли к сервисам"},
                     {"command": "setpass", "description": "/setpass <сервис> <логин> <пароль>"},
                     {"command": "delpass", "description": "/delpass <сервис>"},
@@ -439,24 +450,17 @@ class Helper:
         if cmd == "/sub" or text == B_SUB:
             return self.cmd_sub(cid, uid)
 
-        tools = cmd in ("/health", "/links", "/yt") or text in (B_HEALTH, B_LINKS, B_YT) or URL_RE.search(text)
+        if cmd == "/yt" or text == B_YT or (URL_RE.search(text) and not cmd.startswith("/")):
+            return self.cmd_download(cid, uid, role, cmd, arg, text)
+        tools = cmd in ("/health", "/links") or text in (B_HEALTH, B_LINKS)
         if tools and not self.tools_ok(uid, role):
             return self.bot.send(cid, "⛔ Эта функция не входит в твою подписку.")
         if cmd == "/health" or text == B_HEALTH:
             return self.cmd_health(cid)
         if cmd == "/links" or text == B_LINKS:
             return self.cmd_links(cid)
-        if text == B_YT:
-            return self.bot.send(cid, "Пришли ссылку на видео (YouTube и почти любой другой сайт) — "
-                                      "я предложу качество и пришлю файл или ссылку на него.")
-        if cmd == "/yt" or URL_RE.search(text):
-            url = URL_RE.search(arg if cmd == "/yt" else text)
-            if not url:
-                return self.bot.send(cid, "Формат: <code>/yt https://youtu.be/…</code>")
-            return self.offer_download(cid, uid, url.group(0))
-
         if role != "owner":
-            if cmd in OWNER_CMDS or text in (B_PASS, B_MEMBERS, B_CODE):
+            if cmd in OWNER_CMDS or text in (B_PASS, B_MEMBERS, B_CODE, B_SVC):
                 return self.bot.send(cid, "⛔ Эта функция доступна только владельцу.")
             return self.member_start(cid, uid)
 
@@ -469,6 +473,8 @@ class Helper:
             return self.cmd_delpass(cid, arg.strip().lower())
         if cmd in ("/members", "/users") or text == B_MEMBERS:
             return self.cmd_members(cid)
+        if cmd == "/services" or text == B_SVC:
+            return self.cmd_services(cid)
         if cmd == "/code":
             return self.cmd_code(cid, arg)
         if text == B_CODE:
@@ -487,6 +493,7 @@ class Helper:
             t += [f"{B_PASS} — логины к сервисам (только тебе, сообщение исчезает через {PASS_TTL} с)",
                   f"{B_MEMBERS} / <code>/members</code> — участники: продлить, приостановить, сервисы",
                   f"{B_CODE} — мастер кода приглашения",
+                  f"{B_SVC} / <code>/services</code> — включать и выключать сервисы для участников",
                   "", "<b>Участники</b>",
                   "<code>/code [дней] [vpn,matrix,tools]</code> — код приглашения (по умолчанию 30 дней, VPN + Мессенджер)",
                   "Участник присылает код боту (или открывает ссылку-приглашение) — и получает доступ. "
@@ -511,7 +518,7 @@ class Helper:
         return f"🟢 активна до {ru_date(exp)} (осталось {days_left(m)} д)"
 
     def member_help(self, m):
-        have = [s for s in SERVICES if m and s in m["services"]]
+        have = self.members.effective_services(m) if m else []
         t = ["🐱 <b>MeowHub</b> — закрытый сервис по приглашениям.", ""]
         t += [f"• <b>{esc(SERVICES[s]['name_ru'])}</b> — {esc(SERVICES[s]['desc_ru'])}" for s in have]
         t += ["", "Когда подписка заканчивается, сервисы приостанавливаются, а аккаунты и настройки "
@@ -523,7 +530,7 @@ class Helper:
         m = self.members.get(uid)
         t = [f"🐱 <b>MeowHub</b> — привет, {esc(person(m))}!", "",
              f"Подписка: {self.status_line(m)}",
-             f"Сервисы: {esc(svc_names(m['services']) or '—')}", "",
+             f"Сервисы: {esc(svc_names(self.members.effective_services(m)) or '—')}", "",
              "Меню — кнопками внизу."]
         self.send_menu(cid, uid, "\n".join(t))
 
@@ -538,7 +545,7 @@ class Helper:
     def welcome(self, m):
         return (f"🎉 <b>Добро пожаловать в MeowHub, {esc(person(m))}!</b>\n\n"
                 f"Подписка: {self.status_line(m)}\n"
-                f"Сервисы: {esc(svc_names(m['services']) or '—')}\n\n"
+                f"Сервисы: {esc(svc_names(self.members.effective_services(m)) or '—')}\n\n"
                 "Меню — кнопками внизу, а всё в одном месте — в приложении.")
 
     # ------------------------------------------------------------------ codes --
@@ -655,8 +662,36 @@ class Helper:
             return self.bot.send(cid, "У владельца нет подписки.")
         self.bot.send(cid, "🗓 <b>Подписка</b>\n\n"
                            f"Статус: {self.status_line(m)}\n"
-                           f"Сервисы: {esc(svc_names(m['services']) or '—')}\n\n"
+                           f"Сервисы: {esc(svc_names(self.members.effective_services(m)) or '—')}\n\n"
                            "Чтобы продлить — пришли новый код.")
+
+    # ---------------------------------------------------------- owner: services --
+    def services_view(self):
+        state = self.members.services_state()
+        t = ["⚙️ <b>Сервисы</b>", ""]
+        kb = []
+        for st in state:
+            who = "для всех участников" if st["mode"] == "all" else "по выдаче"
+            mark = "✅" if st["enabled"] else "⬜"
+            t.append(f"{mark} <b>{esc(st['name'])}</b> — доступ у {st['members_with_access']}")
+            kb.append([{"text": f"{mark} {st['name']} — {who}", "callback_data": f"svc:t:{st['id']}"}])
+        t += ["", "Вкл = доступно всем активным участникам (для сервисов «для всех участников»).",
+              "Главный выключатель: выключишь — пропадёт у всех (VPN-клиенты отключатся, "
+              "Matrix-аккаунты заблокируются)."]
+        return "\n".join(t), {"inline_keyboard": kb}
+
+    def cmd_services(self, cid):
+        text, kb = self.services_view()
+        self.bot.send(cid, text, reply_markup=kb)
+
+    def cb_services(self, cid, mid, rest):
+        act, _, svc = rest.partition(":")
+        if act != "t" or svc not in SERVICES:
+            return None
+        on = not self.members.service_enabled(svc)
+        self.members.set_service_enabled(svc, on)
+        self._edit(cid, mid, *self.services_view())
+        return f"{SERVICES[svc]['name_ru']}: {'включено' if on else 'выключено'}"
 
     # ------------------------------------------------------------ owner: codes --
     def code_card(self, code, days, svcs):
@@ -678,10 +713,10 @@ class Helper:
                 days = int(tok)
                 continue
             svcs += [p for p in re.split(r"[,+\s]+", tok.lower()) if p]
-        if not 1 <= days <= 3650 or any(s not in SERVICES for s in svcs):
+        if not 1 <= days <= 3650 or any(s not in GRANTABLE for s in svcs):
             return self.bot.send(cid, "Формат: <code>/code [дней] [vpn,matrix,tools]</code>\n"
                                       "Например: <code>/code 90 vpn</code>")
-        svcs = [s for s in SERVICES if s in svcs] or list(DEFAULT_SERVICES)
+        svcs = [s for s in GRANTABLE if s in svcs] or list(DEFAULT_SERVICES)
         code = self.members.new_code(days, svcs)
         text, kb = self.code_card(code, days, svcs)
         self.bot.send(cid, text, reply_markup=kb)
@@ -692,7 +727,7 @@ class Helper:
 
     def wiz_view(self, st):
         row1 = [{"text": ("✅ " if s in st["svcs"] else "⬜ ") + SHORT[s], "callback_data": f"c:t:{s}"}
-                for s in SERVICES]
+                for s in GRANTABLE]
         row2 = [{"text": ("✅ " if d == st["days"] else "") + f"{d} д", "callback_data": f"c:d:{d}"}
                 for d in WIZ_DAYS]
         text = ("🎟 <b>Новый код</b>\n\nВыбери сервисы и срок подписки, потом «Создать».\n"
@@ -718,14 +753,14 @@ class Helper:
         if st is None:
             self._edit(cid, mid, "Мастер устарел — нажми 🎟 Код ещё раз.")
             return "Мастер устарел", True
-        if act == "t" and arg in SERVICES:
+        if act == "t" and arg in GRANTABLE:
             st["svcs"] ^= {arg}
         elif act == "d" and arg.isdigit() and int(arg) in WIZ_DAYS:
             st["days"] = int(arg)
         elif act == "mk":
             if not st["svcs"]:
                 return "Выбери хотя бы один сервис", True
-            svcs = [s for s in SERVICES if s in st["svcs"]]
+            svcs = [s for s in GRANTABLE if s in st["svcs"]]
             code = self.members.new_code(st["days"], svcs)
             self.wiz.pop(mid, None)
             text, kb = self.code_card(code, st["days"], svcs)
@@ -797,7 +832,7 @@ class Helper:
               [{"text": "▶️ Возобновить", "callback_data": f"m:res:{uid}"} if st == "suspended"
                else {"text": "⏸ Приостановить", "callback_data": f"m:sus:{uid}"}],
               [{"text": ("✅ " if s in m["services"] else "⬜ ") + SHORT[s], "callback_data": f"m:svc:{uid}:{s}"}
-               for s in SERVICES]]
+               for s in GRANTABLE]]
         last = [{"text": "🗑 Удалить", "callback_data": f"m:del:{uid}"}]
         if self.webapp_url:
             last.insert(0, {"text": "📱 В приложении", "web_app": {"url": self.app_url("admin")}})
@@ -834,8 +869,8 @@ class Helper:
             self.members.resume(uid)
             self.notify(uid, "▶️ Доступ к MeowHub восстановлен.")
             toast = "Возобновлён"
-        elif act == "svc" and extra in SERVICES:
-            self.members.set_services(uid, [s for s in SERVICES if (s in m["services"]) != (s == extra)])
+        elif act == "svc" and extra in GRANTABLE:
+            self.members.set_services(uid, [s for s in GRANTABLE if (s in m["services"]) != (s == extra)])
             toast = "Сервисы обновлены"
         elif act == "del":
             self._edit(cid, mid, f"🗑 Удалить {esc(person(m))} (<code>{uid}</code>)? VPN-клиент будет удалён, "
@@ -953,64 +988,51 @@ class Helper:
             for i in range(0, len(svcs), 2)]
         self.bot.send(cid, "\n".join(lines), reply_markup={"inline_keyboard": buttons} if buttons else None)
 
+    def yt_ok(self, uid, role=None):
+        """The downloader: the owner always (in the ops bot), a member while `youtube` is on."""
+        role = role or self.role(uid)
+        return role == "owner" or (role == "member" and self.members.has(uid, "youtube"))
+
+    def cmd_download(self, cid, uid, role, cmd, arg, text):
+        if not self.yt_ok(uid, role):
+            now = time.time()
+            if now - self.yt_nag.get(uid, 0) >= YT_NAG_EVERY:
+                self.yt_nag[uid] = now
+                self.bot.send(cid, "Скачивание видео сейчас выключено.")
+            return None
+        if text == B_YT:
+            return self.bot.send(cid, "Пришли ссылку на видео (YouTube, RuTube, VK Видео) — "
+                                      "я предложу качество и пришлю файл или ссылку на него.")
+        url = URL_RE.search(arg if cmd == "/yt" else text)
+        if not url:
+            return self.bot.send(cid, "Формат: <code>/yt https://youtu.be/…</code>")
+        return self.offer_download(cid, uid, url.group(0))
+
     def offer_download(self, cid, uid, url):
         tok = secrets.token_hex(4)
         now = time.time()
         self.pending_urls = {k: v for k, v in self.pending_urls.items() if now - v[2] < 3600}
         self.pending_urls[tok] = (url, uid, now)
-        kb = [[{"text": "🎬 1080p", "callback_data": f"yt:{tok}:v1080"},
-               {"text": "🎬 Лучшее", "callback_data": f"yt:{tok}:vbest"},
-               {"text": "🎵 MP3", "callback_data": f"yt:{tok}:a"}],
-              [{"text": "✖ Отмена", "callback_data": f"yt:{tok}:x"}]]
-        self.bot.send(cid, f"Скачать?\n{esc(url)}", reply_markup={"inline_keyboard": kb})
+        more = ([[{"text": "⚙️ Ещё (субтитры, фрагмент)",
+                   "web_app": {"url": self.webapp_url + "?p=downloads&url=" + quote(url)}}]]
+                if self.webapp_url else [])
+        cancel = [[{"text": "✖ Отмена", "callback_data": f"dl:{tok}:x"}]]
+        if downloads.is_playlist(url):
+            text = ("Это плейлист — в чате его не скачать. Открой «Ещё» и включи «Плейлист (до 10)»."
+                    if more else "Это плейлист — скачать его можно только в приложении MeowHub.")
+            return self.bot.send(cid, f"{text}\n{esc(url)}", reply_markup={"inline_keyboard": more + cancel})
+        pr = downloads.presets_payload()
+        kb = [[{"text": "🎬 " + p["label"], "callback_data": f"dl:{tok}:{p['id']}"} for p in pr["video"]],
+              [{"text": "🎵 " + p["label"], "callback_data": f"dl:{tok}:{p['id']}"} for p in pr["audio"]]]
+        self.bot.send(cid, f"Что скачать?\n{esc(url)}", reply_markup={"inline_keyboard": kb + more + cancel})
 
-    def run_download(self, cid, mid, url, preset):
-        label = ytdl.PRESETS[preset]["label"]
-        self.bot.edit(cid, mid, f"⏳ Ставлю в очередь ({label})…\n{esc(url)}")
+    def start_download(self, cid, mid, uid, url, preset):
         try:
-            t0 = ytdl.add(url, preset)
-        except Exception as e:                              # noqa: BLE001
-            return self.bot.edit(cid, mid, f"❌ MeTube: {esc(e)}")
-        last = [0.0]
-
-        def progress(items):
-            if time.time() - last[0] < 10:
-                return
-            last[0] = time.time()
-            parts = []
-            for i in items[:5]:
-                pct = i.get("percent")
-                st = f"{pct:.0f}%" if isinstance(pct, (int, float)) else (i.get("status") or "")
-                parts.append(f"⏳ {esc(i.get('title') or url)} — {st}")
-            try:
-                self.bot.edit(cid, mid, "\n".join(parts))
-            except TelegramError:
-                pass
-
-        try:
-            items = ytdl.follow(t0, url, progress)
-        except Exception as e:                              # noqa: BLE001
-            return self.bot.edit(cid, mid, f"❌ {esc(e)}")
-        out = []
-        for i in items[:10]:
-            title = esc(i.get("title") or "?")
-            if i.get("status") != "finished":
-                out.append(f"❌ {title}: {esc(i.get('msg') or i.get('error') or 'ошибка')}")
-                continue
-            ln = ytdl.link(i)
-            size = i.get("size") or 0
-            out.append(f"✅ <a href=\"{esc(ln)}\">{title}</a> · {size / 1e6:.0f} MB")
-            p = ytdl.local_file(i)
-            if p and os.path.getsize(p) <= ytdl.UPLOAD_MAX:
-                audio = i.get("download_type") == "audio"
-                try:
-                    self.bot.upload("sendAudio" if audio else "sendVideo", "audio" if audio else "video",
-                                    p, chat_id=cid, caption=i.get("title", "")[:1000],
-                                    supports_streaming=None if audio else "true")
-                except TelegramError as e:
-                    log.info("upload failed: %s", e)
-        out.append(f"<i>Файлы удаляются с сервера через {ytdl.TTL_H} ч.</i>")
-        self.bot.edit(cid, mid, "\n".join(out))
+            job = self.downloads.submit(uid, url, preset, origin="chat", chat_id=cid, chat_msg_id=mid)
+        except downloads.DlError as e:
+            return self.bot.edit(cid, mid, f"❌ {esc(e.message)}")
+        self.bot.edit(cid, mid, f"⏳ В очереди ({esc(job['preset_label'])})…\n{esc(url)}",
+                      reply_markup=downloads.cancel_markup(job["id"]))
 
     # ------------------------------------------------------------ passwords --
     def cmd_pass(self, cid):
@@ -1080,16 +1102,24 @@ class Helper:
             self.members.touch(uid, frm, "callback")
         kind, _, rest = data.partition(":")
 
-        if kind == "yt":
+        if kind == "dl":
             tok, _, preset = rest.partition(":")
             p = self.pending_urls.get(tok)
-            if not self.tools_ok(uid, role) or (p and p[1] != uid):
+            if not self.yt_ok(uid, role) or (p and p[1] != uid):
                 return self.bot.answer(q["id"], "Недоступно", alert=True)
             self.pending_urls.pop(tok, None)
             self.bot.answer(q["id"])
             if preset == "x" or not p:
                 return self.bot.edit(cid, mid, "Отменено." if preset == "x" else "Ссылка устарела, пришли ещё раз.")
-            return self.run_download(cid, mid, p[0], preset)
+            return self.start_download(cid, mid, uid, p[0], preset)
+        if kind == "dlc":
+            if not self.yt_ok(uid, role) or not rest.isdigit():
+                return self.bot.answer(q["id"], "Недоступно", alert=True)
+            try:
+                self.downloads.cancel(uid, int(rest))
+            except downloads.DlError as e:
+                return self.bot.answer(q["id"], e.message, alert=True)
+            return self.bot.answer(q["id"], "Отменено")
 
         # ----- owner only below: checked again here, per press, because a
         # callback carries the presser's id, not the original recipient's.
@@ -1100,7 +1130,8 @@ class Helper:
                 return self.bot.answer(q["id"], "Только в личном чате", alert=True)
             self.bot.answer(q["id"])
             return self.show_password(cid, rest)
-        handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound}.get(kind)
+        handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound,
+                   "svc": self.cb_services}.get(kind)
         if handler is None:
             return self.bot.answer(q["id"], "Кнопка устарела", alert=True)
         try:

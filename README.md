@@ -153,7 +153,7 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
 | Secrets | 12 passwords and shared secrets, all generated |
@@ -322,21 +322,23 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram helper bot — health alerts, links, downloads, logins |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |
+| 🔬 **[research/](docs/research/README.md)** | Dated research reports (censorship-resistant VPN transports, multi-user downloader) and the decisions taken from them |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly
 
-The hub page and downloader have **no login**. Their URL prefix is the
-credential — `bootstrap.sh` gives each a random suffix like
-`hub-a1b2c3d4e5f6`, and treating those URLs as passwords is the whole security
-model. That's deliberate: it costs nothing, and for a single-user service a
-login screen is friction nobody wants.
+The hub page has **no login**. Its URL prefix is the credential —
+`bootstrap.sh` gives it a random suffix like `hub-a1b2c3d4e5f6`, and treating
+that URL as a password is the whole security model. That's deliberate: it costs
+nothing, and for a single-user service a login screen is friction nobody wants.
 
-It is *not* appropriate for anything sensitive, which is why three pages sit
+It is *not* appropriate for anything sensitive, which is why four pages sit
 behind HTTP basic auth instead: the VPN peer manager, which hands out working
 VPN keys, the crypto tracker, which stores a Telegram bot token and can
-send messages as you, and the helper bot's admin page, which manages who gets
-VPN and chat accounts. (The bot's Mini App for members has no basic auth: it
+send messages as you, the helper bot's admin page, which manages who gets
+VPN and chat accounts, and MeTube, whose API can queue and delete downloads and
+upload cookies (it shares the bots admin login; members never use that route,
+the helper bot's downloader talks to MeTube internally). (The bot's Mini App for members has no basic auth: it
 accepts only Telegram's signed login data.)
 
 Nextcloud, Immich and Matrix have real authentication of their own.

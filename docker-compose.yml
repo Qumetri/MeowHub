@@ -67,6 +67,9 @@ services:
       BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}
       BOT_ADMIN_USER: ${BOT_ADMIN_USER:-botadmin}
       XUI_SUB_PORT: ${XUI_SUB_PORT:-2096}
+      # Secret path of the VLESS+XHTTP route to a 3x-ui inbound (docs/VPN.md). Also
+      # `:?`: an empty path would turn the route into /* and swallow the root domain.
+      XHTTP_PATH: ${XHTTP_PATH:?XHTTP_PATH must be set and non-empty (run ./bootstrap.sh)}
     # Reaches host-network services (the 3x-ui VPN inbounds) from inside the
     # container. Without this the layer4 passthrough routes cannot resolve.
     extra_hosts:
@@ -160,7 +163,15 @@ services:
       BASE_DOMAIN: ${BASE_DOMAIN}
       DASHBOARD_PATH: ${DASHBOARD_PATH}
       METUBE_PATH: ${METUBE_PATH:-}
-      METUBE_TTL_MIN: ${METUBE_TTL_MIN:-720}
+      METUBE_TTL_MIN: ${METUBE_TTL_MIN:-30}
+      # Downloader (docs/HELPER.md "Downloader"). MeTube's address on the compose
+      # network, and optional limits; empty -> built-in defaults.
+      METUBE_URL: ${METUBE_URL:-http://metube:8081}
+      DL_ACTIVE: ${DL_ACTIVE:-}
+      DL_PER_HOUR: ${DL_PER_HOUR:-}
+      DL_PER_DAY: ${DL_PER_DAY:-}
+      DL_CHAT_MAX_MB: ${DL_CHAT_MAX_MB:-}
+      DL_MIN_FREE_GB: ${DL_MIN_FREE_GB:-}
       # Logins the owner can ask the bot for. Accounts that only keep a hash
       # (3x-ui, Immich, n8n) are added from Telegram with /setpass.
       VAULT_NEXTCLOUD_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
@@ -432,7 +443,9 @@ services:
   # so the prefix survives — MeTube builds its asset URLs under it.
   metube:
     container_name: ${STACK_NAME:-meowstack}_metube
-    image: ${METUBE_IMAGE:-ghcr.io/alexta69/metube:latest}
+    # Pinned (not :latest): some yt-dlp/MeTube builds break YouTube's PO-token helper;
+    # bump deliberately after checking the release notes.
+    image: ${METUBE_IMAGE:-ghcr.io/alexta69/metube:2026.09.29}
     profiles: [metube]
     <<: [*restart, *logging]
     ports:
@@ -443,29 +456,40 @@ services:
       DOWNLOAD_DIR: /downloads
       PUID: '${PUID:-1000}'
       PGID: '${PGID:-1000}'
-      # Ephemeral by default: finished downloads are tap-to-save links, the
-      # trash button deletes the real file, and the janitor purges the root.
-      # Files put in keep/ (via CUSTOM_DIRS) are never purged.
-      DOWNLOAD_DIRS_INDEXABLE: 'true'
+      # Ephemeral by default: the trash button deletes the real file and the
+      # janitor purges the root. Files put in keep/ (via CUSTOM_DIRS) are never
+      # purged. No directory listings: with several users, files are handed out
+      # by the helper bot through signed links instead.
+      DOWNLOAD_DIRS_INDEXABLE: 'false'
+      # Keep parallel downloads modest (home upstream).
+      MAX_CONCURRENT_DOWNLOADS: '2'
+      # YouTube breaks old yt-dlp regularly: upgrade it daily (nightly channel).
+      YTDL_NIGHTLY_UPDATE_TIME: '04:30'
       DELETE_FILE_ON_TRASHCAN: 'true'
       CUSTOM_DIRS: 'true'
       CREATE_CUSTOM_DIRS: 'true'
     volumes:
       - ${METUBE_DOWNLOADS}:/downloads
 
-  # -maxdepth 1 keeps keep/ and .metube state untouched. In-progress files stay
-  # because their mtime keeps refreshing.
+  # Janitor: keeps the downloader ephemeral. Deletes files older than
+  # METUBE_TTL_MIN (default 30 min; the helper bot also deletes a file as soon as
+  # it has delivered it). Ages files by ctime, not mtime: yt-dlp may set mtime to
+  # the video's upload date, which would make a just-finished file look years old.
+  # Covers the per-user u<id>/ folders; keep/ (opt-in retention) and .metube/
+  # (state) are skipped; empty user folders are removed.
   metube-janitor:
     container_name: ${STACK_NAME:-meowstack}_metube_janitor
     image: alpine:3
     profiles: [metube]
     <<: [*restart, *logging]
     environment:
-      METUBE_TTL_MIN: '${METUBE_TTL_MIN:-720}'
+      METUBE_TTL_MIN: '${METUBE_TTL_MIN:-30}'
     command: >
       sh -c 'while true; do
-        find /downloads -maxdepth 1 -type f -mmin +"$${METUBE_TTL_MIN}" -delete 2>/dev/null || true;
-        sleep 1800;
+        find /downloads -mindepth 1 \( -path /downloads/keep -o -path /downloads/.metube \) -prune
+          -o -type f -cmin +"$${METUBE_TTL_MIN}" -delete 2>/dev/null || true;
+        find /downloads -mindepth 1 -maxdepth 1 -type d -name "u*" -empty -cmin +"$${METUBE_TTL_MIN}" -delete 2>/dev/null || true;
+        sleep 120;
       done'
     volumes:
       - ${METUBE_DOWNLOADS}:/downloads

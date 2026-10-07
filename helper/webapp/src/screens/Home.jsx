@@ -3,7 +3,7 @@ import Pass from '../Pass.jsx'
 import { Avatar, Button, Cell, Pill, Section, toast } from '../ui.jsx'
 import { t } from '../i18n.js'
 import { haptic } from '../tg.js'
-import { fmtDate, hasService, personName, uiState } from '../util.js'
+import { canDownload, fmtDate, hasService, personName, svcList, uiState } from '../util.js'
 import { useApp } from '../ctx.js'
 import { ContactCell, contactVars } from './shared.jsx'
 
@@ -23,26 +23,29 @@ export default function Home() {
   const inactive = st === 'expired' || st === 'suspended'
   const hasVpn = hasService(m, 'vpn')
   const hasMx = hasService(m, 'matrix')
+  const hasDl = !inactive && canDownload(me)
   const name = personName(m)
   const guard = (ok, screen) => () => {
     if (!ok) { haptic.notify('error'); toast(t('toast.noaccess'), 'bad'); return }
     haptic.impact('light'); go(screen)
   }
   const svcName = (id) => me.services.find((s) => s.id === id)
-  const mine = (m.services || []).map((id) => {
+  // The catalog (/api/me services) lists only switched-on services; a granted one that is off is hidden.
+  const mine = svcList(m).filter((id) => svcName(id)).map((id) => {
     const s = svcName(id)
-    return { id, name: s?.name || id, desc: s?.description || '' }
+    return { id, name: s.name || id, desc: s.description || '' }
   })
-  const SVC_ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools' }
-  const SVC_GO = { vpn: 'vpn', matrix: 'matrix' }
+  const SVC_ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download' }
+  const SVC_GO = { vpn: 'vpn', matrix: 'matrix', youtube: 'downloads' }
 
   return (
     <div className="page">
       <Pass member={m} name={name} />
 
-      <div className="actions">
+      <div className={'actions' + (hasDl ? ' actions--5' : '')}>
         <ActionBtn icon="shield" label={t('action.vpn')} dim={!hasVpn} onClick={guard(hasVpn, 'vpn')} />
         <ActionBtn icon="chat" label={t('action.messenger')} dim={!hasMx} onClick={guard(hasMx, 'matrix')} />
+        {hasDl && <ActionBtn icon="download" label={t('action.downloads')} onClick={() => { haptic.impact('light'); go('downloads') }} />}
         <ActionBtn icon="calplus" label={t('action.extend')} onClick={() => { haptic.impact('light'); go('code') }} />
         <ActionBtn icon="help" label={t('action.help')} onClick={() => { haptic.impact('light'); go('help') }} />
       </div>

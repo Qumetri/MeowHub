@@ -20,18 +20,26 @@ from datetime import date, timedelta
 
 log = logging.getLogger("members")
 
+# mode: "grant" = the member needs it in their membership `services` (codes, member card);
+#       "all"   = every active member gets it while the owner's global switch is on.
 SERVICES = {
-    "vpn": {"name_ru": "VPN", "name_en": "VPN",
+    "vpn": {"mode": "grant", "name_ru": "VPN", "name_en": "VPN",
             "desc_ru": "Личный VPN: одна ссылка-подписка с конфигами для телефона и компьютера",
             "desc_en": "Personal VPN: one subscription link with configs for phone and computer"},
-    "matrix": {"name_ru": "Мессенджер", "name_en": "Messenger",
+    "matrix": {"mode": "grant", "name_ru": "Мессенджер", "name_en": "Messenger",
                "desc_ru": "Свой аккаунт в приватном мессенджере Matrix (Element)",
                "desc_en": "Your own account on the private Matrix messenger (Element)"},
-    "tools": {"name_ru": "Инструменты бота", "name_en": "Bot tools",
-              "desc_ru": "Здоровье сервера, ссылки и загрузка видео с YouTube",
-              "desc_en": "Server health, links and YouTube downloads"},
+    "tools": {"mode": "grant", "name_ru": "Инструменты бота", "name_en": "Bot tools",
+              "desc_ru": "Состояние сервера и ссылки хаба",
+              "desc_en": "Server health and hub links"},
+    "youtube": {"mode": "all", "name_ru": "YouTube и видео", "name_en": "YouTube and video",
+                "desc_ru": "Скачивание видео и музыки по ссылке",
+                "desc_en": "Download videos and music by link"},
 }
+GRANTABLE = [k for k, v in SERVICES.items() if v["mode"] == "grant"]
 DEFAULT_SERVICES = ["vpn", "matrix"]
+# Global switches (settings `svc_enabled`, JSON); a missing key uses these.
+SERVICE_DEFAULTS = {"vpn": True, "matrix": True, "tools": True, "youtube": False}
 
 DAY = 86400
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -64,9 +72,10 @@ def norm_code(s):
 
 
 def _services(services):
-    """Keep known ids only, deduplicated, in the canonical SERVICES order."""
+    """Keep grantable ids only (all-mode services are never stored), deduplicated,
+    in the canonical SERVICES order."""
     want = set(services or [])
-    return [k for k in SERVICES if k in want]
+    return [k for k in GRANTABLE if k in want]
 
 
 def ru_date(ts):
@@ -175,9 +184,77 @@ class Members:
             return "expired"
         return "active"
 
+    # ------------------------------------------------------ service switches --
+    def _switches(self):
+        try:
+            v = json.loads(self.s.get("svc_enabled", "") or "{}")
+        except ValueError:
+            v = {}
+        return v if isinstance(v, dict) else {}
+
+    def service_enabled(self, svc):
+        """The owner's global switch for `svc` (unknown ids are off)."""
+        if svc not in SERVICES:
+            return False
+        v = self._switches().get(svc)
+        return v if isinstance(v, bool) else SERVICE_DEFAULTS.get(svc, False)
+
+    def set_service_enabled(self, svc, on):
+        if svc not in SERVICES:
+            raise KeyError(svc)
+        on = bool(on)
+        with self.s.lock:
+            self.s.db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self.s.db.execute("SELECT value FROM settings WHERE key='svc_enabled'").fetchone()
+                try:
+                    cur = json.loads(row["value"]) if row else {}
+                except ValueError:
+                    cur = {}
+                cur = cur if isinstance(cur, dict) else {}
+                cur[svc] = on
+                self.s.db.execute("INSERT INTO settings(key,value) VALUES('svc_enabled',?) "
+                                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(cur),))
+                self._log_db(self.s.db, None, "service_toggle", f"{svc} {'on' if on else 'off'}")
+                self.s.db.execute("COMMIT")
+            except BaseException:
+                self.s.db.execute("ROLLBACK")
+                raise
+        self.changed.set()
+
+    def effective_services(self, m):
+        """What the membership `m` entitles to under the current global switches,
+        whatever its status (see has() for the status check): all-mode services
+        for everybody, grant-mode ones only when granted, nothing that is switched off."""
+        sw = self._switches()
+        out = []
+        for k, v in SERVICES.items():
+            on = sw.get(k)
+            if not (on if isinstance(on, bool) else SERVICE_DEFAULTS.get(k, False)):
+                continue
+            if v["mode"] == "all" or k in m["services"]:
+                out.append(k)
+        return out
+
+    def has_row(self, m, service):
+        """The one access rule: active AND switched on AND (all-mode OR granted)."""
+        return self.status(m) == "active" and service in self.effective_services(m)
+
     def has(self, uid, service):
         m = self.get(uid)
-        return bool(m) and self.status(m) == "active" and service in m["services"]
+        return bool(m) and self.has_row(m, service)
+
+    def services_state(self):
+        sw = self._switches()
+        active = [m for m in self.list() if self.status(m) == "active"]
+        out = []
+        for k, v in SERVICES.items():
+            on = sw.get(k)
+            on = on if isinstance(on, bool) else SERVICE_DEFAULTS.get(k, False)
+            n = sum(1 for m in active if on and (v["mode"] == "all" or k in m["services"]))
+            out.append({"id": k, "name": v["name_ru"], "description": v["desc_ru"], "mode": v["mode"],
+                        "enabled": on, "members_with_access": n})
+        return out
 
     def view(self, m):
         now = time.time()
@@ -194,6 +271,7 @@ class Members:
         return {"id": m["id"], "username": m["username"], "first_name": m["first_name"],
                 "last_name": m["last_name"], "lang": m["lang"], "status": self.status(m),
                 "expires_ts": exp, "days_left": left, "services": m["services"],
+                "effective_services": self.effective_services(m),
                 "created_ts": m["created_ts"], "last_seen_ts": m["last_seen_ts"], "note": m["note"],
                 "vpn_email": email, "has_vpn_client": has_client,
                 "matrix": [a["mxid"] for a in self.matrix_accounts(m["id"])]}
@@ -475,7 +553,7 @@ class Reconciler:
 
     # ---------------------------------------------------------------- helpers --
     def _has(self, m, service):
-        return self.m.status(m) == "active" and service in m["services"]
+        return self.m.has_row(m, service)
 
     @staticmethod
     def _name(m):
@@ -512,7 +590,7 @@ class Reconciler:
     # -------------------------------------------------------------------- vpn --
     def _sync_vpn(self, m, client, inbound_ids):
         """One member against its 3x-ui client (None = does not exist)."""
-        if client is None and "vpn" not in m["services"]:
+        if client is None and ("vpn" not in m["services"] or not self.m.service_enabled("vpn")):
             return
         uid, email = m["id"], f"mh-{m['id']}"
         sub_id = m["vpn_sub_id"]

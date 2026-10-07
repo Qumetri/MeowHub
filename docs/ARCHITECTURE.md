@@ -106,19 +106,20 @@ the split still keeps backups sensibly separated.
 
 ## Pinned images
 
-Nothing uses `:latest` except two genuinely stateless services. Nextcloud
+Nothing uses `:latest` except a few genuinely stateless services (MeTube is
+pinned too: some builds broke YouTube's token helper, so it is bumped on purpose). Nextcloud
 requires sequential major upgrades, and an unattended jump leaves an instance
 that will not start. 3x-ui is pinned by *digest* rather than tag, because a
 panel upgrade migrates its own database and is not reliably reversible.
 
 ## Secret paths as credentials
 
-The hub page and downloader have no login. Their URL prefix is the credential,
+The hub page has no login. Its URL prefix is the credential,
 randomised on first run. This is weak authentication and it is chosen knowingly:
 it costs nothing, and the alternative for a single-user service is a login
 screen nobody wants. It is not appropriate for anything sensitive, which is why
 the VPN peer manager — which hands out working VPN keys — sits behind basic
-auth instead.
+auth instead, and so does MeTube once several people use the downloader.
 
 ## Testing from the server lies to you
 

@@ -107,7 +107,7 @@ function view(m) {
     id: m.id, username: m.username, first_name: m.first_name, last_name: m.last_name, lang: m.lang,
     status: st, expires_ts: m.expires_ts,
     days_left: m.expires_ts == null ? null : st === 'expired' ? 0 : Math.ceil((m.expires_ts - now()) / D),
-    services: m.services, created_ts: m.created_ts, last_seen_ts: m.last_seen_ts, note: m.note,
+    services: m.services, effective_services: effectiveOf(m), created_ts: m.created_ts, last_seen_ts: m.last_seen_ts, note: m.note,
     vpn_email: 'mh-' + m.id, has_vpn_client: m.services.includes('vpn'),
     matrix: (state.matrix[m.id] || []).map((a) => a.mxid),
   }
@@ -139,11 +139,99 @@ function botAvatar(h) {
   return 'data:image/svg+xml,' + encodeURIComponent(svg)
 }
 
+// Admin switches (GET /api/admin/services). `grant` = per-member grant behind a master switch,
+// `all` = every active member while on.
+const SVC_STATE = [
+  { id: 'vpn', mode: 'grant', enabled: true },
+  { id: 'matrix', mode: 'grant', enabled: true },
+  { id: 'tools', mode: 'grant', enabled: true },
+  { id: 'youtube', mode: 'all', enabled: true },
+]
+const effectiveOf = (m) => SVC_STATE.filter((x) => x.enabled && (x.mode === 'all' || m.services.includes(x.id))).map((x) => x.id)
 const SERVICES = [
   { id: 'vpn', ru: ['VPN', 'Защищённый доступ в интернет'], en: ['VPN', 'Secure internet access'] },
   { id: 'matrix', ru: ['Мессенджер', 'Приватный чат Matrix'], en: ['Messenger', 'Private Matrix chat'] },
   { id: 'tools', ru: ['Инструменты бота', 'Проверки, ссылки, скачивание видео'], en: ['Bot tools', 'Checks, links, video downloads'] },
+  { id: 'youtube', ru: ['Скачивание видео', 'YouTube, RuTube, VK Видео — файлом на телефон'], en: ['Video downloads', 'YouTube, RuTube and VK Video as a file'] },
 ]
+const adminServices = () => SVC_STATE.map((x) => {
+  const sv = SERVICES.find((y) => y.id === x.id)
+  const n = state.members.filter((m) => statusOf(m) === 'active' && (x.mode === 'all' || m.services.includes(x.id))).length
+  return { id: x.id, name: sv.ru[0], description: sv.ru[1], mode: x.mode, enabled: x.enabled, members_with_access: n }
+})
+const AWG_CONF = `[Interface]
+PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
+Address = 10.8.2.7/32
+DNS = 1.1.1.1, 1.0.0.1
+MTU = 1280
+Jc = 5
+Jmin = 10
+Jmax = 50
+S1 = 63
+S2 = 124
+S3 = 17
+S4 = 9
+H1 = 1884231045
+H2 = 2217509884
+H3 = 3098114756
+H4 = 3917640215
+
+[Peer]
+PublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=
+PresharedKey = 31aIhAPwktDGpH4JDhA8GNvjFXEf/a6+UaQRxLHLMo0=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = ${SERVER}:20443
+PersistentKeepalive = 25
+`
+const AWG_VPN_URL = 'vpn://' + btoa(JSON.stringify({ containers: [{ container: 'amnezia-awg', awg: { config: AWG_CONF, port: '20443', transport_proto: 'udp' } }], defaultContainer: 'amnezia-awg', description: 'MeowHub', dns1: '1.1.1.1', dns2: '1.0.0.1', hostName: SERVER })).replace(/=+$/, '')
+
+// ---- downloader (CONTRACT3). Jobs seeded in several states; new ones advance queued -> running -> done by wall clock.
+const DL_PRESETS = {
+  video: [{ id: 'v360', label: '360p' }, { id: 'v720', label: '720p' }, { id: 'v1080', label: '1080p' }, { id: 'vbest', label: 'Лучшее' }],
+  audio: [{ id: 'mp3', label: 'MP3' }, { id: 'm4a', label: 'M4A' }, { id: 'opus', label: 'Opus' }],
+  extras: { subs: ['ru', 'en'], clip: true, playlist_max: 10 },
+  limits: { active: 2, per_hour: 10, per_day: 30, ttl_min: 30, chat_max_mb: 49 },
+  sites: ['YouTube', 'RuTube', 'VK Видео'],
+}
+const presetLabel = (id) => [...DL_PRESETS.video, ...DL_PRESETS.audio].find((p) => p.id === id)?.label || id
+const MB = 1024 * 1024
+const dlFile = (name, size, kind) => ({ name, size, url: 'https://' + SERVER + '/app/dl/' + btoa(unescape(encodeURIComponent(name))).replace(/[=+/]/g, '') + '.mockSig', kind })
+const dlJob = (id, uid, url, preset, status, title, extra = {}) => ({
+  id, uid, url, preset, preset_label: presetLabel(preset), title, status, percent: status === 'done' ? 100 : 0, size: null, eta: null,
+  error: '', created_ts: now() - 600, finished_ts: null, expires_ts: null, files: [], can_send: false, ...extra,
+})
+const dlJobs = [
+  dlJob(7, 100200301, 'https://www.youtube.com/watch?v=aqz-KE-bpKQ', 'v1080', 'running', 'Как устроен интернет: от кабеля до браузера — лекция', { percent: 47, size: 612 * MB, eta: 74, created_ts: now() - 90 }),
+  dlJob(6, 100200301, 'https://rutube.ru/video/5f3c9a1e2b/', 'v360', 'queued', null, { created_ts: now() - 40 }),
+  dlJob(5, 100200301, 'https://vk.com/video-22822305_456239018', 'v720', 'done', 'Обзор новой Tesla Model 3 (2026) — честно после года владения', {
+    size: 148 * MB, finished_ts: now() - 300, expires_ts: now() + 25 * 60, can_send: true, created_ts: now() - 420,
+    files: [dlFile('Обзор новой Tesla Model 3 (2026).mp4', 148 * MB, 'video'), dlFile('Обзор новой Tesla Model 3 (2026).ru.srt', 62 * 1024, 'subs')],
+  }),
+  dlJob(4, 100200301, 'https://www.youtube.com/watch?v=5qap5aO4i9A', 'mp3', 'done', 'lofi hip hop radio — beats to relax/study to', {
+    size: int(8.2 * MB), finished_ts: now() - 1500, expires_ts: now() + 4 * 60, can_send: true, created_ts: now() - 1700,
+    files: [dlFile('lofi hip hop radio - beats to relax_study to.mp3', int(8.2 * MB), 'audio')],
+  }),
+  dlJob(3, 100200301, 'https://www.youtube.com/watch?v=privatevid01', 'v720', 'error', 'Закрытое видео', {
+    error: 'Видео недоступно: оно закрыто автором или удалено.', finished_ts: now() - 2400, created_ts: now() - 2500,
+  }),
+]
+function int(n) { return Math.round(n) }
+// Newly submitted jobs (sim: t0): queued 3 s, then running ~15 s, then done.
+function dlAdvance(j) {
+  if (!j.sim) return j
+  const e = now() - j.sim
+  if (e < 3) { j.status = 'queued'; j.percent = 0 } else if (e < 18) {
+    j.status = 'running'; j.percent = Math.min(97, Math.round(((e - 3) / 15) * 100)); j.size = int(j.percent * 1.6 * MB); j.eta = Math.max(1, 18 - e)
+  } else if (j.status !== 'done' && j.status !== 'canceled') {
+    const audio = DL_PRESETS.audio.some((p) => p.id === j.preset)
+    const name = (j.title || 'video') + (audio ? '.' + j.preset : '.mp4')
+    Object.assign(j, { status: 'done', percent: 100, size: audio ? 5 * MB : 160 * MB, eta: null, finished_ts: now(), expires_ts: now() + 30 * 60, can_send: P.get('mode') === 'tg', files: [dlFile(name, audio ? 5 * MB : 160 * MB, audio ? 'audio' : 'video')] })
+  }
+  return j
+}
+const dlView = (j) => { const { uid, sim, ...rest } = dlAdvance(j); return rest }
+const mineJobs = () => dlJobs.filter((j) => j.uid === SELF?.id || ROLE === 'owner').sort((a, b) => b.id - a.id)
+const dlAvailable = () => ROLE === 'owner' || (selfMember() && statusOf(selfMember()) === 'active' && effectiveOf(selfMember()).includes('youtube'))
 const err = (status, error, message) => { throw new ApiError(status, error, message) }
 const selfMember = () => (SELF ? find(SELF.id) : null)
 const hasSvc = (s) => { const m = selfMember(); return m && statusOf(m) === 'active' && m.services.includes(s) }
@@ -167,7 +255,11 @@ export async function handle(method, path, body) {
       via: viaMember ? 'member' : P.get('mode') === 'tg' ? 'helper' : 'browser',
       member_bot_username: state.keys.member.bot?.username || '',
       can_preview: ROLE === 'owner',
-      services: SERVICES.map((s) => ({ id: s.id, name: s[L()][0], description: s[L()][1] })),
+      // Only switched-on services; `available` = what this person can actually use right now.
+      services: SERVICES.filter((s) => SVC_STATE.find((x) => x.id === s.id).enabled).map((s) => ({
+        id: s.id, name: s[L()][0], description: s[L()][1],
+        available: ROLE === 'owner' && !viaMember ? true : !!m && statusOf(m) === 'active' && effectiveOf(m).includes(s.id),
+      })),
     }
   }
 
@@ -216,19 +308,48 @@ export async function handle(method, path, body) {
         { id: 'udp', title: 'Hysteria2 (UDP)', apps: ['Happ', 'Hiddify', 'v2RayTun'],
           hint: 'Если обычные не работают. Скопируй → «+» → «Из буфера».',
           links: [{ name: 'Hysteria2', url: 'hysteria2://k3x9a7fq2m@' + SERVER + ':4443?sni=' + SERVER + '#Hysteria2', action: 'copy' }] },
+        { id: 'awg', title: 'AmneziaWG', apps: ['AmneziaWG', 'AmneziaVPN'],
+          hint: 'Запасной путь, если обычные конфиги не подключаются: импортируй файл или отсканируй QR в приложении AmneziaWG.',
+          links: [
+            { name: 'Ключ для AmneziaVPN', url: AWG_VPN_URL, action: 'copy' },
+            { name: 'Файл .conf', url: 'https://' + SERVER + '/app/dl/Zm9vYmFyLm1vY2std2c.mockSig', action: 'download', file_name: 'meowhub-awg.conf' },
+            { name: 'QR для AmneziaWG', action: 'qr', text: AWG_CONF },
+          ] },
         { id: 'tg', title: 'Прокси для Telegram', apps: ['Telegram'],
           hint: 'Нажми — Telegram сам предложит включить.',
           links: [{ name: 'MTProto-прокси', url: 'https://t.me/proxy?server=' + SERVER + '&port=9443&secret=ee1f2e3d4c5b6a79880a1b2c3d4e5f6a7b', action: 'telegram' }] },
       ],
       traffic: { up: 1.2e9, down: 18.7e9 }, online: true,
       apps: [
-        { id: 'happ', name: 'Happ', platforms: 'iOS · Android · macOS', go_url: go('happ') },
-        { id: 'hiddify', name: 'Hiddify', platforms: 'iOS · Android · Windows', go_url: go('hiddify') },
-        { id: 'v2raytun', name: 'v2RayTun', platforms: 'iOS · Android', go_url: go('v2raytun') },
-        { id: 'streisand', name: 'Streisand', platforms: 'iOS', go_url: go('streisand') },
-        { id: 'v2rayng', name: 'v2rayNG', platforms: 'Android', go_url: go('v2rayng') },
+        { id: 'happ', name: 'Happ', platforms: ['iOS', 'Android', 'macOS'], go_url: go('happ') },
+        { id: 'hiddify', name: 'Hiddify', platforms: ['iOS', 'Android', 'Windows'], go_url: go('hiddify') },
+        { id: 'v2raytun', name: 'v2RayTun', platforms: ['iOS', 'Android'], go_url: go('v2raytun') },
+        { id: 'streisand', name: 'Streisand', platforms: ['iOS'], go_url: go('streisand') },
+        { id: 'v2rayng', name: 'v2rayNG', platforms: ['Android'], go_url: go('v2rayng') },
       ],
     }
+  }
+
+  if (seg[0] === 'dl') {
+    if (!dlAvailable()) err(403, 'no_access', 'Скачивание видео выключено')
+    if (path === 'dl/presets') return DL_PRESETS
+    if (path === 'dl' && method === 'POST') {
+      if (!/^https?:\/\/\S+$/i.test(body.url || '')) err(400, 'bad_url', 'Это не похоже на ссылку на видео.')
+      if (/playlist\?list=/.test(body.url) && !body.playlist) err(400, 'playlist', 'Это плейлист. Включи «Плейлист» в дополнительных настройках.')
+      if (/limit/.test(body.url)) err(429, 'limit', 'Лимит: не больше 2 загрузок одновременно. Дождись окончания текущих.')
+      if (/disk/.test(body.url)) err(503, 'disk_full', 'На сервере кончилось место. Попробуй позже.')
+      const id = Math.max(...dlJobs.map((j) => j.id)) + 1
+      const host = (() => { try { return new URL(body.url).hostname.replace(/^www\./, '') } catch { return body.url } })()
+      const j = dlJob(id, SELF?.id ?? 0, body.url, body.preset, 'queued', 'Видео с ' + host + (body.clip ? ' (фрагмент)' : ''), { sim: now(), created_ts: now() })
+      dlJobs.push(j)
+      return dlView(j)
+    }
+    if (path === 'dl') return mineJobs().map(dlView)
+    const j = dlJobs.find((x) => x.id === Number(seg[1]))
+    if (!j) err(404, 'not_found', 'Загрузка не найдена')
+    if (seg[2] === 'cancel') { dlAdvance(j); if (j.status === 'queued' || j.status === 'running') { j.status = 'canceled'; j.sim = 0; j.finished_ts = now() } return dlView(j) }
+    if (seg[2] === 'send') { dlAdvance(j); if (j.status !== 'done') err(409, 'not_ready', 'Файл ещё не готов'); return { ok: true } }
+    if (seg[2] === 'delete') { dlJobs.splice(dlJobs.indexOf(j), 1); return { ok: true } }
   }
 
   if (path === 'matrix') {
@@ -272,6 +393,27 @@ export async function handle(method, path, body) {
         ],
         sync: state.sync, vpn_configured: true, matrix_configured: true,
       }
+    }
+    if (rest[0] === 'services') {
+      if (rest[1] && method === 'POST') {
+        const x = SVC_STATE.find((v) => v.id === rest[1])
+        if (!x) err(404, 'not_found', 'Неизвестный сервис')
+        if (typeof body.enabled !== 'boolean') err(400, 'bad_request', 'Нужно true или false')
+        x.enabled = body.enabled
+      }
+      return adminServices()
+    }
+    if (rest[0] === 'dl') {
+      const NAMES = { 100200301: 'Алексей Громов', 100200302: 'Мария Соколова', 100200307: 'Сергей Новиков', 100200300: 'Админ' }
+      const extra = [
+        dlJob(12, 100200302, 'https://rutube.ru/video/aa11/', 'v720', 'done', 'Кулинарный мастер-класс: бешбармак', { size: 212 * MB, created_ts: now() - 3 * 3600 }),
+        dlJob(11, 100200307, 'https://www.youtube.com/watch?v=jNQXAC9IVRw', 'vbest', 'done', 'Me at the zoo', { size: 3 * MB, created_ts: now() - 5 * 3600 }),
+        dlJob(10, 100200300, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'm4a', 'expired', 'Rick Astley — Never Gonna Give You Up', { size: 4 * MB, created_ts: now() - 9 * 3600 }),
+        dlJob(9, 100200302, 'https://vk.com/video-1_1', 'v1080', 'error', 'VK клип', { error: 'HTTP 403: доступ запрещён', created_ts: now() - 11 * 3600 }),
+        dlJob(8, 100200307, 'https://www.youtube.com/watch?v=lecture', 'mp3', 'canceled', 'Лекция по сетям, часть 2', { created_ts: now() - 20 * 3600 }),
+      ]
+      const all = [...dlJobs, ...extra].map((j) => ({ ...dlView(j), user: NAMES[j.uid] || String(j.uid), uid: j.uid })).sort((x, y) => y.created_ts - x.created_ts)
+      return { disk_free_gb: 412, active: all.filter((j) => j.status === 'running' || j.status === 'queued').length, today: { jobs: all.length + 2, bytes: all.reduce((a, j) => a + (j.size || 0), 0) }, jobs: all }
     }
     if (rest[0] === 'sync') { state.sync = { ts: now(), ok: true, error: '', vpn_clients: state.members.filter((m) => m.services.includes('vpn')).length }; return state.sync }
     if (rest[0] === 'integrations') {

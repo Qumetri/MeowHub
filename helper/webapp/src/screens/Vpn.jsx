@@ -4,16 +4,30 @@ import Icon from '../icons.jsx'
 import { Cell, Dot, ErrorBox, Section, Skeleton, doCopy, Button, Empty } from '../ui.jsx'
 import { api } from '../api.js'
 import { t } from '../i18n.js'
-import { haptic, openLink, openTelegramLink } from '../tg.js'
+import { haptic, openLink, openTelegramLink, saveFile } from '../tg.js'
 import { fmtBytes, shortUrl } from '../util.js'
 import { useApp } from '../ctx.js'
 import { Title } from './shared.jsx'
 
-export function Qr({ text }) {
-  const { size, d } = useMemo(() => {
-    const q = qrcode(0, 'M')
-    q.addData(text)
-    q.make()
+// Error correction trades capacity for resilience: short payloads get M, long ones (AWG
+// configs run to a few hundred bytes) step down to L to keep the module grid scannable.
+function buildQr(text) {
+  const levels = text.length > 400 ? ['L'] : ['M', 'L']
+  for (const level of levels) {
+    try {
+      const q = qrcode(0, level)
+      q.addData(text)
+      q.make()
+      return q
+    } catch { /* too long for this level */ }
+  }
+  return null
+}
+
+export function Qr({ text, big }) {
+  const qr = useMemo(() => {
+    const q = buildQr(text)
+    if (!q) return null
     const n = q.getModuleCount()
     let d = ''
     for (let y = 0; y < n; y++) {
@@ -23,10 +37,11 @@ export function Qr({ text }) {
     }
     return { size: n + 8, d }
   }, [text])
+  if (!qr) return <p className="formerr" role="alert">{t('vpn.qr_toobig')}</p>
   return (
-    <svg className="qr" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="QR" shapeRendering="crispEdges">
-      <rect width={size} height={size} fill="#fff" />
-      <path d={d} fill="#000" />
+    <svg className={'qr' + (big ? ' qr--big' : '')} viewBox={`0 0 ${qr.size} ${qr.size}`} role="img" aria-label="QR" shapeRendering="crispEdges">
+      <rect width={qr.size} height={qr.size} fill="#fff" />
+      <path d={qr.d} fill="#000" />
     </svg>
   )
 }
@@ -57,6 +72,28 @@ function useVpn() {
 }
 
 function LinkCell({ l, i }) {
+  const [qr, setQr] = useState(false)
+  if (l.action === 'qr') {
+    return (
+      <>
+        <Cell icon="qr" title={qr ? t('vpn.hide_qr') : t('vpn.show_qr')} sub={l.name} onClick={() => { haptic.impact('light'); setQr(!qr) }}
+          right={<Icon name="chevdown" size={18} className={'cell__chev rot' + (qr ? ' open' : '')} />} />
+        {qr && (
+          <div className="qrbox qrbox--big">
+            <Qr text={l.text || ''} big />
+            <p>{t('vpn.qr_conf_hint')}</p>
+          </div>
+        )}
+      </>
+    )
+  }
+  if (l.action === 'download') {
+    const dl = () => { haptic.impact('light'); saveFile(l.url, l.file_name) }
+    return (
+      <Cell icon="download" title={l.name || l.file_name || `#${i + 1}`} sub={l.file_name} onClick={dl}
+        right={<Button kind="tonal" size="s" onClick={(e) => { e.stopPropagation(); dl() }}>{t('vpn.download')}</Button>} />
+    )
+  }
   if (l.action === 'telegram') {
     const go = () => { haptic.impact('light'); openTelegramLink(l.url) }
     return (

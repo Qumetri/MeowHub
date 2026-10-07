@@ -40,6 +40,40 @@ export function openLink(url) {
   if (isTg) { try { W().openLink(url); return } catch { /* fall back */ } }
   window.open(url, '_blank', 'noopener')
 }
+
+// Save a file to the device. Telegram 8.0+ has a native downloader; older
+// clients hand the URL to the system browser. Outside Telegram: a plain <a download>.
+export function saveFile(url, fileName) {
+  if (isTg) {
+    const w = W()
+    try {
+      if (w.isVersionAtLeast?.('8.0') && w.downloadFile) { w.downloadFile({ url, file_name: fileName || 'file' }); return }
+    } catch { /* fall back */ }
+    openLink(url)
+    return
+  }
+  const a = document.createElement('a')
+  a.href = url
+  if (fileName) a.download = fileName
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+// Clipboard read: Telegram's own call (6.4+) first, then the web API.
+export const canReadClipboard = () => !!(
+  (isTg && W().readTextFromClipboard && W().isVersionAtLeast?.('6.4')) || navigator.clipboard?.readText)
+export function readClipboard() {
+  return new Promise((resolve) => {
+    if (isTg && W().readTextFromClipboard && W().isVersionAtLeast?.('6.4')) {
+      try { W().readTextFromClipboard((txt) => resolve(txt || '')); return } catch { /* fall back */ }
+    }
+    if (navigator.clipboard?.readText) navigator.clipboard.readText().then((v) => resolve(v || ''), () => resolve(null))
+    else resolve(null)
+  })
+}
+
 export function openTelegramLink(url) {
   if (isTg) { try { W().openTelegramLink(url); return } catch { /* fall back */ } }
   window.open(url, '_blank', 'noopener')

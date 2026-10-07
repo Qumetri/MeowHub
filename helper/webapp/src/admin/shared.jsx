@@ -7,7 +7,7 @@ export const SERVICE_IDS = ['vpn', 'matrix', 'tools']
 export const SVC = {
   vpn: { icon: 'shield', name: 'VPN', desc: 'Подписка с конфигами' },
   matrix: { icon: 'chat', name: 'Мессенджер', desc: 'Создание аккаунтов Matrix' },
-  tools: { icon: 'tools', name: 'Инструменты бота', desc: 'Проверки, ссылки, скачивание видео' },
+  tools: { icon: 'tools', name: 'Инструменты бота', desc: 'Состояние сервера и ссылки хаба' },
 }
 
 export function ServiceToggles({ value, onChange, disabled }) {

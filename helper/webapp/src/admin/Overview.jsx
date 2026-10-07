@@ -8,6 +8,8 @@ import { ago, fmtDateTime } from '../util.js'
 import { useApp } from '../ctx.js'
 import Chart from './Chart.jsx'
 import Integrations from './Integrations.jsx'
+import Services from './Services.jsx'
+import DlAdmin from './DlAdmin.jsx'
 
 const TWO_AWG = 'Нельзя выдавать два AmneziaWG/WireGuard инбаунда одновременно'
 const isAwg = (i) => i.protocol === 'wireguard' || i.protocol === 'amneziawg'
@@ -74,7 +76,7 @@ function Inbounds() {
 }
 
 export default function Overview() {
-  const { version, openPreview } = useApp()
+  const { version, openPreview, go } = useApp()
   const { data, error, loading, reload, setData } = useApi('admin/overview', [version])
   const [syncing, setSyncing] = useState(false)
 
@@ -101,10 +103,15 @@ export default function Overview() {
             <div className="sec__h"><h3>Активность за 30 дней</h3></div>
             <div className="group group--pad"><Chart data={data.activity || []} /></div>
           </section>
+          <Services />
           <Inbounds />
+          <DlAdmin />
         </div>
         <div>
           <Integrations />
+          <Section footer="Видео и аудио по ссылке — файлом на телефон или в чат.">
+            <Cell icon="download" title="Скачать видео" chevron onClick={() => { haptic.impact('light'); go('downloads') }} />
+          </Section>
           {openPreview && isTg && (
             <Section footer="Экран гостя, участника и участника с истёкшим сроком — на тестовых данных.">
               <Cell icon="eye" title="Посмотреть как участник" chevron onClick={() => { haptic.impact('light'); openPreview() }} />

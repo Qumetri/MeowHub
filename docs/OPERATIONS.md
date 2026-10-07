@@ -116,6 +116,31 @@ on a copy, backs up, and rolls back by itself unless you confirm. See
 Before any upgrade: back up the database, note the current tag, and read the
 project's release notes for migration steps.
 
+## MeTube downloader
+
+The `metube` profile runs MeTube (a yt-dlp web UI) plus a janitor sidecar:
+
+- **Pinned image** (`METUBE_IMAGE`, not `:latest`): some builds broke YouTube's
+  PO-token helper. Bump it deliberately after reading the release notes.
+- **basic_auth on the route** at `/<METUBE_PATH>/`, the same login as the bots admin
+  page (`BOT_ADMIN_USER`, `secrets/bot-admin-password`). MeTube's API can queue and
+  delete downloads and upload cookies, so a secret path alone is too little once
+  several people use it. Members never open this route: the helper bot's downloader
+  talks to `metube:8081` on the compose network and serves files through its own
+  signed links ([HELPER.md](HELPER.md#downloader)).
+- **No directory listings** (`DOWNLOAD_DIRS_INDEXABLE: false`), 2 concurrent
+  downloads (`MAX_CONCURRENT_DOWNLOADS`), and yt-dlp upgraded daily at 04:30
+  (`YTDL_NIGHTLY_UPDATE_TIME`) because YouTube breaks old versions regularly.
+- **Janitor** (`metube-janitor`, every 2 minutes): deletes files in the download
+  dir and its per-user `u<id>/` folders that were last changed more than
+  `METUBE_TTL_MIN` (default 30) minutes ago, then removes empty `u*` folders.
+  It ages by **ctime** because yt-dlp may stamp a file with the video's upload date
+  (mtime), which would make a fresh download look years old. `keep/` and
+  `.metube/` (state) are never touched; move a file into `keep/` to retain it.
+- Needs the download dir owned by `PUID`:`PGID` (see DEPLOY.md). A change to the
+  route's auth or path needs `docker compose up -d --no-deps caddy` (compose-level
+  env), not just a restart.
+
 ## Failure modes worth knowing
 
 **"Secure Connection Failed", cached for weeks.** If the internal Caddy server
