@@ -88,6 +88,10 @@ set_env CRYPTO_EXPLAIN_SECRET      "$(hex 24)"
 # The ESP32 sends this as X-Sensor-Token; the sensor app rejects posts without
 # it. Also goes into the device's secrets.py. See docs/SENSOR.md.
 set_env SENSOR_TOKEN               "$(hex 24)"
+# Shared secret between Caddy and the helper bot: Caddy injects it as
+# X-Admin-Key on the basic_auth-protected admin route only (and strips it on the
+# public Mini App route), and the app treats a matching header as the owner.
+set_env BOT_ADMIN_KEY              "$(hex 32)"
 
 # Secret paths: the placeholder defaults are guessable, so give each a random
 # suffix on first run. Once randomised they look nothing like the default and
@@ -102,7 +106,9 @@ randomise_path() {
 import re,sys
 p,k,v=sys.argv[1],sys.argv[2],sys.argv[3]
 s=open(p).read()
-s=re.sub(rf'^{re.escape(k)}=.*$', f"{k}={v}", s, count=1, flags=re.M)
+s,n=re.subn(rf'^{re.escape(k)}=.*$', f"{k}={v}", s, count=1, flags=re.M)
+if not n:  # key absent (a .env from before this feature): append it
+    s=s.rstrip("\n")+f"\n{k}={v}\n"
 open(p,'w').write(s)
 PY
     c_new "$key randomised"
@@ -118,6 +124,8 @@ randomise_path CRYPTO_PATH     crypto
 randomise_path XUI_PANEL_PATH  panel
 randomise_path N8N_PUBLIC_PATH n8n
 randomise_path SENSOR_PATH     sensor
+randomise_path BOT_APP_PATH    bot
+randomise_path BOT_ADMIN_PATH  botadmin
 
 # Reload so the rendering below sees everything we just wrote.
 set -a; . "$ENV_FILE"; set +a
@@ -182,6 +190,23 @@ if [[ ! -s $SECRETS_DIR/crypto-admin.hash ]]; then
   fi
 else
   c_skip "crypto admin password already set"
+fi
+
+# Helper bot admin page password (hub card "Bots"). Same pattern again.
+if [[ ! -s $SECRETS_DIR/bot-admin.hash ]]; then
+  bot_pw=$(pw 24)
+  printf '%s\n' "$bot_pw" > "$SECRETS_DIR/bot-admin-password"
+  chmod 600 "$SECRETS_DIR/bot-admin-password"
+  if docker image inspect caddy:2 >/dev/null 2>&1 || docker pull -q caddy:2 >/dev/null 2>&1; then
+    docker run --rm caddy:2 caddy hash-password --plaintext "$bot_pw" \
+      > "$SECRETS_DIR/bot-admin.hash"
+    chmod 600 "$SECRETS_DIR/bot-admin.hash"
+    c_new "bot admin password generated (plaintext in $SECRETS_DIR/bot-admin-password)"
+  else
+    c_skip "could not reach caddy:2 to hash the bot admin password — the bot admin page will not authenticate"
+  fi
+else
+  c_skip "bot admin password already set"
 fi
 
 # ---------------------------------------------------------------- rendering --
@@ -259,6 +284,13 @@ except OSError:
 if "@@CRYPTO_ADMIN_HASH@@" in rendered and not ch:
     print("  \033[31m!\033[0m no secrets/crypto-admin.hash — the crypto UI will reject every login")
 rendered = rendered.replace("@@CRYPTO_ADMIN_HASH@@", ch)
+try:
+    bh = open("secrets/bot-admin.hash").read().strip()
+except OSError:
+    bh = ""
+if "@@BOT_ADMIN_HASH@@" in rendered and not bh:
+    print("  \033[31m!\033[0m no secrets/bot-admin.hash — the bot admin page will reject every login")
+rendered = rendered.replace("@@BOT_ADMIN_HASH@@", bh)
 open("caddy/Caddyfile.l4","w").write(rendered)
 kept = sorted(profiles)
 print(f"  \033[32m✓\033[0m Caddyfile.l4  kept: {', '.join(kept) or 'base only'}")
@@ -350,6 +382,7 @@ VITE_METUBE_PATH=${METUBE_PATH}
 VITE_CRYPTO_PATH=${CRYPTO_PATH}
 VITE_N8N_PATH=${N8N_PUBLIC_PATH}
 VITE_SENSOR_PATH=${SENSOR_PATH}
+VITE_BOT_ADMIN_PATH=${BOT_ADMIN_PATH}
 VITE_XUI_PANEL_PORT=${XUI_PANEL_PORT}
 VITE_XUI_PANEL_PATH=${XUI_PANEL_PATH}
 EOF
@@ -362,6 +395,20 @@ elif command -v npm >/dev/null; then
     && c_new "dashboard built" || c_skip "dashboard build failed — run it by hand in ./dashboard"
 else
   c_skip "npm not found — hub page will 404 until you build ./dashboard"
+fi
+
+# The helper bot's Mini App (members) and admin page. Built with relative asset
+# paths, so the bundle does not depend on the secret paths and is not rebuilt
+# when they change. Only needed with the `helper` profile.
+if [[ ${COMPOSE_PROFILES:-} == *helper* ]]; then
+  if [[ -f helper/webapp/dist/index.html ]]; then
+    c_skip "helper webapp already built (rebuild: cd helper/webapp && npm run build)"
+  elif command -v npm >/dev/null; then
+    ( cd helper/webapp && npm install --silent && npm run build --silent ) >/dev/null 2>&1 \
+      && c_new "helper webapp built" || c_skip "helper webapp build failed — run it by hand in ./helper/webapp"
+  else
+    c_skip "npm not found — the bot's Mini App will 404 until you build ./helper/webapp"
+  fi
 fi
 
 # ------------------------------------------------------------------- report --
@@ -378,6 +425,7 @@ echo "   hub         https://${BASE_DOMAIN}/${DASHBOARD_PATH}/"
 [[ $COMPOSE_PROFILES == *crypto*    ]] && echo "   crypto      https://${BASE_DOMAIN}/${CRYPTO_PATH}/"
 [[ $COMPOSE_PROFILES == *n8n*       ]] && echo "   automation  https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/"
 [[ $COMPOSE_PROFILES == *helper*    ]] && [[ -z ${HELPER_BOT_TOKEN:-} ]] && echo "   bot         set HELPER_BOT_TOKEN in .env (docs/HELPER.md)"
+[[ $COMPOSE_PROFILES == *helper*    ]] && echo "   bot admin   https://${BASE_DOMAIN}/${BOT_ADMIN_PATH}/   (${BOT_ADMIN_USER:-botadmin}, password in ./secrets/bot-admin-password)"
 echo
 echo " Secret paths are the only access control on the hub and"
 echo " downloader. Treat those URLs as passwords."

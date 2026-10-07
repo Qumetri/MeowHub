@@ -16,6 +16,7 @@ const METUBE  = E.VITE_METUBE_PATH   || ''
 const CRYPTO  = E.VITE_CRYPTO_PATH   || ''
 const N8N     = E.VITE_N8N_PATH      || ''
 const SENSOR  = E.VITE_SENSOR_PATH   || ''
+const BOTS    = E.VITE_BOT_ADMIN_PATH || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -109,5 +110,14 @@ export const services = [
     icon: 'download',
     gradient: ['#ff0000', '#ff6d6d'],
     status: 'live',
+  },
+  {
+    id: 'bots',
+    name: 'Bots',
+    description: 'Members, codes & bot stats',
+    url: `https://${BASE}/${BOTS}/`,
+    icon: 'bot',
+    gradient: ['#229ed9', '#7dd3fc'],
+    status: BOTS ? 'live' : 'soon',
   },
 ]

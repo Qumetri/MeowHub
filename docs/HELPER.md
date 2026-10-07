@@ -1,11 +1,16 @@
 # Helper bot
 
 A Telegram bot for the hub: server health with alerts, the hub's links,
-downloads through MeTube, and — for the owner only — the logins for the hub's
-services. Profile `helper`; two containers, `helper` and `docker-proxy`.
+downloads through MeTube, the owner's logins — and a small **membership system**:
+people you invite redeem an access code and get a VPN subscription link and a
+Matrix account for as long as their subscription runs, managed from a Telegram
+**Mini App** and an owner-only **Bots** admin page. Profile `helper`; two
+containers, `helper` and `docker-proxy`.
 
-Dependency-free Python like `crypto/` and `stats/`. It uses **long polling**, so
-nothing new listens on the internet and there is no Caddy route.
+Dependency-free Python like `crypto/` and `stats/`. The bot itself uses **long
+polling**, so nothing new listens on the internet for it. The Mini App/admin
+server (`:8095`) is published only through two Caddy routes on secret paths
+(see [Mini App and Bots page](#mini-app-and-bots-page)).
 
 ## Setup
 
@@ -17,8 +22,9 @@ nothing new listens on the internet and there is no Caddy route.
    HELPER_OWNER_ID=123456789
    ```
 
-3. Add `helper` to `COMPOSE_PROFILES`, `docker compose up -d`, then `/start`
-   in Telegram.
+3. Add `helper` to `COMPOSE_PROFILES`, run `./bootstrap.sh` (it generates the
+   Mini App / admin paths, the admin key and password, and builds the Mini App
+   — needs `npm`), then `docker compose up -d` and `/start` in Telegram.
 
 Don't know your id? Leave `HELPER_OWNER_ID` empty, message the bot — it answers
 strangers with their ID — then set it and `docker compose up -d helper`.
@@ -29,17 +35,147 @@ token in `helper/data/helper.db` instead; `.env` wins when both are set.
 
 ## Who can do what
 
-| | Owner | Allowed users | Anyone else |
+| | Owner | Member (active) | Stranger |
 |---|:-:|:-:|:-:|
-| 🩺 Health, 🔗 Links, 🎬 Downloads | ✅ | ✅ | — |
+| 🩺 Health, 🔗 Links, 🎬 Downloads (`tools`) | ✅ | if the membership has `tools` | — |
+| VPN link (`vpn`), Matrix accounts (`matrix`) | ✅ | if the membership has the service | — |
+| Redeem an access code | ✅ | ✅ (extends) | ✅ (becomes a member) |
 | 🔑 Logins (`/pass`, `/setpass`, `/delpass`) | ✅ | — | — |
-| Manage users (`/users`, `/allow`, `/deny`) | ✅ | — | — |
+| Members and codes (`/members`, `/code`, `/allow`, `/deny`, 🎟) | ✅ | — | — |
+| Bots page | ✅ | — | — |
 
 The bot is public on Telegram — anyone can find it and write to it. A stranger is
-told they have no access and shown their own ID; the owner gets one message with
-an **Allow** button. Allowed users **never** get logins, whatever they send: the
-owner check runs again on every button press, because a callback carries the id
-of whoever pressed it. The bot also **never answers in groups**.
+told to send an access code or to contact `OWNER_CONTACT` (a Telegram `@handle`;
+leave it empty and the bot just says "contact the owner"), and the owner gets one
+notice about the new person. Members **never** get logins, whatever they send:
+the owner check runs again on every button press, because a callback carries the
+id of whoever pressed it. The bot also **never answers in groups**.
+
+`/allow ID [days]` grants a membership without a code, `/deny ID` suspends it.
+
+## Members and access codes
+
+**Services** (per membership):
+
+| id | Gives |
+|---|---|
+| `vpn` | one auto-updating 3x-ui subscription link |
+| `matrix` | up to `MATRIX_MAX_PER_MEMBER` (default 2) Matrix accounts, created in the Mini App |
+| `tools` | the bot's health / links / YouTube downloads |
+
+**Status** — suspended (the owner's manual switch) beats expired (`expires_ts`
+passed) beats active. **Expiry never deletes a member**: the row and the Matrix
+accounts stay, the services stop, and a new code brings everything back.
+
+**Access codes** look like `MEOW-XXXX-XXXX`. They are not bound to a user,
+single-use by default, valid 30 days, and by default give 30 days of VPN +
+Matrix.
+
+- Redeeming starts or extends a membership: `max(now, expiry) + days`, services
+  are the union. **A suspended member cannot un-suspend with a code.**
+- 5 failed attempts per hour per user, then rate-limited.
+- Create one with `/code [days] [vpn,matrix,tools]`, the 🎟 button wizard in the
+  bot, or the Codes tab of the Bots page.
+- Share it as the deep link `https://t.me/<your bot>?start=<CODE>` (redeems on
+  tap; the admin page builds it for you) or as plain text.
+
+**Enforcement** — what actually switches access off:
+
+- **VPN**: one 3x-ui client per member (email `mh-<telegram id>`, a random
+  `subId`) attached to the **member inbounds**. `enable` follows the membership
+  and `expiryTime` mirrors the expiry, so 3x-ui cuts access at expiry on its own
+  even if the bot is down. Deleting a member deletes the client. The link given
+  to the member is `VPN_SUB_BASE` + subId, by default
+  `https://<BASE_DOMAIN>/sub/…`, which Caddy proxies to the panel on 443 (many
+  networks block the panel's own `:2096`).
+- **Member inbounds**: the set of inbounds a member's client is attached to. On
+  first run it is every enabled inbound of a member-friendly protocol (vless,
+  vmess, trojan, shadowsocks, hysteria, mtproto) without a 🧪 in its remark; edit
+  it on the Bots page afterwards. When a new inbound appears the owner gets
+  "New inbound … give it to members?" with Add / Skip buttons. At most **one**
+  WireGuard/AmneziaWG inbound may be in the set: 3x-ui hands a client that sits
+  on two of them a wrong address.
+- **Matrix**: a member's accounts are **locked** through the Synapse admin API
+  while access is off (the account's rooms and history are kept; a locked user
+  gets `M_USER_LOCKED`) and unlocked when it returns, which restores existing
+  sessions. Deleting a member leaves the accounts locked.
+- **Reconciler** (`members.py`): runs every 120 s and immediately on any change,
+  and brings 3x-ui and Synapse in line with the database. Don't edit the `mh-…`
+  clients in the panel by hand — the next pass reverts it.
+- **Reminders**: to the member 3 days and 1 day before expiry and at expiry; the
+  owner gets an expiry notice with a "+30 days" button.
+
+### Setting it up
+
+The bot, codes and Mini App work as soon as the profile runs. The VPN and
+Matrix halves are optional and each needs one manual step; without it that
+half shows "not configured" and the rest keeps working.
+
+1. **`OWNER_CONTACT`** — your `@handle`, shown to strangers.
+2. **VPN** — in the 3x-ui panel (Settings → Security → API token) create a
+   token and put it in `.env` as `XUI_API_TOKEN`. The panel stores only a hash,
+   so a lost token means making a new one. Needs the panel from
+   [VPN.md](VPN.md) running with a valid certificate (the bot verifies the TLS
+   chain but not the hostname, because it connects through
+   `host.docker.internal`); if your panel serves plain HTTP set `XUI_URL=http://…`.
+   `XUI_URL` defaults to `https://host.docker.internal:$XUI_PANEL_PORT/$XUI_PANEL_PATH`.
+3. **Matrix** — create an admin on your Synapse and put it in `.env`:
+
+   ```bash
+   docker compose exec matrix-synapse register_new_matrix_user \
+       -c /data/homeserver.yaml -a -u admin       # asks for a password
+   ```
+
+   ```ini
+   MATRIX_ADMIN_USER=admin
+   MATRIX_ADMIN_PASSWORD=…
+   ```
+
+   The bot logs in once and caches the token (it re-logs in only on a 401,
+   because Synapse rate-limits logins). `MATRIX_SERVER_NAME` defaults to
+   `BASE_DOMAIN`.
+4. `docker compose up -d helper`, then open the Mini App from the bot's menu
+   button and the Bots page from the hub card, and mint a first code.
+
+## Mini App and Bots page
+
+One backend (`helper/app/webapp.py`, stdlib HTTP server on `:8095`, also on
+`127.0.0.1:$HELPER_LOCAL_PORT` for debugging), two Caddy routes, both
+`handle_path`, both on a secret path generated by `bootstrap.sh`:
+
+| | Path (`.env`) | Who | Auth |
+|---|---|---|---|
+| Mini App | `/$BOT_APP_PATH/` | members and the owner, opened from the bot's "MeowHub" menu button and its buttons | Telegram's signed `initData` (HMAC with the bot token, 24 h max age). The public route **strips `X-Admin-Key`** |
+| Bots page | `/$BOT_ADMIN_PATH/` — hub card **Bots** | the owner, in a browser | basic auth as `BOT_ADMIN_USER`; Caddy then injects `X-Admin-Key: $BOT_ADMIN_KEY`, which the app treats as the owner |
+
+The password is in `secrets/bot-admin-password` (the bcrypt hash in
+`secrets/bot-admin.hash`, injected into the Caddyfile by `bootstrap.sh`), and the
+owner can also get it from the bot with `/pass` → "bots".
+
+Inside the Mini App a member sees their subscription, a VPN screen (the
+subscription link with QR code and one-tap import for Happ, Hiddify, v2RayTun,
+Streisand and v2rayNG), a Matrix screen (create and reset-password for their
+accounts) and a place to enter a new code. The Bots page shows KPIs, a 30-day
+activity chart, the bots (this one and the crypto tracker's, via `getMe`), the
+reconciler's sync status, the member-inbounds editor, members with their
+profile photos (cached 24 h in `helper/data/avatars/`) and codes.
+
+**`BOT_APP_PATH`, `BOT_ADMIN_PATH` and `BOT_ADMIN_KEY` carry `:?` guards in
+caddy's `environment:`** — an empty value would turn the route into `/*` and
+swallow the root domain, so `docker compose` refuses to run instead. They are
+compose-level, so apply a change with `docker compose up -d --no-deps caddy`.
+
+**Frontend**: `helper/webapp/` (Vite + React, `base: './'` so the bundle does not
+depend on the secret paths). `bootstrap.sh` builds it to `helper/webapp/dist`
+when `npm` is available (same as the dashboard); the container mounts it
+read-only at `/webapp`. To rebuild by hand: `cd helper/webapp && npm install &&
+npm run build` — no container restart. For development, `npm run dev` and open
+`?mock=member|owner|stranger|expired&mode=tg&theme=dark&p=vpn|matrix|admin`
+(the mock is dev-only and not in the production bundle). Every contact or
+domain the UI shows comes from `/api/me`; nothing is hardcoded.
+
+**API**: every POST must be `Content-Type: application/json` (the CSRF guard).
+Modules: `webapp.py`, `members.py` (domain + reconciler), `xui.py`, `synapse.py`.
 
 ## Health
 
@@ -113,7 +249,7 @@ Where the logins come from:
 
 | Source | What | Edit with |
 |---|---|---|
-| `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
+| `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI, bots admin page — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
 | the bot | accounts that store only a hash: 3x-ui, Immich, n8n, Matrix users… | `/setpass <id> <login> <password>` |
 
 `<id>` is the card id from `services.js` (`immich`, `3xui`, `n8n`, …); `/pass`
@@ -135,8 +271,47 @@ Nextcloud, store the new one with `/setpass nextcloud admin <new>`.
 ```bash
 docker compose logs -f helper
 docker compose exec helper python3 /app/app/ctl.py status
-docker compose up -d --build helper      # after editing helper/app
+docker compose up -d --build --no-deps helper   # after editing helper/app
+cd helper/webapp && npm run build               # after editing the frontend, no restart
+docker compose up -d --no-deps caddy            # after changing the app/admin paths or key
+cd helper && PYTHONPATH=app python3 -m unittest discover -s tests
 ```
 
-Back up `helper/data/` — it holds the allowed users and the logins added with
-`/setpass`.
+- **Forcing a sync**: the reconciler runs every 120 s and on every change; run it
+  now with the sync button on the Bots page (the last result is shown there).
+- **Backups**: back up `helper/data/` — it holds the members, codes, settings
+  (cached Matrix admin token, member inbounds) and the logins added with
+  `/setpass`.
+- **Upgrading from an older checkout**: pull, run `./bootstrap.sh` (it adds the
+  new `BOT_*` keys to your `.env` and builds the Mini App), then
+  `docker compose up -d --build helper caddy`. Until then `docker compose` stops
+  with "BOT_APP_PATH must be set" — that is the guard doing its job. The old
+  `users` table is no longer used; anyone allowed there has to redeem a code or
+  be granted with `/allow`.
+
+## Gotchas
+
+**3x-ui API** (Bearer `XUI_API_TOKEN`, 3.8.x — the notes in `helper/app/xui.py`
+have the details):
+
+- In `/clients/list` and `/get`, `id` is the DB row id and `uuid` is the VLESS
+  id, while `/update` wants the VLESS id in `id`; `allowedIPs` reads back as a
+  string but must be written as a list; `/get` wraps the row as
+  `{client:{…}, inboundIds, …}`. `xui.py` maps all of this.
+- `/clients/update` **replaces** the row, it does not patch, so the bot sends back
+  the full record it read.
+- The XTLS `flow` is decided by the panel per inbound (Vision only where the
+  transport supports it), so one client attached to a Vision-Reality inbound and
+  a plain XHTTP-Reality one works on both; the bot does not send a flow.
+- `/clients/onlines` is a POST; deleting a client takes a required `keepTraffic`
+  query parameter.
+- One client on two WireGuard/AmneziaWG inbounds gets a wrong address — hence the
+  one-AWG limit on member inbounds.
+
+**Synapse**: the admin token comes from logging in once as `MATRIX_ADMIN_USER`.
+`M_LIMIT_EXCEEDED` means something is logging in repeatedly; the bot caches the
+token to avoid it.
+
+**Telegram**: a Mini App button opens only `https` pages, so the one-tap VPN
+import buttons go through a tiny redirect page (`/go/<app>?u=…`) in the app that
+refuses any target not starting with `VPN_SUB_BASE`.

@@ -4,6 +4,7 @@ import logging
 import mimetypes
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -60,6 +61,23 @@ class Bot:
         req = urllib.request.Request(f"{API}/bot{self.token}/{method}", data=data,
                                      headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
         return self._open(req, _timeout)
+
+    def file_bytes(self, file_path, max_bytes=5 * 1024 * 1024):
+        """Download a file by the `file_path` that getFile returned (15 s, max 5 MB).
+        The URL carries the bot token, so no exception text may include it."""
+        url = f"{API}/file/bot{self.token}/{urllib.parse.quote(file_path, safe='/')}"
+        try:
+            with urllib.request.urlopen(url, timeout=15) as r:
+                data = r.read(max_bytes + 1)
+        except urllib.error.HTTPError as e:
+            raise TelegramError(f"HTTP {e.code}") from None
+        except urllib.error.URLError as e:
+            raise TelegramError(f"network: {str(e.reason).replace(self.token, '***')}") from None
+        except (OSError, ValueError) as e:
+            raise TelegramError(f"download failed: {type(e).__name__}") from None
+        if len(data) > max_bytes:
+            raise TelegramError("file too large")
+        return data
 
     # -- conveniences ------------------------------------------------------
     def send(self, chat_id, text, **kw):

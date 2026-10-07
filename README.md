@@ -35,7 +35,7 @@ on hardware you control.
 | 📈 | **Crypto Tracker** — live prices, Telegram price alerts | `yourdomain/<secret>` |
 | 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
-| 🤖 | **Helper bot** — health alerts, links, downloads, logins over Telegram | Telegram |
+| 🤖 | **Helper bot** — health alerts, links, downloads, logins, and invite-code memberships (VPN + Matrix) with a Telegram Mini App | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
 
@@ -133,7 +133,7 @@ The dashboard is responsive, so the hub works from a phone as well as a desk.
 
 ## Everything is in one file
 
-`.env` holds **112 settings**, each documented where it sits. Only two have no
+`.env` holds **126 settings**, each documented where it sits. Only two have no
 sensible default, because they can't:
 
 ```ini
@@ -153,7 +153,7 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
 | Secrets | 12 passwords and shared secrets, all generated |
@@ -252,8 +252,18 @@ at your IP — and again when it's fixed. It also lists the hub's links, downloa
 any video link you send it through MeTube, and hands **you, and only you**, the
 logins for your services, in a message that deletes itself after a minute.
 
+It can also **let other people in**. You mint an access code in the bot; whoever
+redeems it becomes a member for 30 days (or as long as you choose) and gets a
+personal, auto-updating VPN subscription link from your 3x-ui panel and an
+account on your Matrix server — from a Telegram Mini App, no support chat. When
+the time runs out the VPN client is switched off and the Matrix accounts are
+locked (rooms and history kept); a new code brings it all back. An owner-only
+**Bots** page on the hub shows the members, codes and activity.
+
 Setup is two lines in `.env` — `HELPER_BOT_TOKEN` and your Telegram id as
-`HELPER_OWNER_ID`. Full details in **[docs/HELPER.md](docs/HELPER.md)**.
+`HELPER_OWNER_ID`; the VPN and Matrix halves of the memberships each need one
+more value (a 3x-ui API token, a Matrix admin). Full details in
+**[docs/HELPER.md](docs/HELPER.md)**.
 
 ## Movies and series into Plex
 
@@ -290,7 +300,7 @@ stats/                  host metrics, dependency-free Python
 crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
 sensor/data/            ESP32 sensor readings (the app is built from its own repo)
 n8n/workflows/          importable automation workflows
-helper/                 Telegram helper bot (dependency-free Python)
+helper/                 Telegram helper bot (dependency-free Python) + webapp/ Mini App
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
@@ -322,10 +332,12 @@ credential — `bootstrap.sh` gives each a random suffix like
 model. That's deliberate: it costs nothing, and for a single-user service a
 login screen is friction nobody wants.
 
-It is *not* appropriate for anything sensitive, which is why two pages sit
+It is *not* appropriate for anything sensitive, which is why three pages sit
 behind HTTP basic auth instead: the VPN peer manager, which hands out working
-VPN keys, and the crypto tracker, which stores a Telegram bot token and can
-send messages as you.
+VPN keys, the crypto tracker, which stores a Telegram bot token and can
+send messages as you, and the helper bot's admin page, which manages who gets
+VPN and chat accounts. (The bot's Mini App for members has no basic auth: it
+accepts only Telegram's signed login data.)
 
 Nextcloud, Immich and Matrix have real authentication of their own.
 

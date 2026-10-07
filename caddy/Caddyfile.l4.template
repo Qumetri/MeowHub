@@ -153,6 +153,39 @@
 		reverse_proxy n8n:5678
 	}
 #ENDIF
+#IF:helper
+	# Helper bot Mini App (members open it from Telegram) on a secret path
+	# (BOT_APP_PATH). No basic_auth: every API call is authenticated by
+	# Telegram's signed initData (HMAC with the bot token), checked in
+	# helper/app/webapp.py. X-Admin-Key is STRIPPED here so nobody on the public
+	# side can claim to be the owner by sending it. handle_path strips the
+	# prefix; the app uses relative URLs.
+	redir /{$BOT_APP_PATH} /{$BOT_APP_PATH}/ 308
+	handle_path /{$BOT_APP_PATH}/* {
+		reverse_proxy helper:8095 {
+			header_up -X-Admin-Key
+		}
+	}
+
+	# Owner's bot admin page (hub card "Bots"): the same app behind basic_auth.
+	# Caddy INJECTS the shared X-Admin-Key (BOT_ADMIN_KEY) that makes the app
+	# treat the request as the owner, and drops any Telegram initData the client
+	# sent. The route above strips the header, so the key can never come from
+	# outside. The bcrypt hash is injected by bootstrap.sh from
+	# secrets/bot-admin.hash (kept out of .env: it starts with "$2a$", which
+	# shell sourcing and compose interpolation both mangle). Rotate like the
+	# AmneziaWG password below.
+	redir /{$BOT_ADMIN_PATH} /{$BOT_ADMIN_PATH}/ 308
+	handle_path /{$BOT_ADMIN_PATH}/* {
+		basic_auth {
+			{$BOT_ADMIN_USER} @@BOT_ADMIN_HASH@@
+		}
+		reverse_proxy helper:8095 {
+			header_up X-Admin-Key {$BOT_ADMIN_KEY}
+			header_up -X-Tg-Init-Data
+		}
+	}
+#ENDIF
 #IF:vpn
 	# AmneziaWG peer-management UI, behind basic_auth. handle_path strips the
 	# prefix; the app uses relative URLs so it works under any prefix.

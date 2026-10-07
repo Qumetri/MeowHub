@@ -67,6 +67,14 @@ const paths = {
       <path d="M12 9v7" />
     </>
   ),
+  bot: (
+    <>
+      <rect x="4" y="8" width="16" height="11" rx="3" />
+      <path d="M12 8V5m-2 0h4" />
+      <path d="M9 13h.01M15 13h.01" />
+      <path d="M2 13v2m20-2v2" />
+    </>
+  ),
   download: (
     <>
       <path d="M12 4v10m0 0 4-4m-4 4-4-4" />

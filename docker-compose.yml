@@ -41,7 +41,7 @@ services:
       BASE_DOMAIN: ${BASE_DOMAIN}
       CLOUD_HOST: ${CLOUD_HOST}
       PHOTOS_HOST: ${PHOTOS_HOST}
-      MATRIX_HOST: ${MATRIX_HOST}
+      MATRIX_HOST: ${MATRIX_HOST:-matrix.${BASE_DOMAIN}}
       TURN_HOST: ${TURN_HOST}
       ACME_EMAIL: ${ACME_EMAIL}
       CADDY_INTERNAL_HTTPS: ${CADDY_INTERNAL_HTTPS:-9443}
@@ -58,6 +58,14 @@ services:
       CRYPTO_ADMIN_USER: ${CRYPTO_ADMIN_USER:-cryptoadmin}
       N8N_PUBLIC_PATH: ${N8N_PUBLIC_PATH:-n8n-unset}
       SENSOR_PATH: ${SENSOR_PATH:-sensor-unset}
+      # Helper bot Mini App + owner admin page. These carry `:?` (fail the whole
+      # `docker compose` command) rather than a fallback, for the same reason:
+      # an empty path turns the route into /* and swallows the root domain.
+      # bootstrap.sh generates all three; run it after pulling this change.
+      BOT_APP_PATH: ${BOT_APP_PATH:?BOT_APP_PATH must be set and non-empty (run ./bootstrap.sh)}
+      BOT_ADMIN_PATH: ${BOT_ADMIN_PATH:?BOT_ADMIN_PATH must be set and non-empty (run ./bootstrap.sh)}
+      BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}
+      BOT_ADMIN_USER: ${BOT_ADMIN_USER:-botadmin}
       XUI_SUB_PORT: ${XUI_SUB_PORT:-2096}
     # Reaches host-network services (the 3x-ui VPN inbounds) from inside the
     # container. Without this the layer4 passthrough routes cannot resolve.
@@ -131,8 +139,10 @@ services:
     networks: [helper-docker]
 
   # Telegram bot: server health + alerts, hub links, downloads via MeTube and,
-  # for the owner only, the hub's logins. Long polling -- nothing is published.
-  # Setup: docs/HELPER.md.
+  # for the owner only, the hub's logins -- plus the membership system (access
+  # codes, VPN + Matrix accounts for members) with its Mini App and admin page.
+  # The bot itself long-polls; the Mini App server (:8095) is reached only
+  # through Caddy. Setup: docs/HELPER.md.
   helper:
     container_name: ${STACK_NAME:-meowstack}_helper
     build: ./helper
@@ -157,12 +167,42 @@ services:
       VAULT_CRYPTO_PASS_FILE: /secrets/crypto-admin-password
       VAULT_AMNEZIAWG_USER: ${AWG_ADMIN_USER:-awgadmin}
       VAULT_AMNEZIAWG_PASS_FILE: /secrets/awg-admin-password
+      VAULT_BOTS_USER: ${BOT_ADMIN_USER:-botadmin}
+      VAULT_BOTS_PASS_FILE: /secrets/bot-admin-password
+      # ---- memberships (docs/HELPER.md "Members") ----
+      # Telegram @handle shown to strangers and members ("contact the owner").
+      # Empty -> the bot just says "contact the owner".
+      OWNER_CONTACT: ${OWNER_CONTACT:-}
+      BOT_APP_PATH: ${BOT_APP_PATH:?BOT_APP_PATH must be set and non-empty (run ./bootstrap.sh)}
+      BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}
+      WEBAPP_DIR: /webapp
+      # 3x-ui panel API (host network). Empty token -> VPN features show "not
+      # configured" and everything else keeps working.
+      XUI_URL: ${XUI_URL:-https://host.docker.internal:${XUI_PANEL_PORT:-10358}/${XUI_PANEL_PATH:-}}
+      XUI_API_TOKEN: ${XUI_API_TOKEN:-}
+      # Members' subscription links. The :443 /sub/ route in Caddy is the default
+      # because networks that block high ports can't reach :2096.
+      VPN_SUB_BASE: ${VPN_SUB_BASE:-https://${BASE_DOMAIN}/sub/}
+      # Synapse admin API, for members' Matrix accounts (locked on expiry).
+      # Empty admin user/password -> Matrix features show "not configured".
+      MATRIX_URL: http://matrix-synapse:8008
+      MATRIX_HOST: ${MATRIX_HOST:-matrix.${BASE_DOMAIN}}
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-${BASE_DOMAIN}}
+      MATRIX_ADMIN_USER: ${MATRIX_ADMIN_USER:-}
+      MATRIX_ADMIN_PASSWORD: ${MATRIX_ADMIN_PASSWORD:-}
+      MATRIX_MAX_PER_MEMBER: ${MATRIX_MAX_PER_MEMBER:-2}
+      # The crypto tracker's bot, shown on the admin "Bots" page (getMe only).
+      CRYPTO_TG_TOKEN: ${CRYPTO_TG_TOKEN:-}
     volumes:
       - ./helper/data:/data
       - ./dashboard/dist:/hub:ro
+      - ./helper/webapp/dist:/webapp:ro
       - ./secrets:/secrets:ro
       - /proc:/host/proc:ro
       - ${METUBE_DOWNLOADS}:/downloads:ro
+    # Mini App / admin API, loopback only for local debugging.
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${HELPER_LOCAL_PORT:-8086}:8095'
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     networks: [default, helper-docker]

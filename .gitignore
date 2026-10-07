@@ -4,6 +4,8 @@ secrets/
 dashboard/.env.local
 dashboard/dist/
 dashboard/node_modules/
+helper/webapp/dist/
+helper/webapp/node_modules/
 
 # Rendered from *.template by bootstrap.sh
 caddy/Caddyfile.l4
