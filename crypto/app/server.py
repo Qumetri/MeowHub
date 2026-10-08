@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import os
 import queue
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,6 +17,7 @@ from urllib.parse import urlparse, parse_qs
 import binance
 import kraken
 import news
+import newswatch
 import telegram
 
 log = logging.getLogger("http")
@@ -69,6 +71,30 @@ def _stamp_assets(html):
             continue
         out = out.replace(f'"{name}"', f'"{name}?v={v}"')
     return out.encode()
+
+
+def _news_settings(b):
+    """Validate the newswatch settings in a POST body -> the subset to store."""
+    out = {}
+    if "news_enabled" in b:
+        out["news_enabled"] = "1" if str(b["news_enabled"]).lower() in ("1", "true", "on") else "0"
+    for key, hi in (("news_min_score", 100), ("news_max_per_day", 100)):
+        if key in b:
+            try:
+                v = int(float(b[key]))
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} must be a number")
+            if not 0 <= v <= hi:
+                raise ValueError(f"{key} must be between 0 and {hi}")
+            out[key] = str(v)
+    if "news_tg_channels" in b:
+        raw = str(b["news_tg_channels"] or "")
+        ok = newswatch.channel_list(raw)
+        if len([x for x in re.split(r"[,\s]+", raw) if x.strip()]) != len(ok):
+            raise ValueError("news_tg_channels: use up to 5 public channel names "
+                             "(letters, digits, _; 4-32 chars), comma-separated")
+        out["news_tg_channels"] = ",".join(ok)
+    return out
 
 
 def make_handler(app):
@@ -184,6 +210,15 @@ def make_handler(app):
                 with_news = q.get("news", ["1"])[0] != "0"
                 fresh = q.get("fresh", ["0"])[0] == "1"
                 return self._json(news.build_digest(app, hours=hours, with_news=with_news, fresh=fresh))
+            if p == "/api/news":
+                return self._json({"news": [
+                    {**r, "coins": [c for c in r["coins"].split(",") if c],
+                     "label": newswatch.label_of(r["source"]),
+                     "kind": newswatch.kind_of(r["source"])}
+                    for r in app.store.news_list(
+                        limit=min(max(int(q.get("limit", ["50"])[0]), 1), 200))]})
+            if p == "/api/news/health":
+                return self._json(app.newswatch.health())
             if p == "/api/health":
                 st = app._feed_status()
                 return self._json({"ok": True, "connected": st["connected"],
@@ -337,6 +372,7 @@ def make_handler(app):
                 allowed = {"tg_chat_id", "tg_enabled", "summary_enabled",
                            "summary_hour", "quiet_hours", "retention_days"}
                 out = {k: v for k, v in b.items() if k in allowed}
+                out.update(_news_settings(b))
                 # Never overwrite a stored token with the masked placeholder.
                 tok = b.get("tg_token")
                 if tok and "*" not in tok:

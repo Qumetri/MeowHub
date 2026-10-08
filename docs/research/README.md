@@ -7,3 +7,4 @@ Research reports are kept here permanently and dated. Each ends with a "What we 
 | [russia-2026-10.md](russia-2026-10.md) | 2026-10-08 | Borrowed-SNI Reality on a home IP is burned by TSPU grey lists; use our own domain (real TLS + XHTTP behind Caddy, or Reality self-steal). |
 | [downloader-2026-10.md](downloader-2026-10.md) | 2026-10-08 | MeTube's secret path was the only credential and its API is keyed by URL; pin the version, lock the route, and let a bot serve signed links. |
 | [amneziavpn-deeplink-2026-10.md](amneziavpn-deeplink-2026-10.md) | 2026-10-08 | AmneziaVPN registers `vpn://` only on Android; elsewhere hand it a `.vpn` file from a signed hand-off page. |
+| [crypto-news-2026-10.md](crypto-news-2026-10.md) | 2026-10-08 | Which sources publish delistings and halts first, how fast, and the scoring/push rules newswatch uses on them. |

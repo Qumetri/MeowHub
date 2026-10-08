@@ -303,12 +303,35 @@ host). One call returns, per coin:
   momentum, and `relative`: `with_market` / `outperformed` / `underperformed`
   against the tracked average (±1.5pp);
 - the coin's **alerts** in the period, one line each;
-- up to 6 **headlines** from the last 24h — exchange announcements first (at
-  most 3), then news.
+- up to 6 **headlines** from the last 24h — what [newswatch](#newswatch-breaking-news)
+  has already stored first (highest score first, each with `first_seen`, the time
+  this server first saw it, absent on rows stored by a source's silent first run),
+  then exchange announcements fetched now (at most 3 in all), then Google News;
+- every headline keeps `title`, `source`, `ts`, `url`, `kind` and gains `score`,
+  `first_seen`, and — when two or more sources carried the same story
+  (word-trigram Jaccard ≥ 0.6 within 6 h) — `cluster_size`, `cluster_note`
+  (`"5 источников"`) and `cluster_sources`. `kind` is `exchange` for an
+  exchange's own notice or status page, `social` for a Telegram channel.
 
-Plus market-wide headlines (CoinDesk, Cointelegraph, Decrypt) and aggregate
-stats. News is cached for 15 minutes; all sources are fetched in parallel, so a
+Plus market-wide headlines (CoinDesk, Cointelegraph, Decrypt, The Block — each
+must contain a crypto/macro keyword or a tracked coin, which drops Decrypt's AI
+stories; Decrypt items older than 48 h are dropped, its feed carries podcast
+backfill), aggregate stats, and two blocks added in 2026-10:
+
+- `macro` — `{line, fomc_next, days_to_fomc, fomc_today, fed_press}`: the 2026 FOMC
+  calendar is hard-coded in `news.FOMC_2026` (Jan 27–28, Mar 17–18, Apr 28–29,
+  Jun 16–17, Jul 28–29, Sep 15–16, Oct 27–28, Dec 8–9; checked against
+  federalreserve.gov 2026-10-08 — **add 2027 before January**), and `fed_press`
+  is the newest item of `federalreserve.gov/feeds/press_all.xml` when under 24 h old;
+- `news_health` — per-source freshness, see Newswatch below. Also at `GET /api/news/health`.
+
+News is cached for 15 minutes; all sources are fetched in parallel, so a
 cold call takes ~1–4s. `news=0` skips it. `hours` is capped at 72.
+
+**Google News is now only for sparse coins** — RVN, ETC, XMR, GRAM, plus any coin
+for which newswatch stored fewer than 3 items in the last 24 h (`news.GNEWS_ALWAYS`,
+`GNEWS_MIN_WATCH`). Converter SEO pages ("Convert 10 ZAR to ETC") are dropped
+as noise.
 
 **Exchange announcements** come from the exchanges' own public APIs — no key:
 Binance (listings, news, delisting, maintenance/upgrades — not activities,
@@ -320,9 +343,12 @@ of Spot Trading Pairs") — for those the article body is read and `RVN/…` or
 `(RVN)` counts, and the title gets "(affects RVN)" appended. In a pair only the
 **base** counts: "ABC/BTC" is about ABC, never BTC. Promotions, competitions,
 airdrops, "earn"/APR offers and wallet maintenance/resumption are dropped.
-Most days none match the tracked coins; that is expected. Coinbase and Kraken
-are absent: both put their blogs behind a bot challenge (403, Kraken's
-intermittently) and neither has an announcements API.
+Most days none match the tracked coins; that is expected. Coinbase's and Kraken's
+*blogs* are absent: both sit behind a bot challenge (403, Kraken's
+intermittently) and have no announcements API — their **status pages'** RSS is
+polled by newswatch instead. OKX is queried by type (`announcements-delistings`,
+`announcements-deposit-withdrawal-suspension-resumption`); from an EU IP it still
+returns mostly OKX-EEA notices, so global OKX delistings may be missed.
 
 Headlines come from Google News RSS per coin, then are **filtered by title**,
 because the search is loose:
@@ -343,6 +369,90 @@ is reported as such, never padded.
 
 `23-7` suppresses **volatility** alerts overnight. Price targets always fire —
 those are levels you chose deliberately.
+
+## Newswatch (breaking news)
+
+`app/newswatch.py` — a thread started from `main.py` that polls the sources which
+publish delistings, halts and hacks first, and pushes the few items that can move a
+tracked coin to Telegram within seconds to minutes, instead of waiting for the 09:00
+digest. Design and the measurements behind it:
+[`research/crypto-news-2026-10.md`](research/crypto-news-2026-10.md) §3.
+
+**Sources** (all keyless; each has its own interval and failure handling — a dead
+source never delays another, every request has a 10 s timeout):
+
+| Key | Endpoint | Every |
+|---|---|---|
+| `binance-48` / `-161` / `-157` | Binance CMS catalogs: new listings / delistings / maintenance & upgrades. Bodies of 161 and 157 are read (only for new items < 48 h old) to find the pairs | 30 s |
+| `upbit` | `api-manager.upbit.com/api/v1/announcements?category=trade`. A coin counts only as `(TICKER)` in the title | 60 s |
+| `tg:<channel>` | `t.me/s/<channel>` preview HTML (`data-post` id, `.js-message_text`, `<time datetime>`). Channels: setting `news_tg_channels`, default `WatcherGuru` | 60 s |
+| `kraken_status`, `coinbase_status` | `status.{kraken,coinbase}.com/history.rss` — deposit/withdrawal halts (XMR is on Kraken only) | 120 s |
+| `okx`, `bybit`, `kucoin`, `bitget` | the same fetchers as the digest (`news._okx` …) | 120 s |
+
+**Coin filter**: `news._patterns` (so a bare "ETC" is ambiguous and needs `$ETC`,
+`(ETC)` or "Ethereum Classic"); pair notation `ETC/USDT`/`ETCUSDT` counts, a quote
+position (`ABC/BTC`) does not; Binance notice bodies are matched on `TICKER/…`,
+`(TICKER)`, `TICKERUSDT`. Promotions (`news.EXCH_NOISE`) and noise
+(`news._noise`: price predictions, converter pages, press-release wires) are dropped.
+
+**Score** (highest matching rule wins; case-insensitive, word-bounded, `SEC` is
+case-sensitive; Binance catalog 161 floors at 100; an Upbit designation or a Binance
+tag being *lifted* scores 40):
+
+| Score | Keywords |
+|---|---|
+| 100 | delist, monitoring tag, removal of … trading pairs, 유의 종목, 상장폐지, 거래지원 종료 |
+| 90 | hack, exploit, drained, chain/network halt/stall/outage |
+| 70 | SEC, ban, lawsuit, sue, sanction, MiCA, AMLR |
+| 60 | ETF with approval / record / inflow / outflow |
+| 50 | upgrade, hard fork, deposit/withdrawal suspension or delay, funding delays, 입출금 중단 |
+| 30 | listing (incl. 신규 거래지원) |
+
+**Push rule** — all must hold:
+
+1. published < 6 h ago (or undated) and not a repeat of a story already seen;
+2. it names a tracked coin and `score ≥ news_min_score` (default 70) — **or**, for
+   Telegram-channel and status-page items only, it names no tracked coin, scores
+   `≥ max(90, news_min_score)` and mentions a market keyword (`SEC ETF Fed FOMC CFTC DOJ`,
+   Binance/Coinbase/Kraken/OKX/Bybit, Tether, stablecoin, crypto, Bitcoin, Ethereum);
+   such a message says **РЫНОК** instead of a ticker. SEC/ETF/Fed-only items (70/60)
+   therefore stay in the digest unless they name a tracked coin;
+3. `score ≥ 90`, or not in `quiet_hours` (the same setting as volatility alerts);
+4. fewer than `news_max_per_day` (default 10) pushes in the last 24 h.
+
+Anything else is only stored and shows in the digest and the **Новости** tab. A push is
+sent with the tracker's own bot and chat (including the `tg_token_override` from the
+Bots page) and logged as an event of kind `news`:
+`📰 <b>RVN</b> · Binance · 🔴 критично` / linked title / `опубликовано 06:58 UTC · замечено через 2 мин`.
+
+**Seeding**: a source's first run (empty database for it, or the first run after
+`news_enabled` was switched back on) stores what is there and sends nothing, so a
+restart never floods Telegram; a restart *with* history announces whatever appeared
+while the container was down (subject to rule 1).
+
+**Dedupe**: `news_seen` rows whose titles share ≥ 60 % of word trigrams (Jaccard) within
+6 h **and name the same tracked coins** form a cluster; a later member is stored
+(raising the cluster's count) but never pushed. The coin condition keeps
+"Notice of Removal of Spot Trading Pairs" for RVN from swallowing the one for ETC.
+
+**Table** `news_seen` (sqlite, rows pruned after 14 days): `source, ext_id` (unique),
+`title, title_norm, url, published, first_seen, coins` (comma-separated tickers),
+`score, cluster` (id of the cluster's first row), `pushed`, `seeded`. `seeded` marks
+silent first-run rows, whose `first_seen` is the seeding time and which are left out of
+latency figures.
+
+**Settings** (Новости tab, `POST /api/settings`): `news_enabled` (`1`; `0` leaves the
+thread idle), `news_min_score` (70), `news_max_per_day` (10), `news_tg_channels`
+(`WatcherGuru`; up to 5 public channels, comma-separated).
+
+**Health** — `GET /api/news/health` and `news_health` in `/api/digest`: per source
+`last_ok`, `consecutive_errors`, `last_error`, `last_new_item`, `items_7d` and
+`latency_p50_s` / `latency_p90_s` (first_seen − published over 7 days, live rows only;
+floor = the poll interval). No alerting on it yet — the data is there for the helper
+bot (3 errors in a row, or silence beyond the normal gap).
+
+`GET /api/news?limit=50` returns the latest rows for the tab. Tests:
+`python3 -m unittest discover -s crypto/tests` (fixtures are trimmed live captures).
 
 ## How the data works
 

@@ -177,3 +177,10 @@ code{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.07);
 .coin .nm{line-height:1.3;white-space:normal}
 .coin .nm b{color:var(--fg);font-size:13px;font-weight:600;font-family:var(--mono)}
 #chartTitle{display:flex;align-items:center;gap:11px}
+
+/* ---------- news ---------- */
+.ev.news{border-left:2px solid #34d399}
+td.newsTitle{max-width:520px;white-space:normal;line-height:1.45}
+td.newsTitle a{color:var(--fg);text-decoration:none}
+td.newsTitle a:hover{color:var(--accent2);text-decoration:underline}
+tr.seeded td{opacity:.62}

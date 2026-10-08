@@ -8,11 +8,16 @@ Two halves, deliberately separate:
              moved relative to the rest of the tracked market. A language model
              is handed these as settled facts and never derives a figure.
 
-  headlines  last-24h news per coin from Google News RSS, plus market-wide
-             headlines from crypto outlets, plus the exchanges' own
-             announcements (Binance, OKX, Bybit, KuCoin, Bitget) --
-             a delisting, a network upgrade or a deposit halt moves a price
-             and rarely makes the news the same day. Filtered by *title* against the
+  headlines  last-24h news per coin: first what the newswatch thread has already
+             stored (news_seen -- exchange notices, Upbit, Kraken/Coinbase status,
+             Telegram channels, with the time we first saw each), then the
+             exchanges' own announcements fetched now (Binance, OKX, Bybit,
+             KuCoin, Bitget) for any gap, then Google News RSS -- but only for
+             sparse coins, since it is spammy and slow to index. Plus
+             market-wide headlines from crypto outlets. A delisting, a network
+             upgrade or a deposit halt moves a price and rarely makes the news
+             the same day. Near-duplicates are merged into one headline that
+             reports how many sources carried it. Filtered by *title* against the
              coin's name and aliases, because the search itself is loose: a
              query for "ETC" happily returns "Bitcoin ETC" (an exchange-traded
              commodity), and one for "Ethereum" returns Ethereum Classic news.
@@ -29,7 +34,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 
 log = logging.getLogger("news")
@@ -40,7 +45,18 @@ MARKET_FEEDS = [
     ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     ("Cointelegraph", "https://cointelegraph.com/rss"),
     ("Decrypt", "https://decrypt.co/feed"),
+    ("The Block", "https://www.theblock.co/rss.xml"),
 ]
+FED_FEED = "https://www.federalreserve.gov/feeds/press_all.xml"
+# Decrypt's feed mixes in podcast episodes up to nine months old.
+MAX_AGE_BY_SOURCE = {"Decrypt": 48 * 3600}
+# Google News is spammy and indexes slowly; it only earns its cost for coins the
+# exchanges and channels rarely mention, or any coin newswatch found < 3 items
+# for in the last 24 h.
+GNEWS_ALWAYS = {"RVN", "ETC", "XMR", "GRAM"}
+GNEWS_MIN_WATCH = 3
+JACCARD_MIN = 0.6               # word-trigram overlap that makes two titles one story
+CLUSTER_WINDOW_S = 6 * 3600
 PER_COIN = 6
 PER_EXCHANGE = 3        # of a coin's PER_COIN, at most this many announcements
 PER_MARKET = 8
@@ -65,6 +81,18 @@ NOISE_TITLE = re.compile(
     r"price prediction|prediction market|price on \w+ \d+|current price of|"
     r"(crypto|coin|altcoin)s? to buy|top \d+ (crypto|coin|altcoin)|"
     r"price analysis|should you buy|could (turn|make) \$|presale", re.I)
+# Exchange "converter" SEO pages ("Convert 10 ZAR to ETC", "ETC: Convert ...")
+# reach us through Google News under the exchange's name, so they look official.
+CONVERT_TITLE = re.compile(r"^convert\s+[\d.,]+|:\s*convert\b|\bconvert\s+[\d.,]+\s+\w+\s+to\s+\w+", re.I)
+# A market headline must be about crypto or the macro backdrop that moves it;
+# Decrypt in particular runs a lot of AI stories.
+MARKET_KW = re.compile(
+    r"crypto|bitcoin|\bbtc\b|ethereum|\bether\b|\beth\b|blockchain|stablecoin|tether|"
+    r"\busd[tc]\b|\btoken|defi\b|\bnfts?\b|solana|binance|coinbase|kraken|okx|bybit|"
+    r"\betfs?\b|\bsec\b|cftc|\bfed\b|fomc|\brates?\b|inflation|\bcpi\b|treasur|"
+    r"tariff|wallet|exchange|miner|mining|web3|\bdao\b|altcoin|ripple|\bxrp\b|"
+    r"dogecoin|monero|tron\b|ravencoin|hack|exploit|regulat|sanction|\bban\b|"
+    r"digital asset|\bmica\b", re.I)
 NOISE_SOURCE = {"openpr.com", "globenewswire", "prnewswire", "accesswire", "einpresswire"}
 
 # Exchange announcements are mostly promotions. What is left after this filter
@@ -119,7 +147,8 @@ def _parse_rss(raw, default_source=""):
 
 
 def _noise(it):
-    return bool(NOISE_TITLE.search(it["title"])) or it["source"].lower() in NOISE_SOURCE
+    return (bool(NOISE_TITLE.search(it["title"])) or bool(CONVERT_TITLE.search(it["title"]))
+            or it["source"].lower() in NOISE_SOURCE)
 
 
 def _norm(title):
@@ -128,6 +157,25 @@ def _norm(title):
 
 def _get_json(url, timeout=15):
     return json.loads(_get(url, timeout))
+
+
+# Title similarity, shared by the digest and newswatch: two headlines are one
+# story when their word trigrams overlap by JACCARD_MIN or more.
+def words(title):
+    return re.findall(r"\w+", (title or "").lower())
+
+
+def shingles(title):
+    w = words(title)
+    if len(w) < 3:
+        return {tuple(w)} if w else set()
+    return {tuple(w[i:i + 3]) for i in range(len(w) - 2)}
+
+
+def jaccard(a, b):
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
 
 
 def _ms(x):
@@ -181,26 +229,41 @@ def _binance(since):
     return out
 
 
-def _okx(since):
-    d = _get_json("https://www.okx.com/api/v5/support/announcements?page=1")
-    return [{"title": a["title"], "source": "OKX", "ts": _ms(a.get("pTime")), "url": a["url"]}
-            for blk in d.get("data") or [] for a in blk.get("details") or []]
+# The unfiltered feed was OKX-Europe news only, 90 days stale; the typed feeds
+# carry the delistings and deposit/withdrawal notices that can move a price.
+OKX_TYPES = ("announcements-delistings",
+             "announcements-deposit-withdrawal-suspension-resumption")
 
 
-def _bybit(since):
-    d = _get_json("https://api.bybit.com/v5/announcements/index?locale=en-US&limit=50")
+def _okx(since, timeout=15):
+    out, seen = [], set()
+    for t in OKX_TYPES:
+        d = _get_json("https://www.okx.com/api/v5/support/announcements?annType=%s&page=1" % t,
+                      timeout)
+        for blk in d.get("data") or []:
+            for a in blk.get("details") or []:
+                if a["url"] in seen:
+                    continue
+                seen.add(a["url"])
+                out.append({"title": a["title"], "source": "OKX",
+                            "ts": _ms(a.get("pTime")), "url": a["url"]})
+    return out
+
+
+def _bybit(since, timeout=15):
+    d = _get_json("https://api.bybit.com/v5/announcements/index?locale=en-US&limit=50", timeout)
     return [{"title": a["title"], "source": "Bybit", "ts": _ms(a.get("publishTime")),
              "url": a["url"]} for a in (d.get("result") or {}).get("list") or []]
 
 
-def _kucoin(since):
-    d = _get_json("https://api.kucoin.com/api/v3/announcements?pageSize=50&lang=en_US")
+def _kucoin(since, timeout=15):
+    d = _get_json("https://api.kucoin.com/api/v3/announcements?pageSize=50&lang=en_US", timeout)
     return [{"title": a["annTitle"], "source": "KuCoin", "ts": _ms(a.get("cTime")),
              "url": a["annUrl"]} for a in (d.get("data") or {}).get("items") or []]
 
 
-def _bitget(since):
-    d = _get_json("https://api.bitget.com/api/v2/public/annoucements?language=en_US")
+def _bitget(since, timeout=15):
+    d = _get_json("https://api.bitget.com/api/v2/public/annoucements?language=en_US", timeout)
     return [{"title": a["annTitle"], "source": "Bitget", "ts": _ms(a.get("cTime")),
              "url": a["annUrl"]} for a in d.get("data") or []]
 
@@ -208,7 +271,8 @@ def _bitget(since):
 # Coinbase and Kraken are absent on purpose: their blogs sit behind a bot
 # challenge that answers 403 to anything that is not a browser (Kraken's
 # intermittently, which is worse -- a feed that fails some days), and neither
-# publishes an announcements API.
+# publishes an announcements API. Their *status pages* do have RSS, and
+# newswatch polls those for deposit/withdrawal halts.
 EXCHANGES = [("Binance", _binance), ("OKX", _okx), ("Bybit", _bybit),
              ("KuCoin", _kucoin), ("Bitget", _bitget)]
 
@@ -317,25 +381,122 @@ def _exchange_headlines(coin, all_coins, items):
     return out
 
 
-def _market_headlines(since):
+def _market_headlines(since, tracked=()):
+    """Market-wide headlines from the outlet feeds. Anything that is neither
+    about crypto/macro (MARKET_KW) nor a tracked coin is dropped, and a source
+    with a known stale tail (Decrypt's podcast backfill) gets its own age cap."""
     items, errors = [], []
+    now = int(time.time())
     for name, url in MARKET_FEEDS:
         try:
             items += _parse_rss(_get(url), default_source=name)
         except Exception as e:                   # noqa: BLE001
             errors.append(f"{name}: {e}")
+    pats = [p for c in tracked for p in _patterns(c, tracked)[0]]
     seen, out = set(), []
     for it in sorted(items, key=lambda x: -x["ts"]):
         if (it["ts"] and it["ts"] < since) or _noise(it):
+            continue
+        cap = MAX_AGE_BY_SOURCE.get(it["source"])
+        if cap and (not it["ts"] or now - it["ts"] > cap):
+            continue
+        if not (MARKET_KW.search(it["title"]) or any(p.search(it["title"]) for p in pats)):
             continue
         k = _norm(it["title"])
         if k in seen:
             continue
         seen.add(k)
         out.append(it)
-        if len(out) >= PER_MARKET:
+    out = _cluster(out)
+    return out[:PER_MARKET], errors
+
+
+# ----------------------------------------------------------------------- macro --
+# 2026 FOMC meetings (first day, last day = decision day), from
+# federalreserve.gov/monetarypolicy/fomccalendars.htm, checked 2026-10-08.
+FOMC_2026 = [((2026, 1, 27), (2026, 1, 28)), ((2026, 3, 17), (2026, 3, 18)),
+             ((2026, 4, 28), (2026, 4, 29)), ((2026, 6, 16), (2026, 6, 17)),
+             ((2026, 7, 28), (2026, 7, 29)), ((2026, 9, 15), (2026, 9, 16)),
+             ((2026, 10, 27), (2026, 10, 28)), ((2026, 12, 8), (2026, 12, 9))]
+
+
+def _fed_latest():
+    """-> newest item of the Fed press-release feed, or None."""
+    items = _parse_rss(_get(FED_FEED), default_source="Federal Reserve")
+    return max(items, key=lambda x: x["ts"]) if items else None
+
+
+def macro_info(now, fed_item=None):
+    """FOMC position plus, when it is under 24 h old, the Fed's newest release."""
+    today = datetime.fromtimestamp(now, timezone.utc).date()
+    out = {"fomc_next": None, "days_to_fomc": None, "fomc_today": False,
+           "fed_press": None, "line": ""}
+    parts = []
+    for first, last in FOMC_2026:
+        d1, d2 = date(*first), date(*last)
+        if d1 <= today <= d2:
+            out.update(fomc_next=f"{d1.isoformat()}..{d2.isoformat()}", days_to_fomc=0,
+                       fomc_today=True)
+            parts.append("FOMC meeting under way, decision %s" % ("today" if today == d2
+                                                                  else d2.strftime("%b %d")))
             break
-    return out, errors
+        if today < d1:
+            n = (d1 - today).days
+            out.update(fomc_next=f"{d1.isoformat()}..{d2.isoformat()}", days_to_fomc=n)
+            parts.append("Next FOMC %s-%s (in %d day%s)" % (
+                d1.strftime("%b %d"), d2.strftime("%d"), n, "" if n == 1 else "s"))
+            break
+    if fed_item and fed_item["ts"] and now - fed_item["ts"] <= 86400:
+        out["fed_press"] = {"title": fed_item["title"], "url": fed_item["url"],
+                            "ts": fed_item["ts"]}
+        parts.append("Fed: %s (%s)" % (fed_item["title"], _ago(now - fed_item["ts"])))
+    out["line"] = "; ".join(parts)
+    return out
+
+
+def _ago(sec):
+    m = max(0, int(sec // 60))
+    return f"{m} min ago" if m < 90 else f"{round(m / 60)} h ago"
+
+
+# ------------------------------------------------------------------- clustering --
+def _plural_sources(n):
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} источник"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"{n} источника"
+    return f"{n} источников"
+
+
+def _cluster(items):
+    """Merge near-duplicate headlines (word-trigram Jaccard >= JACCARD_MIN, within
+    6 h). The first item of a story -- the caller orders by preference -- stays;
+    when two or more *sources* carried it, it gains cluster_size / cluster_note
+    ("5 источников") / cluster_sources."""
+    heads = []
+    for it in items:
+        sh = shingles(it["title"])
+        srcs = set(it.get("_srcs") or {it["source"]})
+        for h in heads:
+            near = (not h["ts"] or not it["ts"]
+                    or abs(h["ts"] - it["ts"]) <= CLUSTER_WINDOW_S)
+            if near and jaccard(h["_sh"], sh) >= JACCARD_MIN:
+                h["_srcs"] |= srcs
+                break
+        else:
+            h = dict(it)
+            h["_sh"], h["_srcs"] = sh, srcs
+            heads.append(h)
+    out = []
+    for h in heads:
+        srcs = h.pop("_srcs")
+        h.pop("_sh")
+        if len(srcs) >= 2:
+            h["cluster_size"] = len(srcs)
+            h["cluster_note"] = _plural_sources(len(srcs))
+            h["cluster_sources"] = sorted(srcs)
+        out.append(h)
+    return out
 
 
 # ------------------------------------------------------------------- numbers --
@@ -387,6 +548,52 @@ def _one_line(msg):
 
 
 # --------------------------------------------------------------------- build --
+def _cached(key, fresh, fn, now):
+    """Run fn() once per CACHE_S per key. fresh: explaining a move that happened
+    a minute ago -- a 15-minute-old cache could predate the very headline that
+    caused it."""
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit and not fresh and now - hit[0] < CACHE_S:
+        return hit[1]
+    val = fn()
+    with _cache_lock:
+        _cache[key] = (now, val)
+    return val
+
+
+def _watch_items(app, since, now):
+    """-> (items by ticker, newswatch item count by ticker over the last 24 h).
+    Reads what the newswatch thread stored, so each item carries first_seen --
+    when this server first saw it, which the move explainer turns into "seen
+    N min before the move"."""
+    import newswatch                      # imported late: newswatch imports this module
+    try:
+        rows = app.store.news_since(min(since, now - 86400))
+    except Exception as e:                # noqa: BLE001
+        log.warning("news_seen read failed: %s", e)
+        return {}, {}
+    by_tick, n24 = {}, {}
+    for r in rows:
+        ts = r["published"] or r["first_seen"]
+        label = newswatch.label_of(r["source"])
+        it = {"title": r["title"], "source": label, "ts": ts, "url": r["url"],
+              "kind": newswatch.kind_of(r["source"]), "score": r["score"],
+              "_srcs": {newswatch.label_of(x) for x in r["cluster_sources"]}}
+        if not r["seeded"]:
+            it["first_seen"] = r["first_seen"]
+        for t in filter(None, r["coins"].split(",")):
+            if ts >= now - 86400:
+                n24[t] = n24.get(t, 0) + 1
+            if ts >= since:
+                by_tick.setdefault(t, []).append(it)
+    return by_tick, n24
+
+
+def _clean(items):
+    return [{k: v for k, v in it.items() if not k.startswith("_")} for it in items]
+
+
 def build_digest(app, hours=24, with_news=True, fresh=False):
     now = int(time.time())
     since = now - hours * 3600
@@ -395,32 +602,46 @@ def build_digest(app, hours=24, with_news=True, fresh=False):
     changes = [r["change24h"] for r in rows if r.get("change24h") is not None]
     avg = sum(changes) / len(changes) if changes else 0.0
 
-    news, market, errors = {}, [], []
+    news, market, errors, macro = {}, [], [], macro_info(now)
     if with_news:
-        key = (tuple(sorted(r["symbol"] for r in rows)), hours)
-        with _cache_lock:
-            hit = _cache.get(key)
-        # fresh: explaining a move that happened a minute ago -- a 15-minute-old
-        # cache could predate the very headline that caused it.
-        if hit and not fresh and now - hit[0] < CACHE_S:
-            news, market, errors = hit[1]
-        else:
-            with ThreadPoolExecutor(8) as ex:
-                per_coin = {r["symbol"]: ex.submit(_coin_headlines, r, rows, since) for r in rows}
-                f_market = ex.submit(_market_headlines, since)
-                f_exch = ex.submit(_exchange_items, since)
-                exch, xerr = f_exch.result()
-                for r in rows:
-                    items, err = per_coin[r["symbol"]].result()
-                    # Exchange notices first: rarer, and more often the cause.
-                    ann = _exchange_headlines(r, rows, exch)
-                    news[r["symbol"]] = (ann + items)[:PER_COIN]
+        watch, n24 = _watch_items(app, since, now)
+        need_g = [r for r in rows
+                  if r["ticker"] in GNEWS_ALWAYS or n24.get(r["ticker"], 0) < GNEWS_MIN_WATCH]
+        with ThreadPoolExecutor(8) as ex:
+            f_g = {r["symbol"]: ex.submit(_cached, ("g", r["symbol"], hours), fresh,
+                                          lambda r=r: _coin_headlines(r, rows, since), now)
+                   for r in need_g}
+            f_market = ex.submit(_cached, ("m", hours, tuple(sorted(r["symbol"] for r in rows))),
+                                 fresh, lambda: _market_headlines(since, rows), now)
+            f_exch = ex.submit(_cached, ("x", hours), fresh, lambda: _exchange_items(since), now)
+            f_fed = ex.submit(_cached, ("fed",), fresh, _fed_latest, now)
+            exch, xerr = f_exch.result()
+            market, merr = f_market.result()
+            try:
+                fed = f_fed.result()
+            except Exception as e:                   # noqa: BLE001
+                fed = None
+                errors.append(f"Fed: {e}")
+            for r in rows:
+                g_items = []
+                if r["symbol"] in f_g:
+                    g_items, err = f_g[r["symbol"]].result()
                     if err:
                         errors.append(f"{r['ticker']}: {err}")
-                market, merr = f_market.result()
-            errors += merr + xerr
-            with _cache_lock:
-                _cache[key] = (now, (news, market, errors))
+                w = sorted(watch.get(r["ticker"], []), key=lambda x: (-x["score"], -x["ts"]))
+                have = {x["url"] for x in w}
+                # Exchange notices first: rarer, and more often the cause.
+                ann = [x for x in _exchange_headlines(r, rows, exch) if x["url"] not in have]
+                merged, n_exch = [], 0
+                for it in _cluster(w + ann + g_items):
+                    if it.get("kind") == "exchange":
+                        if n_exch >= PER_EXCHANGE:
+                            continue
+                        n_exch += 1
+                    merged.append(it)
+                news[r["symbol"]] = merged[:PER_COIN]
+        errors += merr + xerr
+        macro = macro_info(now, fed)
 
     events = app.store.events(limit=300)
     coins = []
@@ -440,10 +661,11 @@ def build_digest(app, hours=24, with_news=True, fresh=False):
             "vs_market_pp": vs, "relative": rel,
             **_stats(app.store, r["symbol"], r["price"], hours, now),
             "alerts": alerts,
-            "headlines": news.get(r["symbol"], []),
+            "headlines": _clean(news.get(r["symbol"], [])),
         })
     coins.sort(key=lambda c: -(c["change24h"] or 0))
     btc = next((c for c in coins if c["ticker"] == "BTC"), None)
+    nw = getattr(app, "newswatch", None)
     return {
         "generated": now, "hours": hours,
         "market": {
@@ -452,8 +674,10 @@ def build_digest(app, hours=24, with_news=True, fresh=False):
             "btc_change": btc["change24h"] if btc else None,
             "best": coins[0]["ticker"] if coins else None,
             "worst": coins[-1]["ticker"] if coins else None,
-            "headlines": market,
+            "headlines": _clean(market),
         },
+        "macro": macro,
         "coins": coins,
         "news_errors": errors,
+        "news_health": nw.health() if nw else None,
     }

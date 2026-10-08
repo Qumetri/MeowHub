@@ -11,6 +11,7 @@ import threading
 import time
 
 DB_PATH = os.environ.get("CRYPTO_DB", "/data/crypto.db")
+NEWS_KEEP_DAYS = 14
 
 DEFAULT_COINS = [
     ("BTCUSDT", "BTC", "Bitcoin", "binance"),
@@ -108,6 +109,30 @@ CREATE TABLE IF NOT EXISTS events (
     error    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts DESC);
+
+-- Breaking-news watcher (newswatch.py): every item any source has ever shown us,
+-- so a restart or a re-listed article is never announced twice. `cluster` is the
+-- id of the first row of the same story (word-trigram Jaccard >= 0.6 within 6 h);
+-- the cluster's size is just COUNT(*) per cluster. `seeded` marks rows stored by
+-- a source's silent first run: their first_seen is the seeding time, not the
+-- time the story appeared, so they are left out of latency figures.
+CREATE TABLE IF NOT EXISTS news_seen (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    source     TEXT NOT NULL,            -- binance-161 | upbit | tg:WatcherGuru | ...
+    ext_id     TEXT NOT NULL,            -- the source's own id (article code, post id, guid)
+    title      TEXT NOT NULL DEFAULT '',
+    title_norm TEXT NOT NULL DEFAULT '', -- lowercase words, for the trigram match
+    url        TEXT NOT NULL DEFAULT '',
+    published  INTEGER NOT NULL DEFAULT 0,   -- unix s, 0 = unknown
+    first_seen INTEGER NOT NULL,
+    coins      TEXT NOT NULL DEFAULT '', -- tracked tickers it names, comma-separated
+    score      INTEGER NOT NULL DEFAULT 0,
+    cluster    INTEGER NOT NULL DEFAULT 0,
+    pushed     INTEGER NOT NULL DEFAULT 0,
+    seeded     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (source, ext_id)
+);
+CREATE INDEX IF NOT EXISTS idx_news_first_seen ON news_seen (first_seen DESC);
 """
 
 DEFAULT_SETTINGS = {
@@ -120,6 +145,11 @@ DEFAULT_SETTINGS = {
     "quiet_hours": "",          # e.g. "23-7"; empty = always notify
     "retention_days": "45",
     "last_summary_date": "",
+    # Newswatch (breaking-news pushes). See newswatch.py.
+    "news_enabled": "1",
+    "news_min_score": "70",
+    "news_max_per_day": "10",
+    "news_tg_channels": "WatcherGuru",
 }
 
 
@@ -414,6 +444,8 @@ class Store:
         with self._lock:
             self.db.execute("DELETE FROM candles WHERE ts<?", (cutoff,))
             self.db.execute("DELETE FROM events WHERE ts<?", (cutoff,))
+            self.db.execute("DELETE FROM news_seen WHERE first_seen<?",
+                            (int(time.time()) - NEWS_KEEP_DAYS * 86400,))
             self.db.commit()
 
     # ---------- events ----------
@@ -436,3 +468,105 @@ class Store:
         with self._lock:
             return [dict(r) for r in self.db.execute(
                 "SELECT * FROM events ORDER BY ts DESC, id DESC LIMIT ?", (limit,))]
+
+    def count_events(self, kind, since):
+        with self._lock:
+            return self.db.execute(
+                "SELECT COUNT(*) AS n FROM events WHERE kind=? AND ts>=?",
+                (kind, since)).fetchone()["n"]
+
+    # ---------- news_seen ----------
+    def news_known(self, source):
+        """-> set of ext_ids already stored for this source."""
+        with self._lock:
+            return {r["ext_id"] for r in self.db.execute(
+                "SELECT ext_id FROM news_seen WHERE source=?", (source,))}
+
+    def news_add(self, source, ext_id, title, title_norm, url, published,
+                 first_seen, coins, score, cluster=0, seeded=0):
+        """-> new row id, or None if (source, ext_id) was already stored."""
+        with self._lock:
+            cur = self.db.execute(
+                "INSERT OR IGNORE INTO news_seen (source,ext_id,title,title_norm,url,"
+                " published,first_seen,coins,score,cluster,pushed,seeded)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,0,?)",
+                (source, ext_id, title, title_norm, url, int(published or 0),
+                 int(first_seen), coins, int(score), int(cluster), int(seeded)))
+            if not cur.rowcount:
+                self.db.commit()
+                return None
+            rid = cur.lastrowid
+            if not cluster:
+                self.db.execute("UPDATE news_seen SET cluster=id WHERE id=?", (rid,))
+            self.db.commit()
+            return rid
+
+    def news_set(self, rid, **fields):
+        allowed = {"pushed", "cluster", "score", "coins"}
+        sets = [f"{k}=?" for k in fields if k in allowed]
+        if not sets:
+            return
+        args = [v for k, v in fields.items() if k in allowed] + [rid]
+        with self._lock:
+            self.db.execute(f"UPDATE news_seen SET {','.join(sets)} WHERE id=?", args)
+            self.db.commit()
+
+    def news_cluster_candidates(self, since):
+        """Rows first seen at or after `since`: what a new item can be a repeat of."""
+        with self._lock:
+            return [dict(r) for r in self.db.execute(
+                "SELECT id,source,title_norm,coins,cluster,first_seen FROM news_seen"
+                " WHERE first_seen>=? ORDER BY id", (since,))]
+
+    def news_pushed_count(self, since):
+        with self._lock:
+            return self.db.execute(
+                "SELECT COUNT(*) AS n FROM news_seen WHERE pushed=1 AND first_seen>=?",
+                (since,)).fetchone()["n"]
+
+    def news_list(self, limit=50):
+        with self._lock:
+            return [dict(r) for r in self.db.execute(
+                "SELECT id,source,ext_id,title,url,published,first_seen,coins,score,cluster,"
+                "pushed,seeded FROM news_seen ORDER BY first_seen DESC, id DESC LIMIT ?",
+                (limit,))]
+
+    def news_since(self, since, limit=3000):
+        """Rows about stories dated at or after `since` (publish time, else the
+        time we saw them), each with the size of its cluster and the sources in it."""
+        with self._lock:
+            rows = [dict(r) for r in self.db.execute(
+                "SELECT id,source,ext_id,title,url,published,first_seen,coins,score,cluster,"
+                "pushed,seeded FROM news_seen"
+                " WHERE (CASE WHEN published>0 THEN published ELSE first_seen END)>=?"
+                " ORDER BY id DESC LIMIT ?", (since, limit))]
+            if rows:
+                ids = {r["cluster"] for r in rows}
+                srcs = {}
+                for r in self.db.execute("SELECT cluster,source FROM news_seen"):
+                    if r["cluster"] in ids:
+                        srcs.setdefault(r["cluster"], []).append(r["source"])
+                for r in rows:
+                    r["cluster_sources"] = srcs.get(r["cluster"], [r["source"]])
+        return rows
+
+    def news_source_stats(self, since):
+        """-> {source: {"n": count, "last_new": ts, "lat": [first_seen - published]}}
+        over live (non-seeded) rows since `since`."""
+        out = {}
+        with self._lock:
+            for r in self.db.execute(
+                    "SELECT source,published,first_seen FROM news_seen"
+                    " WHERE seeded=0 AND first_seen>=?", (since,)):
+                o = out.setdefault(r["source"], {"n": 0, "last_new": 0, "lat": []})
+                o["n"] += 1
+                o["last_new"] = max(o["last_new"], r["first_seen"])
+                if r["published"] > 0 and r["first_seen"] >= r["published"]:
+                    o["lat"].append(r["first_seen"] - r["published"])
+        return out
+
+    def news_last_new(self):
+        with self._lock:
+            return {r["source"]: r["t"] for r in self.db.execute(
+                "SELECT source, MAX(first_seen) AS t FROM news_seen WHERE seeded=0"
+                " GROUP BY source")}

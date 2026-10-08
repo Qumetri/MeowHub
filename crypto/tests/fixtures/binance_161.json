@@ -1,0 +1,43 @@
+{
+ "code": "000000",
+ "message": null,
+ "messageDetail": null,
+ "data": {
+  "catalogs": [
+   {
+    "catalogId": 161,
+    "parentCatalogId": null,
+    "icon": "https://public.bnbstatic.com/image/cms/content/body/202505/a6322b2e7d81faf3f65a6d14c372995e.png",
+    "catalogName": "Delisting",
+    "description": null,
+    "catalogType": 1,
+    "total": 439,
+    "articles": [
+     {
+      "id": 286016,
+      "code": "2f1a743334f044abbd82e34093c7b771",
+      "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-10-05)",
+      "type": 1,
+      "releaseDate": 1790822713435
+     },
+     {
+      "id": 285827,
+      "code": "63415de54a164619aaaf245850349654",
+      "title": "Notice of Removal of Spot Trading Pairs - 2026-10-02",
+      "type": 1,
+      "releaseDate": 1790673300000
+     },
+     {
+      "id": 285823,
+      "code": "55310e70fc4b4d7c9fc4aa133700a958",
+      "title": "Binance Margin And Loans Token Delist on 2026-10-02",
+      "type": 1,
+      "releaseDate": 1790668801341
+     }
+    ],
+    "catalogs": []
+   }
+  ]
+ },
+ "success": true
+}

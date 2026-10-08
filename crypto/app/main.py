@@ -15,6 +15,7 @@ import server                       # noqa: E402
 from alerts import Engine, fmt_price   # noqa: E402
 import store as store_mod           # noqa: E402
 from store import Store             # noqa: E402
+from newswatch import Newswatch     # noqa: E402
 from telegram import Notifier       # noqa: E402
 
 logging.basicConfig(
@@ -83,6 +84,7 @@ class App:
             self.icons = []
         self.notifier = Notifier(self.store)
         self.engine = Engine(self.store, self.notifier)
+        self.newswatch = Newswatch(self.store, self.notifier)
         self.candles = CandleBuilder(self.store)
         self.hub = server.Hub()
         # One feed per source. Kraken exists because Binance does not trade
@@ -185,6 +187,10 @@ class App:
             "summary_hour": s.get("summary_hour", "9"),
             "quiet_hours": s.get("quiet_hours", ""),
             "retention_days": s.get("retention_days", "45"),
+            "news_enabled": s.get("news_enabled", "1"),
+            "news_min_score": s.get("news_min_score", "70"),
+            "news_max_per_day": s.get("news_max_per_day", "10"),
+            "news_tg_channels": s.get("news_tg_channels", "WatcherGuru"),
         }
 
     def coin_rows(self):
@@ -438,6 +444,7 @@ class App:
             f.start()
         threading.Thread(target=self._broadcast_loop, daemon=True, name="broadcast").start()
         threading.Thread(target=self._scheduler, daemon=True, name="scheduler").start()
+        self.newswatch.start()
         # Check listings shortly after start rather than waiting an hour, so a
         # coin that was halted while the service was down is flagged promptly.
         threading.Thread(target=self._check_listings, daemon=True).start()
@@ -448,6 +455,7 @@ class App:
     def stop(self, *_):
         log.info("shutting down")
         self._stopping.set()
+        self.newswatch.stop()
         for f in self.feeds.values():
             f.stop()
         self.candles.flush()

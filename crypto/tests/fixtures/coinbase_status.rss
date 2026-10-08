@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Coinbase Status - Incident History</title>
+    <link>http://status.coinbase.com</link>
+    <description>Statuspage</description>
+    <pubDate>Thu, 08 Oct 2026 00:15:07 -0700</pubDate>
+    <item>
+      <title>Story (IP) to Data (DATA) Migration</title>
+      <description>
+&lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 8&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;00:15&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Completed&lt;/strong&gt; - The scheduled maintenance has been completed. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Sep &lt;var data-var=&apos;date&apos;&gt;28&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;17:15&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;In progress&lt;/strong&gt; - Scheduled maintenance is currently in progress. We will provide updates as necessary. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Sep &lt;var data-var=&apos;date&apos;&gt;28&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;17:15&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Scheduled&lt;/strong&gt; - Coinbase will convert Story (IP) to Data (DATA) from October 5 – 7, 2026. Story (IP) trading will be disabled on October 5, 2026. Please refrain from depositing or transferring Story (IP) during this time. Trading for Data (DATA) will begin following the migration on October 7, 2026. &lt;/p&gt;      </description>
+      <pubDate>Thu, 08 Oct 2026 00:15:07 -0700</pubDate>
+      <maintenanceEndDate>Thu, 08 Oct 2026 00:15:00 -0700</maintenanceEndDate>
+      <link>https://status.coinbase.com/incidents/mvlv0cqncq65</link>
+      <guid>https://status.coinbase.com/incidents/mvlv0cqncq65</guid>
+    </item>
+<item>
+      <title>Degraded Performance - DEX Solana Transactions</title>
+      <description>
+&lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 8&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;00:09&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Resolved&lt;/strong&gt; - This incident has been resolved. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 8&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;00:00&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Identified&lt;/strong&gt; - The issue has been identified and a fix is being implemented. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 8&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;00:00&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Investigating&lt;/strong&gt; - Some customers may experience errors when purchasing certain Solana assets through DEX. Sells and Base DEX trades are not affected. Our team is investigating this issue and will provide an update shortly. Your funds are safe. &lt;/p&gt;      </description>
+      <pubDate>Thu, 08 Oct 2026 00:09:50 -0700</pubDate>
+      <link>https://status.coinbase.com/incidents/fhqztv3wv438</link>
+      <guid>https://status.coinbase.com/incidents/fhqztv3wv438</guid>
+    </item>
+<item>
+      <title>Delayed Receives - BCH, BTC, DASH, LTC, ZEC</title>
+      <description>
+&lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;20:26&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Resolved&lt;/strong&gt; - This incident has been resolved. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;20:26&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Identified&lt;/strong&gt; - The issue has been identified and a fix is being implemented. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;20:18&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Investigating&lt;/strong&gt; - We are aware that users may be experiencing delayed receives for BCH, BTC, DASH, LTC, ZEC. Sends, Buys, Sells, and Fiat withdrawals/deposits are not affected. We are investigating this issue and will provide an update shortly. Rest assured, your funds are safe. &lt;/p&gt;      </description>
+      <pubDate>Wed, 07 Oct 2026 20:26:38 -0700</pubDate>
+      <link>https://status.coinbase.com/incidents/wrw9dc78yfcn</link>
+      <guid>https://status.coinbase.com/incidents/wrw9dc78yfcn</guid>
+    </item>
+<item>
+      <title>Delayed Sends/Receives - Injective Network</title>
+      <description>
+&lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;17:28&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Resolved&lt;/strong&gt; - This incident has been resolved. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;17:28&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Identified&lt;/strong&gt; - The issue has been identified and a fix is being implemented. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;08:53&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Investigating&lt;/strong&gt; - We are aware that users are experiencing delayed sends and receives on Injective Network. Buys, Sells, and Fiat withdrawals/deposits are not affected. We are investigating this issue and will provide an update shortly. Rest assured, your funds are safe. &lt;/p&gt;      </description>
+      <pubDate>Wed, 07 Oct 2026 17:28:50 -0700</pubDate>
+      <link>https://status.coinbase.com/incidents/szm8b0v8x89y</link>
+      <guid>https://status.coinbase.com/incidents/szm8b0v8x89y</guid>
+    </item>
+<item>
+      <title>Blast (BLAST) Network Shutdown</title>
+      <description>
+&lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;15:50&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;In progress&lt;/strong&gt; - Scheduled maintenance is currently in progress. We will provide updates as necessary. &lt;/p&gt; &lt;p&gt; &lt;small&gt;Oct &lt;var data-var=&apos;date&apos;&gt; 7&lt;/var&gt;, &lt;var data-var=&apos;time&apos;&gt;15:50&lt;/var&gt; PDT&lt;/small&gt;&lt;br&gt; &lt;strong&gt;Scheduled&lt;/strong&gt; - The Blast network is being shut down by the project team. You must take action to not lose access to your funds.&lt;br /&gt;&lt;br /&gt;BLAST that is not moved off of Coinbase before October 26, 2026 will not be accessible to you after the Blast network is shut down. &lt;/p&gt;      </description>
+      <pubDate>Wed, 07 Oct 2026 15:50:22 -0700</pubDate>
+      <maintenanceEndDate>Tue, 27 Oct 2026 03:00:00 -0700</maintenanceEndDate>
+      <link>https://status.coinbase.com/incidents/20gxz4rj9mnk</link>
+      <guid>https://status.coinbase.com/incidents/20gxz4rj9mnk</guid>
+    </item>
+  </channel>
+</rss>

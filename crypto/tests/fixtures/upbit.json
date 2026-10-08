@@ -1,0 +1,50 @@
+{
+ "success": true,
+ "data": {
+  "total_pages": 40,
+  "total_count": 785,
+  "notices": [
+   {
+    "listed_at": "2026-10-08T11:37:41+09:00",
+    "first_listed_at": "2026-10-08T11:37:41+09:00",
+    "id": 6644,
+    "uuid": "465223474",
+    "title": "폰즈(PONS) 신규 거래지원 안내 (KRW, BTC, USDT 마켓)",
+    "category": "거래",
+    "need_new_badge": true,
+    "need_update_badge": false
+   },
+   {
+    "listed_at": "2026-10-06T20:36:26+09:00",
+    "first_listed_at": "2026-10-06T20:36:26+09:00",
+    "id": 6642,
+    "uuid": "330345227",
+    "title": "뉴메레르(NMR) KRW, USDT 마켓 디지털 자산 추가",
+    "category": "거래",
+    "need_new_badge": false,
+    "need_update_badge": false
+   },
+   {
+    "listed_at": "2026-10-03T01:30:00+09:00",
+    "first_listed_at": "2026-10-03T01:30:00+09:00",
+    "id": 6637,
+    "uuid": "1451240977",
+    "title": "블라스트(BLAST) 거래 유의 종목 지정 안내",
+    "category": "거래",
+    "need_new_badge": false,
+    "need_update_badge": false
+   },
+   {
+    "listed_at": "2026-10-02T16:00:00+09:00",
+    "first_listed_at": "2026-10-02T16:00:00+09:00",
+    "id": 6636,
+    "uuid": "667951334",
+    "title": "샌드박스(SAND) 거래 유의 종목 지정 해제 안내",
+    "category": "거래",
+    "need_new_badge": false,
+    "need_update_badge": false
+   }
+  ],
+  "fixed_notices": []
+ }
+}

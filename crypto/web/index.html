@@ -32,6 +32,7 @@
   <button class="tab active" data-tab="overview">Overview</button>
   <button class="tab" data-tab="coins">Coins</button>
   <button class="tab" data-tab="alerts">Alerts</button>
+  <button class="tab" data-tab="news">Новости</button>
   <button class="tab" data-tab="telegram">Telegram</button>
   <button class="tab" data-tab="log">Log</button>
 </nav>
@@ -132,6 +133,42 @@
       </table></div>
     </div>
 
+  </section>
+
+  <!-- ======================= NEWS ======================= -->
+  <section id="news" class="panel">
+    <div class="card">
+      <h2>Срочные новости</h2>
+      <p class="sub">Фоновый сторож опрашивает Binance (листинги, делистинги, обновления), Upbit, статус-страницы Kraken и Coinbase, Telegram-каналы и объявления OKX / Bybit / KuCoin / Bitget. Каждой новости ставится оценка по ключевым словам (делистинг 100, взлом 90, SEC / запрет 70, ETF 60, обновление или остановка депозитов 50, листинг 30). В Telegram уходит то, что касается отслеживаемой монеты и набрало не меньше порога; оценка 90+ игнорирует тихие часы. Остальное только сохраняется и попадает в дайджест.</p>
+      <form id="newsForm" class="form">
+        <label class="check"><input id="nwEnabled" type="checkbox"> <span>Сторож включён</span></label>
+        <label>Порог оценки <small>(0–100)</small><input id="nwMin" type="number" min="0" max="100" step="5"></label>
+        <label>Пушей в сутки, максимум<input id="nwMax" type="number" min="0" max="100"></label>
+        <label class="wide">Telegram-каналы <small>(публичные, через запятую, до 5)</small><input id="nwChannels" autocomplete="off" placeholder="WatcherGuru"></label>
+        <div class="row"><button class="primary" type="submit">Сохранить</button></div>
+      </form>
+      <p id="newsMsg" class="msg"></p>
+      <p class="hint">Первый опрос каждого источника только запоминает уже опубликованное и ничего не шлёт. Тихие часы берутся с вкладки Telegram. Отправка идёт через тот же бот и чат, что и остальные алерты.</p>
+    </div>
+
+    <div class="card">
+      <h2>Источники</h2>
+      <p class="sub">Задержка = когда сервер заметил новость минус когда её опубликовали (за 7 дней, не считая первого опроса). Нижняя граница — интервал опроса.</p>
+      <div class="tableWrap"><table id="newsHealth">
+        <thead><tr><th>Источник</th><th>Опрос</th><th>Последний успех</th><th>Ошибок подряд</th><th>Новое</th><th>За 7 дн.</th><th>Задержка p50 / p90</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2>Лента</h2>
+      <p class="sub">Последние 50 найденных новостей. <b>push</b> — отправлено в Telegram.</p>
+      <div class="tableWrap"><table id="newsTable">
+        <thead><tr><th>Когда</th><th>Монеты</th><th>Источник</th><th>Оценка</th><th>Заголовок</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="empty" id="noNews">Пока ничего.</p>
+    </div>
   </section>
 
   <!-- ======================= TELEGRAM ======================= -->

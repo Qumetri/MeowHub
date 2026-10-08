@@ -1,0 +1,39 @@
+{
+ "code": "0",
+ "msg": "",
+ "data": [
+  {
+   "details": [
+    {
+     "annType": "announcements-delistings",
+     "title": "OKX to support AERGO crypto migration",
+     "url": "https://www.okx.com/en-eu/help/okx-to-support-aergo-crypto-migration",
+     "pTime": "1784023216123",
+     "businessPTime": "1784016000000"
+    },
+    {
+     "annType": "announcements-delistings",
+     "title": "OKX to support OM crypto migration in EEA",
+     "url": "https://www.okx.com/en-eu/help/okx-to-support-om-crypto-migration-in-eea",
+     "pTime": "1771231964418",
+     "businessPTime": "1771232040000"
+    },
+    {
+     "annType": "announcements-delistings",
+     "title": "OKX to delist ULTI, GEAR, VRA, DAO, CXT and ELON in EEA",
+     "url": "https://www.okx.com/en-eu/help/okx-to-delist-ulti-gear-vra-dao-cxt-and-elon-in-eea",
+     "pTime": "1768897266308",
+     "businessPTime": "1768897500000"
+    },
+    {
+     "annType": "announcements-delistings",
+     "title": "OKX to support FXS crypto migration in EEA",
+     "url": "https://www.okx.com/en-eu/help/okx-to-support-fxs-crypto-migration-in-eea",
+     "pTime": "1766561137045",
+     "businessPTime": "1766561220000"
+    }
+   ],
+   "totalPage": "2"
+  }
+ ]
+}

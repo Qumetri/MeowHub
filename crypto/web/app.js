@@ -304,7 +304,7 @@ function renderFluct() {
 function renderEvents() {
   const box = document.getElementById('eventList');
   if (!state.events.length) { box.innerHTML = '<p class="empty">Nothing yet.</p>'; return; }
-  const ico = {target:'🎯', fluctuation:'⚡', summary:'📊', system:'⚙️'};
+  const ico = {target:'🎯', fluctuation:'⚡', summary:'📊', system:'⚙️', news:'📰'};
   box.innerHTML = state.events.map(e => `
     <div class="ev ${esc(e.kind)}">
       <span class="ico">${ico[e.kind]||'•'}</span>
@@ -342,6 +342,65 @@ function renderSettings() {
   document.getElementById('tgQuiet').value = s.quiet_hours || '';
   document.getElementById('tgSummary').checked = s.summary_enabled === '1';
   document.getElementById('tgSummaryHour').value = s.summary_hour || '9';
+  renderNewsSettings();
+}
+/* ---------- news (newswatch) ---------- */
+let newsRows = [], newsHealth = null;
+const fmtLag = s => (s === null || s === undefined) ? '—'
+  : s < 90 ? Math.round(s) + ' с' : s < 5400 ? Math.round(s/60) + ' мин' : (s/3600).toFixed(1) + ' ч';
+const agoRu = ts => {
+  if (!ts) return '—';
+  const d = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if (d < 90) return d + ' с назад';
+  if (d < 5400) return Math.round(d/60) + ' мин назад';
+  if (d < 172800) return Math.round(d/3600) + ' ч назад';
+  return Math.round(d/86400) + ' д назад';
+};
+const safeUrl = u => /^https?:\/\//.test(u || '') ? u : '#';
+
+function renderNewsSettings() {
+  const s = state.settings || {};
+  const put = (id, f) => { const el = document.getElementById(id); if (el && document.activeElement !== el) f(el); };
+  put('nwEnabled', el => el.checked = s.news_enabled !== '0');
+  put('nwMin', el => el.value = s.news_min_score ?? '70');
+  put('nwMax', el => el.value = s.news_max_per_day ?? '10');
+  put('nwChannels', el => el.value = s.news_tg_channels ?? 'WatcherGuru');
+}
+function renderNews() {
+  const tb = document.querySelector('#newsTable tbody');
+  document.getElementById('noNews').style.display = newsRows.length ? 'none' : 'block';
+  tb.innerHTML = newsRows.map(n => {
+    const sc = n.score >= 90 ? 'halted' : n.score >= 70 ? 'waiting' : n.score >= 50 ? 'kraken' : '';
+    const ts = n.published || n.first_seen;
+    return `<tr class="${n.seeded ? 'seeded' : ''}">
+      <td class="num" title="${esc(new Date(ts*1000).toLocaleString())}">${agoRu(ts)}</td>
+      <td>${n.coins.length ? n.coins.map(t => `<span class="cellCoin">${coinMark(t, 20)}<b>${esc(t)}</b></span>`).join(' ')
+            : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${esc(n.label)}</td>
+      <td><span class="pill ${sc}">${n.score}</span></td>
+      <td class="newsTitle"><a href="${esc(safeUrl(n.url))}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a></td>
+      <td>${n.pushed ? '<span class="pill ok">push</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+  const hb = document.querySelector('#newsHealth tbody');
+  const hs = (newsHealth && newsHealth.sources) || [];
+  hb.innerHTML = hs.map(h => `<tr>
+      <td>${esc(h.label)} <span class="nm" style="color:var(--muted)">${esc(h.source)}</span></td>
+      <td class="num">${h.interval_s} с</td>
+      <td class="num">${agoRu(h.last_ok)}</td>
+      <td class="num">${h.consecutive_errors
+          ? `<span class="pill halted" title="${esc(h.last_error)}">${h.consecutive_errors}</span>` : '0'}</td>
+      <td class="num">${agoRu(h.last_new_item)}</td>
+      <td class="num">${h.items_7d}</td>
+      <td class="num">${fmtLag(h.latency_p50_s)} / ${fmtLag(h.latency_p90_s)}</td>
+    </tr>`).join('');
+}
+async function loadNews() {
+  try {
+    const [n, h] = await Promise.all([api('api/news?limit=50'), api('api/news/health')]);
+    newsRows = n.news || []; newsHealth = h;
+    renderNews();
+  } catch (e) { /* the tab keeps showing the last good copy */ }
 }
 function renderSymbolOptions() {
   const sel = document.getElementById('tSymbol');
@@ -371,6 +430,7 @@ async function refresh() {
     state = await api('api/state');
     if (state.icons) iconSet = new Set(state.icons);
     renderAll();
+    if (document.getElementById('news').classList.contains('active')) loadNews();
   } catch (e) {
     document.getElementById('feedText').textContent = 'server unreachable';
     document.getElementById('feedDot').className = 'dot off';
@@ -405,6 +465,7 @@ function showTab(name) {
   tab.classList.add('active');
   document.getElementById(name).classList.add('active');
   if (name === 'overview' && chart) setTimeout(() => chart.timeScale().fitContent(), 30);
+  if (name === 'news') loadNews();
   // The hash matches the panel's id, so the browser scrolls it into view and
   // pushes the header off-screen. Undo that.
   window.scrollTo(0, 0);
@@ -472,6 +533,20 @@ document.getElementById('tgForm').onsubmit = async e => {
       summary_hour: document.getElementById('tgSummaryHour').value,
     })});
     flash(msg, 'Saved.', true); refresh();
+  } catch (err) { flash(msg, err.message, false); }
+};
+
+document.getElementById('newsForm').onsubmit = async e => {
+  e.preventDefault();
+  const msg = document.getElementById('newsMsg');
+  try {
+    await api('api/settings', {method:'POST', body: JSON.stringify({
+      news_enabled: document.getElementById('nwEnabled').checked ? '1' : '0',
+      news_min_score: document.getElementById('nwMin').value,
+      news_max_per_day: document.getElementById('nwMax').value,
+      news_tg_channels: document.getElementById('nwChannels').value.trim(),
+    })});
+    flash(msg, 'Сохранено.', true); await refresh(); loadNews();
   } catch (err) { flash(msg, err.message, false); }
 };
 
