@@ -5,14 +5,16 @@
 **Your self-hosted corner of the internet.**
 
 Files, photos, private chat with voice and video, a media downloader, a live
-dashboard — and two VPN paths for networks that don't want you to have any of it.
+dashboard, a Telegram bot that hands out access to all of it — and two VPN paths
+for networks that don't want you to have any of it.
 
 One `docker compose up`. One `.env`. One reverse proxy.
 
 ![Docker Compose](https://img.shields.io/badge/Docker-Compose_v2-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/TLS-automatic-00C7B7?logo=caddy&logoColor=white)
-![Services](https://img.shields.io/badge/services-23-7928CA)
+![Services](https://img.shields.io/badge/services-24-7928CA)
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
+![Languages](https://img.shields.io/badge/bot_%26_app-RU_%C2%B7_EN-229ED9?logo=telegram&logoColor=white)
 
 <img src="docs/img/hub.png" alt="The MeowHub dashboard: service cards and live host metrics" width="100%">
 
@@ -31,11 +33,12 @@ on hardware you control.
 | ☁️ | **Nextcloud** — files, sync, calendar, office | `cloud.yourdomain` |
 | 🖼️ | **Immich** — photos and video, face recognition | `photos.yourdomain` |
 | 💬 | **Matrix + Element** — private chat, voice, video | `matrix.yourdomain` |
-| ⬇️ | **MeTube** — yt-dlp downloader, self-cleaning | `yourdomain/<secret>` |
-| 📈 | **Crypto Tracker** — live prices, Telegram price alerts | `yourdomain/<secret>` |
+| ⬇️ | **Downloader** — YouTube, RuTube and VK Video for every member, files self-delete after 30 min (MeTube + yt-dlp underneath) | Mini App |
+| 📈 | **Crypto Tracker** — live prices, price and volatility alerts, breaking news from 11 sources | `yourdomain/<secret>` |
+| 🔁 | **n8n** — workflow automation, optional local LLM | `yourdomain/<secret>` |
 | 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
-| 🤖 | **Helper bot** — health alerts, links, downloads, logins, and invite-code memberships (VPN + Matrix) with a Telegram Mini App | Telegram |
+| 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people, with a Telegram Mini App in Russian or English | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
 
@@ -81,14 +84,15 @@ flowchart TB
     web --> nc["Nextcloud"]
     web --> im["Immich"]
     web --> mx["Synapse + Element"]
-    web --> mt["MeTube"]
+    web --> app["Bot Mini App<br/>+ signed downloads"]
     web --> hub["Hub + live stats"]
+    web --> more["Crypto · n8n · sensor"]
 
     classDef router fill:#7928ca,stroke:#a855f7,color:#ffffff
     classDef svc fill:#0f172a,stroke:#38bdf8,color:#e2e8f0
     classDef vpn fill:#0f172a,stroke:#f43f5e,color:#e2e8f0
     class l4,web router
-    class nc,im,mx,mt,hub,lk svc
+    class nc,im,mx,app,hub,more,lk svc
     class vpn vpn
 ```
 
@@ -133,7 +137,7 @@ The dashboard is responsive, so the hub works from a phone as well as a desk.
 
 ## Everything is in one file
 
-`.env` holds **126 settings**, each documented where it sits. Only two have no
+`.env` holds **128 settings**, each documented where it sits. Only two have no
 sensible default, because they can't:
 
 ```ini
@@ -166,6 +170,8 @@ password is generated for you.
 
 Live prices, price targets and volatility alerts pushed to Telegram, with
 candlestick charts on the page.
+
+<img src="docs/img/crypto.png" alt="The crypto tracker: live prices for eight coins and a one-minute candlestick chart" width="100%">
 
 <table>
 <tr><td width="55%" valign="top">
@@ -213,6 +219,17 @@ is no news cause.
 </td></tr>
 </table>
 
+**Breaking news, not just a morning digest.** A background watcher polls the
+places coin-moving news appears first — Binance listing, delisting and upgrade
+notices every 30 s, Upbit's warning lists, the Kraken and Coinbase status pages,
+a Telegram news channel, and the OKX, Bybit, KuCoin and Bitget announcements —
+without a single API key. The same story from five places becomes one item with
+a "5 sources" note; each item is scored by keyword (a delisting 100, a hack 90,
+regulators 70 …) and only what touches *your* coins and clears the threshold is
+pushed, at most ten a day. Hacks and delistings ignore quiet hours. The **News**
+tab shows every source's health and measured latency, so you can see which feeds
+actually earn their place.
+
 Coin logos are bundled (483 of them, CC0) rather than hot-linked, so the page
 discloses nothing about what you track. Anything the pack predates falls back
 to a coloured ticker badge.
@@ -248,17 +265,42 @@ not invent a price. Full details in **[docs/N8N.md](docs/N8N.md)**.
 The `helper` profile adds a Telegram bot. It **watches the server and messages
 you when something breaks** — a full disk, a crash-looping container, an
 expiring certificate, a GPU lost to a driver upgrade, or DNS no longer pointing
-at your IP — and again when it's fixed. It also lists the hub's links, downloads
-any video link you send it through MeTube, and hands **you, and only you**, the
-logins for your services, in a message that deletes itself after a minute.
+at your IP — and again when it's fixed. It also lists the hub's links and hands
+**you, and only you**, the logins for your services, in a message that deletes
+itself after a minute.
 
-It can also **let other people in**. You mint an access code in the bot; whoever
-redeems it becomes a member for 30 days (or as long as you choose) and gets a
-personal, auto-updating VPN subscription link from your 3x-ui panel and an
-account on your Matrix server — from a Telegram Mini App, no support chat. When
-the time runs out the VPN client is switched off and the Matrix accounts are
-locked (rooms and history kept); a new code brings it all back. An owner-only
-**Bots** page on the hub shows the members, codes and activity.
+<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card, the VPN page grouped by app, and the downloader" width="100%">
+
+It can also **let other people in**. You mint an access code; whoever redeems it
+becomes a member for 30 days (or as long as you choose) and gets, from a
+Wallet-style Telegram Mini App:
+
+- **VPN** — a personal, auto-updating subscription from your 3x-ui panel that
+  opens straight in Happ, Hiddify, v2RayTun, Streisand or v2rayNG, plus one
+  AmneziaWG peer each (one tap into AmneziaVPN on Android, a file elsewhere).
+  Configs are grouped by the app they need, each with a one-line instruction.
+  New inbounds reach every member by themselves.
+- **Matrix** — an account on your homeserver, created in the app.
+- **Downloads** — paste or share a YouTube, RuTube or VK Video link, pick 360p to
+  1080p or MP3/M4A/Opus, add subtitles or a clip range, and save the file from a
+  signed link. Every user gets their own folder and quotas; files delete
+  themselves after 30 minutes, so a busy server doesn't fill up.
+
+The bot reminds members 24 hours before their time runs out. When it does, the
+VPN client is switched off and the Matrix accounts are locked (rooms and history
+kept); a new code brings it all back. Every service has an **owner switch**, and a
+new one starts off until you turn it on.
+
+Everything — both bots and the app, your admin screens included — speaks
+**Russian or English**: Auto follows each person's Telegram language, and `/lang`
+or a switch in the app overrides it, for the bot and the app at once.
+
+<img src="docs/img/bots.png" alt="The owner's Bots page: member counts, activity chart, per-service switches and bot tokens" width="100%">
+
+The owner's **Bots** page (on the hub, and inside the app) shows members, codes,
+activity, downloads and every bot token — which you can swap from the page
+without touching `.env` — and has a "view as a member" preview. An optional
+second bot keeps your ops bot private while members talk to theirs.
 
 Setup is two lines in `.env` — `HELPER_BOT_TOKEN` and your Telegram id as
 `HELPER_OWNER_ID`; the VPN and Matrix halves of the memberships each need one
@@ -300,11 +342,11 @@ stats/                  host metrics, dependency-free Python
 crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
 sensor/data/            ESP32 sensor readings (the app is built from its own repo)
 n8n/workflows/          importable automation workflows
-helper/                 Telegram helper bot (dependency-free Python) + webapp/ Mini App
+helper/                 Telegram bots (dependency-free Python) + webapp/ Mini App (Vite + React)
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
-docs/                   deploy · operations · vpn · plex · architecture
+docs/                   one file per component + research/ reports
 ```
 
 The VPNs are **separate Compose projects on purpose**. `docker compose up -d` in
@@ -320,9 +362,9 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
 | 🌡️ **[SENSOR.md](docs/SENSOR.md)** | The ESP32 room sensor — posting from another network, token, certificate check, importing old readings |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
-| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram helper bot — health alerts, links, downloads, logins |
+| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, VPN by app, downloader, Russian/English |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |
-| 🔬 **[research/](docs/research/README.md)** | Dated research reports (censorship-resistant VPN transports, multi-user downloader) and the decisions taken from them |
+| 🔬 **[research/](docs/research/README.md)** | Dated research reports — censorship-resistant VPN transports, the multi-user downloader, fast crypto news sources, AmneziaVPN deep links — and the decisions taken from them |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly
@@ -337,9 +379,10 @@ behind HTTP basic auth instead: the VPN peer manager, which hands out working
 VPN keys, the crypto tracker, which stores a Telegram bot token and can
 send messages as you, the helper bot's admin page, which manages who gets
 VPN and chat accounts, and MeTube, whose API can queue and delete downloads and
-upload cookies (it shares the bots admin login; members never use that route,
-the helper bot's downloader talks to MeTube internally). (The bot's Mini App for members has no basic auth: it
-accepts only Telegram's signed login data.)
+upload cookies (it shares the bots admin login; members never use that route —
+the bot talks to MeTube internally and hands files out through short-lived
+HMAC-signed links, so the MeTube path never leaks). The bot's Mini App for
+members has no basic auth: it accepts only Telegram's signed login data.
 
 Nextcloud, Immich and Matrix have real authentication of their own.
 

@@ -332,8 +332,8 @@ function renderSettings() {
       : s.tg_token_set ? s.tg_token : '123456:ABC-DEF…';
   }
   const srcNote = document.getElementById('tgTokenSrc');
-  if (srcNote) srcNote.textContent = {override: 'Токен задан на странице ботов MeowHub',
-    env: 'Токен из .env', ui: 'Токен сохранён здесь'}[s.tg_token_source] || '';
+  if (srcNote) srcNote.textContent = {override: 'Token set on the MeowHub Bots page',
+    env: 'Token from .env', ui: 'Token saved here'}[s.tg_token_source] || '';
   const chat = document.getElementById('tgChat');
   chat.disabled = !!s.tg_chat_env;
   chat.title = s.tg_chat_env ? 'Set in .env: CRYPTO_TG_CHAT_ID' : '';
@@ -347,14 +347,14 @@ function renderSettings() {
 /* ---------- news (newswatch) ---------- */
 let newsRows = [], newsHealth = null;
 const fmtLag = s => (s === null || s === undefined) ? '—'
-  : s < 90 ? Math.round(s) + ' с' : s < 5400 ? Math.round(s/60) + ' мин' : (s/3600).toFixed(1) + ' ч';
+  : s < 90 ? Math.round(s) + ' s' : s < 5400 ? Math.round(s/60) + ' min' : (s/3600).toFixed(1) + ' h';
 const agoRu = ts => {
   if (!ts) return '—';
   const d = Math.max(0, Math.floor(Date.now()/1000 - ts));
-  if (d < 90) return d + ' с назад';
-  if (d < 5400) return Math.round(d/60) + ' мин назад';
-  if (d < 172800) return Math.round(d/3600) + ' ч назад';
-  return Math.round(d/86400) + ' д назад';
+  if (d < 90) return d + ' s ago';
+  if (d < 5400) return Math.round(d/60) + ' min ago';
+  if (d < 172800) return Math.round(d/3600) + ' h ago';
+  return Math.round(d/86400) + ' d ago';
 };
 const safeUrl = u => /^https?:\/\//.test(u || '') ? u : '#';
 
@@ -386,7 +386,7 @@ function renderNews() {
   const hs = (newsHealth && newsHealth.sources) || [];
   hb.innerHTML = hs.map(h => `<tr>
       <td>${esc(h.label)} <span class="nm" style="color:var(--muted)">${esc(h.source)}</span></td>
-      <td class="num">${h.interval_s} с</td>
+      <td class="num">${h.interval_s} s</td>
       <td class="num">${agoRu(h.last_ok)}</td>
       <td class="num">${h.consecutive_errors
           ? `<span class="pill halted" title="${esc(h.last_error)}">${h.consecutive_errors}</span>` : '0'}</td>
@@ -546,7 +546,7 @@ document.getElementById('newsForm').onsubmit = async e => {
       news_max_per_day: document.getElementById('nwMax').value,
       news_tg_channels: document.getElementById('nwChannels').value.trim(),
     })});
-    flash(msg, 'Сохранено.', true); await refresh(); loadNews();
+    flash(msg, 'Saved.', true); await refresh(); loadNews();
   } catch (err) { flash(msg, err.message, false); }
 };
 

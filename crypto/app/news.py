@@ -461,18 +461,14 @@ def _ago(sec):
 
 # ------------------------------------------------------------------- clustering --
 def _plural_sources(n):
-    if n % 10 == 1 and n % 100 != 11:
-        return f"{n} источник"
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return f"{n} источника"
-    return f"{n} источников"
+    return f"{n} source" if n == 1 else f"{n} sources"
 
 
 def _cluster(items):
     """Merge near-duplicate headlines (word-trigram Jaccard >= JACCARD_MIN, within
     6 h). The first item of a story -- the caller orders by preference -- stays;
     when two or more *sources* carried it, it gains cluster_size / cluster_note
-    ("5 источников") / cluster_sources."""
+    ("5 sources") / cluster_sources."""
     heads = []
     for it in items:
         sh = shingles(it["title"])

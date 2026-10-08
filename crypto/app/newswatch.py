@@ -130,14 +130,14 @@ def score_text(text, floor=0):
 
 def score_label(score):
     if score >= 100:
-        return "🔴 критично"
+        return "🔴 critical"
     if score >= STRONG:
-        return "🔴 срочно"
+        return "🔴 urgent"
     if score >= 70:
-        return "🟠 важно"
+        return "🟠 important"
     if score >= 50:
-        return "🟡 заметно"
-    return "⚪ фон"
+        return "🟡 notable"
+    return "⚪ background"
 
 
 # Words that make a coin-less item market news. Acronyms are case-sensitive
@@ -551,7 +551,7 @@ class Newswatch:
         return True, ""
 
     def format_push(self, src, row, now):
-        tick = ", ".join(row["coins"]) if row["coins"] else "РЫНОК"
+        tick = ", ".join(row["coins"]) if row["coins"] else "MARKET"
         title = html.escape(row["title"])
         head = (f"📰 <b>{html.escape(tick)}</b> · {html.escape(src.label)} · "
                 f"{score_label(row['score'])}")
@@ -560,10 +560,10 @@ class Newswatch:
         out = [head, body]
         pub = row["published"]
         if pub:
-            line = "опубликовано " + datetime.fromtimestamp(pub, timezone.utc).strftime("%H:%M UTC")
+            line = "published " + datetime.fromtimestamp(pub, timezone.utc).strftime("%H:%M UTC")
             if now >= pub:
                 mins = (now - pub) // 60
-                line += " · замечено через " + ("<1 мин" if mins < 1 else f"{mins} мин")
+                line += " · seen after " + ("<1 min" if mins < 1 else f"{mins} min")
             out.append(line)
         return "\n".join(out)
 

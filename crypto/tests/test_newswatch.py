@@ -209,9 +209,9 @@ class TestIngest(Base):
         self.assertEqual(msg["kind"], "news")
         self.assertEqual(msg["symbol"], "RVNUSDT")
         lines = msg["text"].split("\n")
-        self.assertEqual(lines[0], "📰 <b>RVN</b> · Binance · 🔴 критично")
+        self.assertEqual(lines[0], "📰 <b>RVN</b> · Binance · 🔴 critical")
         self.assertEqual(lines[1], '<a href="https://x/b">Binance Will Delist Ravencoin (RVN) perpetuals</a>')
-        self.assertEqual(lines[2], "опубликовано 06:58 UTC · замечено через 2 мин")
+        self.assertEqual(lines[2], "published 06:58 UTC · seen after 2 min")
         self.assertEqual(self.store.news_list()[0]["pushed"], 1)
 
     def test_restart_does_not_reseed_or_repush(self):
@@ -325,7 +325,7 @@ class TestIngest(Base):
         w.poll(tg)
         w.poll(ex)
         self.assertEqual(len(self.notifier.sent), 1)
-        self.assertTrue(self.notifier.sent[0]["text"].startswith("📰 <b>РЫНОК</b> · Telegram @WatcherGuru"))
+        self.assertTrue(self.notifier.sent[0]["text"].startswith("📰 <b>MARKET</b> · Telegram @WatcherGuru"))
 
     def test_notifier_off_still_stores(self):
         feed = []
@@ -492,7 +492,7 @@ class TestDigest(Base):
         sol = coins["SOL"]["headlines"]
         up = [h for h in sol if "upgrade" in h["title"]]
         self.assertEqual(len(up), 1)
-        self.assertEqual((up[0]["cluster_size"], up[0]["cluster_note"]), (2, "2 источника"))
+        self.assertEqual((up[0]["cluster_size"], up[0]["cluster_note"]), (2, "2 sources"))
         self.assertEqual(up[0]["cluster_sources"], ["Bybit", "OKX"])
         self.assertEqual(sol[-1]["source"], "Gnews")
         self.assertEqual(coins["RVN"]["headlines"][0]["title"], "Binance Will Delist Ravencoin pair")
@@ -579,10 +579,10 @@ class TestNewsFilters(Base):
                  {"title": "Something else entirely different happened", "source": "D", "ts": NOW}]
         out = news._cluster(items)
         self.assertEqual(len(out), 2)
-        self.assertEqual((out[0]["cluster_size"], out[0]["cluster_note"]), (3, "3 источника"))
+        self.assertEqual((out[0]["cluster_size"], out[0]["cluster_note"]), (3, "3 sources"))
         self.assertNotIn("cluster_size", out[1])
-        self.assertEqual([news._plural_sources(n) for n in (2, 5, 11, 21)],
-                         ["2 источника", "5 источников", "11 источников", "21 источник"])
+        self.assertEqual([news._plural_sources(n) for n in (2, 5, 11, 21)] + [news._plural_sources(1)],
+                         ["2 sources", "5 sources", "11 sources", "21 sources", "1 source"])
 
     def test_cluster_respects_window(self):
         t = "Same words same words same words same words"

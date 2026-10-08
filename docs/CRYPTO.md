@@ -310,7 +310,7 @@ host). One call returns, per coin:
 - every headline keeps `title`, `source`, `ts`, `url`, `kind` and gains `score`,
   `first_seen`, and — when two or more sources carried the same story
   (word-trigram Jaccard ≥ 0.6 within 6 h) — `cluster_size`, `cluster_note`
-  (`"5 источников"`) and `cluster_sources`. `kind` is `exchange` for an
+  (`"5 sources"`) and `cluster_sources`. `kind` is `exchange` for an
   exchange's own notice or status page, `social` for a Telegram channel.
 
 Plus market-wide headlines (CoinDesk, Cointelegraph, Decrypt, The Block — each
@@ -415,15 +415,15 @@ tag being *lifted* scores 40):
    Telegram-channel and status-page items only, it names no tracked coin, scores
    `≥ max(90, news_min_score)` and mentions a market keyword (`SEC ETF Fed FOMC CFTC DOJ`,
    Binance/Coinbase/Kraken/OKX/Bybit, Tether, stablecoin, crypto, Bitcoin, Ethereum);
-   such a message says **РЫНОК** instead of a ticker. SEC/ETF/Fed-only items (70/60)
+   such a message says **MARKET** instead of a ticker. SEC/ETF/Fed-only items (70/60)
    therefore stay in the digest unless they name a tracked coin;
 3. `score ≥ 90`, or not in `quiet_hours` (the same setting as volatility alerts);
 4. fewer than `news_max_per_day` (default 10) pushes in the last 24 h.
 
-Anything else is only stored and shows in the digest and the **Новости** tab. A push is
+Anything else is only stored and shows in the digest and the **News** tab. A push is
 sent with the tracker's own bot and chat (including the `tg_token_override` from the
 Bots page) and logged as an event of kind `news`:
-`📰 <b>RVN</b> · Binance · 🔴 критично` / linked title / `опубликовано 06:58 UTC · замечено через 2 мин`.
+`📰 <b>RVN</b> · Binance · 🔴 critical` / linked title / `published 06:58 UTC · seen after 2 min`.
 
 **Seeding**: a source's first run (empty database for it, or the first run after
 `news_enabled` was switched back on) stores what is there and sends nothing, so a
@@ -441,7 +441,7 @@ while the container was down (subject to rule 1).
 silent first-run rows, whose `first_seen` is the seeding time and which are left out of
 latency figures.
 
-**Settings** (Новости tab, `POST /api/settings`): `news_enabled` (`1`; `0` leaves the
+**Settings** (News tab, `POST /api/settings`): `news_enabled` (`1`; `0` leaves the
 thread idle), `news_min_score` (70), `news_max_per_day` (10), `news_tg_channels`
 (`WatcherGuru`; up to 5 public channels, comma-separated).
 
