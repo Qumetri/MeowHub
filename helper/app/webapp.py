@@ -267,8 +267,8 @@ LINK_GROUPS = [
     ("udp", "Hysteria2 (UDP)", ["Happ", "Hiddify", "v2RayTun"],
      "Если обычные не работают. Скопируй → «+» → «Из буфера».", "copy"),
     ("awg", "AmneziaWG", ["AmneziaWG", "AmneziaVPN"],
-     "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или сканируй QR). "
-     "AmneziaVPN: скопируй ссылку → «+» → «Вставить».", "copy"),
+     "AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». "
+     "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).", "copy"),
     ("tg", "Прокси для Telegram", ["Telegram"],
      "Нажми — Telegram сам предложит включить.", "telegram"),
 ]
@@ -383,12 +383,18 @@ def link_name(url, email, i):
 
 
 AWG_FILE = "meowhub-awg.conf"
+AMNEZIA_FILE = "meowhub.vpn"        # never "backup" in the name: AmneziaVPN iOS treats it as a backup restore
+AMNEZIA_PLAY = "https://play.google.com/store/apps/details?id=org.amnezia.vpn"
+AMNEZIA_APPSTORE = "https://apps.apple.com/app/id1600529900"
+AMNEZIA_SITE = "https://amnezia.org/downloads"
 
 
-def awg_links(items, conf_url):
-    """The AmneziaWG group's links: copy each vpn:// link, then (for the first) a signed
-    .conf download and a QR carrying the .conf text."""
-    out = [dict(l, action="copy") for l in items]
+def awg_links(items, conf_url, open_url=None):
+    """The AmneziaWG group's links: (with `open_url`) a one-tap hand-off page for the
+    AmneziaVPN app, copy each vpn:// link, then (for the first) a signed .conf download
+    and a QR carrying the .conf text."""
+    out = [{"name": "Открыть в AmneziaVPN", "url": open_url, "action": "open"}] if open_url and items else []
+    out += [dict(l, action="copy") for l in items]
     conf = vpn_conf(items[0]["url"]) if items else None
     if conf_url:
         out.append({"name": "Файл .conf", "url": conf_url, "action": "download", "file_name": AWG_FILE})
@@ -397,9 +403,10 @@ def awg_links(items, conf_url):
     return out
 
 
-def build_links(urls, email, domain, conf_url=None):
+def build_links(urls, email, domain, conf_url=None, open_url=None):
     """-> (links, groups) for /api/vpn: host-fixed, named, grouped by app family.
-    `conf_url` is the (absolute) signed URL of the AmneziaWG .conf, when there is one."""
+    `conf_url` is the (absolute) signed URL of the AmneziaWG .conf, `open_url` the signed
+    AmneziaVPN hand-off page, when there are such."""
     links, by_group = [], {}
     for i, url in enumerate(urls or [], 1):
         if not isinstance(url, str) or not url.strip():
@@ -411,7 +418,7 @@ def build_links(urls, email, domain, conf_url=None):
         links.append(item)
         by_group.setdefault(g, []).append(item)
     groups = [{"id": gid, "title": title, "apps": list(apps), "hint": hint,
-               "links": awg_links(by_group[gid], conf_url) if gid == "awg"
+               "links": awg_links(by_group[gid], conf_url, open_url) if gid == "awg"
                else [dict(l, action=action) for l in by_group[gid]]}
               for gid, title, apps, hint, action in LINK_GROUPS if by_group.get(gid)]
     return links, groups
@@ -719,7 +726,9 @@ class App:
         sub = sub_base() + (m["vpn_sub_id"] or client.get("subId"))
         conf_url = signed.absolute(signed.sign("awg_conf", "awg", uid, store=self.h.store),
                                    getattr(self.h, "webapp_url", ""))
-        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url)
+        open_url = signed.absolute(signed.sign("awg_open", "awg", uid, ttl=3600, store=self.h.store),
+                                   getattr(self.h, "webapp_url", ""))
+        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url, open_url)
         tr = traffic_of(client)
         if tr is None:
             tr = next((traffic_of(c) for c in xui.clients() if c.get("email") == email), None)
@@ -885,11 +894,11 @@ class App:
         xui = self.h.xui
         if xui is not None:
             try:
+                online = v["vpn_email"] in (xui.onlines() or [])
                 traffic = traffic_of(xui.client_get(v["vpn_email"]))
                 if traffic is None:
                     traffic = next((traffic_of(c) for c in xui.clients() if c.get("email") == v["vpn_email"]), None)
                 links = len(xui.client_links(v["vpn_email"]) or [])
-                online = v["vpn_email"] in (xui.onlines() or [])
             except Exception as e:
                 log.warning("xui member lookup failed: %s", type(e).__name__)
         v.update(events=self.h.members.events(uid, 50), vpn_links_count=links, traffic=traffic,
@@ -1195,7 +1204,7 @@ class App:
         d = self.need_dl(ctx)
         b = req.json()
         job = d.submit(ctx.uid, b.get("url"), b.get("preset"),
-                       {k: b.get(k) for k in ("subs", "clip", "playlist", "to_chat")})
+                       {k: b.get(k) for k in ("subs", "clip", "playlist")})
         return jr(job)
 
     def api_dl_list(self, req, ctx):
@@ -1203,9 +1212,6 @@ class App:
 
     def api_dl_cancel(self, req, ctx, jid):
         return jr(self.need_dl(ctx).cancel(ctx.uid, int(jid)))
-
-    def api_dl_send(self, req, ctx, jid):
-        return jr(self.need_dl(ctx).send(ctx.uid, int(jid)))
 
     def api_dl_delete(self, req, ctx, jid):
         return jr(self.need_dl(ctx).delete(ctx.uid, int(jid)))
@@ -1231,6 +1237,10 @@ class App:
             raise ApiError(403, "bad_link") from None
         if kind == "awg_conf":
             return self.dl_awg_conf(uid)
+        if kind == "awg_vpn":
+            return self.dl_awg_vpn(uid)
+        if kind == "awg_open":
+            return self.awg_open_page(uid, req)
         if kind == "file":
             return self.dl_file(uid, _ident, req)
         raise ApiError(404, "not_found")
@@ -1270,7 +1280,8 @@ class App:
             headers["Content-Range"] = f"bytes {a}-{b}/{size}"
         return Resp(b"", ctype, status, headers, stream=(path, start, length))
 
-    def dl_awg_conf(self, uid):
+    def awg_key(self, uid):
+        """The member's host-fixed AmneziaWG vpn:// link (no #name), re-checking access."""
         if not self.h.members.has(uid, "vpn"):
             raise ApiError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
         xui = self.h.xui
@@ -1279,12 +1290,70 @@ class App:
         domain = env("BASE_DOMAIN")
         for url in xui.client_links(f"mh-{uid}") or []:
             if isinstance(url, str) and link_group(url.strip()) == "awg":
-                conf = vpn_conf(fix_host(url.strip(), domain))
-                if conf:
-                    return Resp(conf.encode("utf-8"), "text/plain; charset=utf-8", headers={
-                        "Content-Disposition": f'attachment; filename="{AWG_FILE}"',
-                        "Cache-Control": "no-store"})
+                fixed = fix_host(url.strip(), domain).partition("#")[0]
+                if vpn_conf(fixed):
+                    return fixed
         raise ApiError(404, "not_found", "AmneziaWG-конфиг не найден.")
+
+    def dl_awg_conf(self, uid):
+        conf = vpn_conf(self.awg_key(uid))
+        return Resp(conf.encode("utf-8"), "text/plain; charset=utf-8", headers={
+            "Content-Disposition": f'attachment; filename="{AWG_FILE}"',
+            "Cache-Control": "no-store"})
+
+    def dl_awg_vpn(self, uid):
+        """The key as a .vpn file: what AmneziaVPN opens on iOS/macOS/Windows (it registers
+        no URL scheme there, only file types; `.conf` would go to the AmneziaWG app on iOS)."""
+        return Resp(self.awg_key(uid).encode("ascii"), "application/octet-stream", headers={
+            "Content-Disposition": f'attachment; filename="{AMNEZIA_FILE}"',
+            "Cache-Control": "no-store"})
+
+    def awg_open_page(self, uid, req=None):
+        """One-tap hand-off to AmneziaVPN. Android registers vpn:// (an intent: link names the
+        package and falls back to Google Play); elsewhere the app only opens files, so the
+        page offers the .vpn file. Never auto-redirects: Chrome needs a user gesture."""
+        key = self.awg_key(uid)
+        ua = ((req.headers.get("User-Agent") if req is not None and getattr(req, "headers", None) else "") or "")
+        android, ios = "Android" in ua, bool(re.search(r"iPhone|iPad|iPod", ua))
+        file_href = signed.sign("awg_vpn", "awg", uid, store=self.h.store)[len("./dl/"):]   # sibling of this page
+        intent = (f"intent://{key[len('vpn://'):]}#Intent;scheme=vpn;package=org.amnezia.vpn;"
+                  f"S.browser_fallback_url={urllib.parse.quote(AMNEZIA_PLAY, safe='')};end")
+        if android:
+            main = f'<a class="b" href="{esc(intent)}">Открыть в AmneziaVPN</a>'
+            alt = f'<a class="l" href="{esc(key)}">Не открылось? Попробовать ещё так</a>'
+            store, howto = AMNEZIA_PLAY, "Откроется AmneziaVPN — нажми «Подключиться»."
+        else:
+            main = f'<a class="b" href="{esc(file_href)}" download="{AMNEZIA_FILE}">Скачать ключ для AmneziaVPN</a>'
+            alt = ""
+            store = AMNEZIA_APPSTORE if ios else AMNEZIA_SITE
+            howto = ("Открой файл → «Поделиться» → AmneziaVPN." if ios
+                     else "Открой скачанный файл в AmneziaVPN (или «+» → «Файл с настройками»).")
+        js = json.dumps(key).replace("<", "\\u003c")
+        page = f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>AmneziaVPN</title>
+<style>
+:root{{color-scheme:light dark;--bg:#fff;--fg:#111;--ac:#2563eb;--mu:#6b7280}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#111;--fg:#eee;--ac:#3b82f6;--mu:#9ca3af}}}}
+body{{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+gap:14px;padding:16px;box-sizing:border-box;font:16px system-ui,sans-serif;background:var(--bg);color:var(--fg);text-align:center}}
+a.b,button{{display:inline-block;padding:14px 28px;border-radius:12px;background:var(--ac);color:#fff;text-decoration:none;
+font:600 16px system-ui,sans-serif;border:0;cursor:pointer}}
+button{{background:transparent;color:var(--ac);border:1.5px solid var(--ac);padding:12px 24px}}
+a.l{{color:var(--ac)}} p{{margin:0;color:var(--mu);max-width:22rem}}
+</style></head><body>
+{main}
+<p>{esc(howto)}</p>
+{alt}
+<button type="button" id="c">Скопировать ключ</button>
+<p>Нет приложения? <a class="l" href="{esc(store)}">Установить AmneziaVPN</a>, потом нажми кнопку ещё раз.</p>
+<script>document.getElementById("c").onclick=function(){{var b=this;navigator.clipboard.writeText({js}).then(function(){{b.textContent="Скопировано — «+» → «Вставить» в AmneziaVPN"}},function(){{b.textContent="Не удалось скопировать"}})}};</script>
+</body></html>"""
+        return Resp(page.encode(), "text/html; charset=utf-8", headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+            "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
     # ----------------------------------------------------------- /go page --
     def go_page(self, app_id, query):
@@ -1380,7 +1449,6 @@ ROUTES = [
     ("POST", r"/api/dl", "any", "api_dl_new"),
     ("GET", r"/api/dl", "any", "api_dl_list"),
     ("POST", r"/api/dl/(\d{1,12})/cancel", "any", "api_dl_cancel"),
-    ("POST", r"/api/dl/(\d{1,12})/send", "any", "api_dl_send"),
     ("POST", r"/api/dl/(\d{1,12})/delete", "any", "api_dl_delete"),
     ("GET", r"/api/admin/dl", "any", "api_admin_dl"),
     ("GET", r"/api/admin/integrations", "any", "api_integrations"),

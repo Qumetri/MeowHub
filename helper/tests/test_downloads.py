@@ -1,7 +1,7 @@
-"""Downloader (downloads.py + /api/dl, /dl/<token> in webapp + the bots' chat flow).
+"""Downloader (downloads.py + /api/dl, /dl/<token> in webapp + the bots' hand-off to the Mini App).
 
 An in-process fake MeTube (real HTTP, so the real client runs) and a fake bot
-that records uploads. Files are written into a temp "downloads" root."""
+that records messages. Files are written into a temp "downloads" root."""
 import json
 import os
 import re
@@ -20,12 +20,12 @@ import test_bot as tb
 import test_round2 as t2
 import test_webapp as tw
 from store import Store
-from tg import TelegramError
 
 OWNER = 1000
 PATH = "sekret"
-URL = "https://youtu.be/AAAAAAAAAAA"
-URL2 = "https://youtu.be/BBBBBBBBBBB"
+# canonical spellings: this is what the engine stores and what MeTube reports back
+URL = "https://www.youtube.com/watch?v=AAAAAAAAAAA"
+URL2 = "https://www.youtube.com/watch?v=BBBBBBBBBBB"
 MB = 1024 * 1024
 
 
@@ -137,13 +137,11 @@ class FakeMeTube:
 
 
 class UpBot:
-    """Records everything; upload() can be made to fail."""
+    """Records everything it is asked to send."""
     token = "1:UP"
 
     def __init__(self):
         self.log = []
-        self.uploads = []
-        self.fail_upload = False
         self.n = 500
 
     def send(self, chat_id, text, **kw):
@@ -164,13 +162,6 @@ class UpBot:
         self.log.append((method, None, "", kw))
         return {}
 
-    def upload(self, method, field, path, _timeout=600, **params):
-        if self.fail_upload:
-            raise TelegramError("too big")
-        self.uploads.append({"method": method, "field": field, "path": path,
-                             "size": os.path.getsize(path), **params})
-        return {"message_id": 1}
-
     def sent(self, chat_id):
         return [e for e in self.log if e[0] == "send" and e[1] == chat_id]
 
@@ -187,7 +178,7 @@ class EngineBase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         p = mock.patch.dict(os.environ, {"METUBE_PATH": PATH, "METUBE_TTL_MIN": "30", "DL_ACTIVE": "2",
-                                         "DL_PER_HOUR": "10", "DL_PER_DAY": "30", "DL_CHAT_MAX_MB": "49"})
+                                         "DL_PER_HOUR": "10", "DL_PER_DAY": "30"})
         p.start()
         self.addCleanup(p.stop)
         self.root = os.path.join(self.tmp.name, "dl")
@@ -204,21 +195,20 @@ class EngineBase(unittest.TestCase):
             self.mem.grant(uid, {"first_name": f"U{uid}", "username": f"u{uid}"}, 30, [])
 
     def make_dl(self):
-        d = dlm.Downloads(self.store, self.mem, lambda: OWNER, lambda chat: self.bot,
-                          lambda: "https://example.org/app/", self.fake.client(), self.root)
+        d = dlm.Downloads(self.store, self.mem, lambda: OWNER, lambda: "https://example.org/app/",
+                          self.fake.client(), self.root)
         d.free_gb = lambda: 500.0
         return d
 
     def tick(self, n=1):
         for _ in range(n):
             self.dl.tick()
-        self.dl.drain()
 
     def job(self, jid):
         return self.dl._get(jid)
 
-    def chat_job(self, uid, url=URL, preset="v720", opts=None, mid=900):
-        return self.dl.submit(uid, url, preset, opts, origin="chat", chat_id=uid, chat_msg_id=mid + uid)["id"]
+    def sub(self, uid, url=URL, preset="v720", opts=None):
+        return self.dl.submit(uid, url, preset, opts)["id"]
 
 
 # ------------------------------------------------------------------ tests --
@@ -228,7 +218,7 @@ class TestPresets(EngineBase):
         self.assertEqual([x["id"] for x in p["video"]], ["v360", "v720", "v1080", "vbest"])
         self.assertEqual([x["id"] for x in p["audio"]], ["mp3", "m4a", "opus"])
         self.assertEqual(p["extras"], {"subs": ["ru", "en"], "clip": True, "playlist_max": 10})
-        self.assertEqual(p["limits"], {"active": 2, "per_hour": 10, "per_day": 30, "ttl_min": 30, "chat_max_mb": 49})
+        self.assertEqual(p["limits"], {"active": 2, "per_hour": 10, "per_day": 30, "ttl_min": 30})
         self.assertEqual(p["sites"], ["YouTube", "RuTube", "VK Видео"])
 
     def test_add_bodies_force_h264_and_user_folder(self):
@@ -256,7 +246,7 @@ class TestPresets(EngineBase):
         self.assertEqual((b["clip_start"], b["clip_end"], b["playlist_item_limit"]), (90, 150, 1))
 
     def test_subtitles_use_a_captions_item_first_then_the_video(self):
-        jid = self.chat_job(10, opts={"subs": "ru"})
+        jid = self.sub(10, opts={"subs": "ru"})
         self.tick()
         self.assertEqual(len(self.fake.adds), 1)
         c = self.fake.adds[0]
@@ -272,7 +262,7 @@ class TestPresets(EngineBase):
         self.tick()
         j = self.job(jid)
         self.assertEqual(j["status"], "done")
-        self.assertEqual([u["method"] for u in self.bot.uploads], ["sendVideo", "sendDocument"])
+        self.assertEqual([f["kind"] for f in j["files"]], ["subs", "video"])
 
 
 class TestValidation(EngineBase):
@@ -292,12 +282,22 @@ class TestValidation(EngineBase):
         self.assertErr(400, "bad_request", 10, URL, "v720", {"playlist": "yes"})
         self.assertEqual(self.store.q("SELECT COUNT(*) FROM downloads")[0][0], 0)
 
-    def test_playlist_rejected_without_the_flag(self):
-        for u in ("https://www.youtube.com/watch?v=abc&list=PLxyz", "https://www.youtube.com/playlist?list=PLxyz",
-                  "https://youtube.com/playlist"):
+    def test_pure_playlist_rejected_without_the_flag(self):
+        for u in ("https://www.youtube.com/playlist?list=PLxyz", "https://youtube.com/playlist"):
             e = self.assertErr(400, "playlist", 10, u, "v720")
             self.assertEqual(e.message, "Это плейлист — включи «Плейлист (до 10)»")
         self.assertEqual(self.store.q("SELECT COUNT(*) FROM downloads")[0][0], 0)
+
+    def test_watch_link_with_list_downloads_just_the_video_without_the_flag(self):
+        j = self.dl.submit(10, "https://www.youtube.com/watch?v=abcdefghijk&list=PLxyz&index=3", "v720")
+        self.assertEqual(j["url"], "https://www.youtube.com/watch?v=abcdefghijk")
+        self.tick()
+        self.assertEqual((self.fake.adds[-1]["url"], self.fake.adds[-1]["playlist_item_limit"]),
+                         ("https://www.youtube.com/watch?v=abcdefghijk", 1))
+
+    def test_watch_link_with_list_keeps_the_list_with_the_flag(self):
+        j = self.dl.submit(10, "https://www.youtube.com/watch?v=abcdefghijk&list=PLxyz&index=3", "v720", {"playlist": True})
+        self.assertEqual(j["url"], "https://www.youtube.com/watch?v=abcdefghijk&list=PLxyz")
 
     def test_playlist_accepted_with_the_flag_and_capped(self):
         u = "https://www.youtube.com/playlist?list=PLxyz"
@@ -375,8 +375,8 @@ class TestWorker(EngineBase):
         self.assertEqual((out["percent"], out["status"], out["preset_label"]), (40, "running", "720p"))
 
     def test_fan_out_identical_requests_share_one_item(self):
-        a = self.chat_job(10)
-        b = self.chat_job(11)
+        a = self.sub(10)
+        b = self.sub(11)
         self.tick()
         self.assertEqual(len(self.fake.adds), 1)                 # one MeTube add
         self.assertEqual(self.job(a)["lead"], a)
@@ -387,27 +387,9 @@ class TestWorker(EngineBase):
         self.fake.finish(URL, size=2000)
         self.tick()
         self.assertEqual([self.job(x)["status"] for x in (a, b)], ["done", "done"])
-        self.assertEqual(len(self.bot.uploads), 2)               # both delivered, one file
-        self.assertEqual(sorted(e[1] for e in self.bot.log if e[0] == "edit" and "Готово" in e[2]), [10, 11])
-        self.assertEqual(self.fake.deletes, [{"ids": [URL], "where": "done"}])   # purged once, after both
-        self.assertEqual(self.job(a)["files"], [])
-        self.assertTrue(self.dl.job_json(self.job(b))["delivered"])
+        self.assertEqual(self.fake.deletes, [])                  # the janitor cleans up, not us
+        self.assertTrue(self.job(a)["files"] and self.job(b)["files"])
         self.assertEqual(len(self.fake.adds), 1)
-
-    def test_no_purge_while_a_requester_has_only_the_app(self):
-        a = self.chat_job(10)
-        b = self.dl.submit(11, URL, "v720")["id"]               # app origin, not sent to the chat
-        self.tick()
-        self.fake.finish(URL)
-        self.tick()
-        self.assertEqual(len(self.bot.uploads), 1)
-        self.assertEqual(self.fake.deletes, [])
-        self.assertTrue(self.job(b)["files"])
-        self.assertEqual(self.job(a)["delivery"], "upload")
-        # "В чат" later: now everybody has it -> purge
-        self.dl.send(11, b)
-        self.assertEqual(len(self.bot.uploads), 2)
-        self.assertEqual(self.fake.deletes, [{"ids": [URL], "where": "done"}])
 
     def test_different_preset_for_the_same_url_waits(self):
         a = self.dl.submit(10, URL, "v720")["id"]
@@ -425,28 +407,13 @@ class TestWorker(EngineBase):
         self.assertEqual(self.job(b)["status"], "running")
         self.assertEqual(self.job(c)["status"], "running")
 
-    def test_waiting_also_covers_an_undelivered_chat_result(self):
-        a = self.chat_job(10)
-        self.tick()
-        self.fake.finish(URL)
-        self.bot.fail_upload = True
-        self.dl.tick()                                           # done; delivery thread not drained yet
-        b = self.dl.submit(11, URL, "v1080")["id"]
-        self.dl.drain()
-        self.assertEqual(self.job(a)["delivery"], "link")
-        self.tick()
-        self.assertEqual(self.job(b)["status"], "running")
-
     def test_metube_error_item_fails_the_job(self):
-        a = self.chat_job(10)
+        a = self.sub(10)
         self.tick()
         self.fake.fail(URL, "Video unavailable")
         self.tick()
         j = self.job(a)
         self.assertEqual((j["status"], j["error"]), ("error", "Video unavailable"))
-        last = self.bot.edits(10)[-1]
-        self.assertIn("Video unavailable", last[2])
-        self.assertEqual(last[3]["reply_markup"], {"inline_keyboard": []})
 
     def test_error_text_never_contains_the_metube_path(self):
         self.fake.fail_add = f"bad {PATH} thing"
@@ -473,31 +440,6 @@ class TestWorker(EngineBase):
         self.assertEqual(self.job(a)["status"], "error")
         self.fake.srv = mock.Mock()                              # (cleanup calls close() again)
 
-    def test_progress_edits_are_rate_limited(self):
-        a = self.chat_job(10)
-        t = [1000.0]
-        self.dl.clock = lambda: t[0]
-        self.tick()
-        edits = lambda: [e for e in self.bot.edits(10) if "▰" in e[2] or "▱" in e[2]]       # noqa: E731
-        self.fake.progress(URL, 10)
-        self.tick()
-        self.assertEqual(len(edits()), 1)
-        self.assertEqual(edits()[0][3]["reply_markup"], dlm.cancel_markup(a))
-        for pct in (20, 30):
-            self.fake.progress(URL, pct)
-            t[0] += 1
-            self.tick()
-        self.assertEqual(len(edits()), 1)                        # < 3 s since the last edit
-        t[0] += 3
-        self.fake.progress(URL, 60)
-        self.tick()
-        self.assertEqual(len(edits()), 2)
-        self.assertIn("60%", edits()[-1][2])
-        self.tick()                                              # unchanged text: no edit
-        t[0] += 5
-        self.tick()
-        self.assertEqual(len(edits()), 2)
-
     def test_worker_thread_runs_the_loop(self):
         self.dl.start()
         self.dl.start()                                          # idempotent
@@ -508,6 +450,18 @@ class TestWorker(EngineBase):
             time.sleep(0.05)
         self.assertEqual(len(self.fake.adds), 1)
         self.assertEqual(self.job(jid)["status"], "running")
+
+    def test_legacy_chat_rows_still_load(self):
+        jid = self.store.db.execute(
+            "INSERT INTO downloads(uid,url,preset,opts,origin,chat_id,chat_msg_id,status,delivery,created_ts) "
+            "VALUES(10,?,?,?,?,?,?,?,?,?)",
+            ("https://youtu.be/AAAAAAAAAAA", "v720", '{"to_chat": true}', "chat", 10, 77, "done", "upload",
+             int(time.time()))).lastrowid
+        out = self.dl.jobs_for(10)
+        self.assertEqual([(j["id"], j["status"], j["origin"]) for j in out], [(jid, "done", "chat")])
+        self.assertNotIn("can_send", out[0])
+        self.dl.tick()                                           # nothing to deliver or resume
+        self.assertEqual(self.job(jid)["delivery"], "upload")
 
     def test_expired_when_the_file_is_gone(self):
         jid = self.dl.submit(10, URL, "v720")["id"]
@@ -530,97 +484,138 @@ class TestWorker(EngineBase):
         self.assertEqual(self.job(jid)["status"], "expired")
 
 
-class TestDelivery(EngineBase):
-    def finish_chat(self, size, preset="v720", fail=False):
-        self.bot.fail_upload = fail
-        jid = self.chat_job(10, preset=preset)
-        self.tick()
-        self.fake.finish(URL, size=size)
-        self.tick()
-        return jid
+class TestCanonicalUrl(unittest.TestCase):
+    W = "https://www.youtube.com/watch?v=yTA4bhZpHDw"
 
-    def test_small_file_is_uploaded_as_streaming_video(self):
-        jid = self.finish_chat(49 * MB)
-        up = self.bot.uploads[0]
-        self.assertEqual((up["method"], up["field"], up["chat_id"], up["supports_streaming"]),
-                         ("sendVideo", "video", 10, "true"))
-        self.assertEqual((up["caption"], up["parse_mode"]), ("Title AAAA", "HTML"))
-        self.assertEqual(self.bot.sent(10), [])                  # no link message
-        self.assertEqual(self.job(jid)["delivery"], "upload")
+    def check(self, src, want, **kw):
+        self.assertEqual(dlm.canonical_url(src, **kw), want, src)
 
-    def test_big_file_gets_a_signed_link_not_an_upload(self):
-        jid = self.finish_chat(49 * MB + 1)
-        self.assertEqual(self.bot.uploads, [])
-        txt = self.bot.sent(10)[0][2]
-        m = re.search(r'href="(https://example\.org/app/dl/([^"]+))"', txt)
-        self.assertTrue(m, txt)
-        kind, ident, uid = links.verify(m.group(2), store=self.store)
-        self.assertEqual((kind, ident, uid), ("file", f"{jid}:0", 10))
-        self.assertEqual(self.job(jid)["delivery"], "link")
-        self.assertEqual(self.fake.deletes, [])                  # the link still needs the file
+    def test_youtu_be_share_links(self):
+        self.check("https://youtu.be/yTA4bhZpHDw?is=ExX5atY71NIVN6rj", self.W)
+        self.check("https://youtu.be/yTA4bhZpHDw?si=abc&t=42", self.W)
+        self.check("  http://youtu.be/yTA4bhZpHDw  ", self.W)
 
-    def test_failed_upload_falls_back_to_the_link(self):
-        jid = self.finish_chat(1000, fail=True)
-        self.assertIn("/app/dl/", self.bot.sent(10)[0][2])
-        self.assertEqual(self.job(jid)["delivery"], "link")
-        self.assertEqual(self.fake.deletes, [])
+    def test_other_youtube_shapes(self):
+        for src in ("https://www.youtube.com/shorts/yTA4bhZpHDw?feature=share",
+                    "https://m.youtube.com/watch?v=yTA4bhZpHDw&pp=ygU",
+                    "https://music.youtube.com/watch?v=yTA4bhZpHDw&si=x",
+                    "https://youtube.com/live/yTA4bhZpHDw?si=x",
+                    "https://www.youtube.com/embed/yTA4bhZpHDw",
+                    "https://www.youtube-nocookie.com/embed/yTA4bhZpHDw",
+                    "https://www.youtube.com/v/yTA4bhZpHDw",
+                    "https://www.youtube.com/watch?v=yTA4bhZpHDw&ab_channel=Foo&t=10s#x",
+                    self.W):
+            self.check(src, self.W)
 
-    def test_audio_goes_through_sendaudio_and_opus_as_a_document(self):
-        self.finish_chat(1000, preset="mp3")
-        self.assertEqual(self.bot.uploads[-1]["method"], "sendAudio")
-        self.assertNotIn("supports_streaming", self.bot.uploads[-1])
-        self.fake.items.clear()
-        self.chat_job(10, url=URL2, preset="opus")
+    def test_list_is_dropped_unless_a_playlist_was_asked_for(self):
+        src = "https://www.youtube.com/watch?v=yTA4bhZpHDw&list=PL123&index=2"
+        self.check(src, self.W)
+        self.check(src, self.W + "&list=PL123", keep_list=True)
+        self.check("https://youtu.be/yTA4bhZpHDw?list=PL123&si=x", self.W + "&list=PL123", keep_list=True)
+
+    def test_playlist_page(self):
+        want = "https://www.youtube.com/playlist?list=PL123"
+        self.check("https://www.youtube.com/playlist?list=PL123&si=x", want)
+        self.check("https://music.youtube.com/playlist?list=PL123", want, keep_list=True)
+        self.assertTrue(dlm.is_playlist(dlm.canonical_url("https://www.youtube.com/playlist?list=PL123")))
+        self.assertFalse(dlm.is_playlist(dlm.canonical_url("https://www.youtube.com/watch?v=yTA4bhZpHDw&list=PL1")))
+
+    def test_other_sites_only_lose_tracking(self):
+        self.check("https://rutube.ru/video/abc123/", "https://rutube.ru/video/abc123/")
+        self.check("https://rutube.ru/video/abc123/?utm_source=x&r=1&si=2", "https://rutube.ru/video/abc123/?r=1")
+        self.check("https://vkvideo.ru/video-1_2?t=5", "https://vkvideo.ru/video-1_2?t=5")
+        self.check("https://rutube.ru/video/abc123/?utm_source=x", "https://rutube.ru/video/abc123/")
+
+    def test_unrecognised_youtube_pages_and_junk_are_untouched(self):
+        for src in ("https://www.youtube.com/@channel", "https://youtu.be/", "https://www.youtube.com/watch",
+                    "https://www.youtube.com/watch?v=", "not a url"):
+            self.check(src, src)
+        self.assertIsNone(dlm.canonical_url(None))
+
+class TestMatching(EngineBase):
+    SHARE = "https://youtu.be/AAAAAAAAAAA?is=ExX5atY71NIVN6rj"
+
+    def test_youtu_be_share_link_completes(self):
+        jid = self.sub(10, self.SHARE)
+        self.assertEqual(self.job(jid)["url"], URL)
         self.tick()
-        self.fake.finish(URL2, name="clip.opus")
-        self.tick()
-        self.assertEqual(self.bot.uploads[-1]["method"], "sendDocument")
-
-    def test_caption_is_escaped_and_capped(self):
-        c = dlm.caption("<b>&" + "x" * 2000)
-        self.assertLessEqual(len(c), 1000)
-        self.assertTrue(c.startswith("&lt;b&gt;&amp;"))
-        self.assertNotRegex(c, r"&[a-z]*$")
-        self.assertEqual(dlm.caption("a" * 5 + "&" * 600).count("&amp;") * 5 <= 1000, True)
-
-    def test_app_job_is_not_sent_unless_asked(self):
-        jid = self.dl.submit(10, URL, "v720")["id"]
-        self.tick()
-        self.fake.finish(URL)
-        self.tick()
-        self.assertEqual((self.bot.uploads, self.bot.log), ([], []))
-        self.dl.send(10, jid)
-        self.assertEqual(len(self.bot.uploads), 1)
-        self.assertEqual(self.fake.deletes, [{"ids": [URL], "where": "done"}])
-
-    def test_to_chat_from_the_app_delivers_without_a_progress_message(self):
-        jid = self.dl.submit(10, URL, "v720", {"to_chat": True})["id"]
-        self.assertEqual(self.job(jid)["chat_id"], 10)
-        self.tick()
+        self.assertEqual(self.fake.adds[-1]["url"], URL)         # MeTube gets the spelling it will report back
         self.fake.progress(URL, 30)
         self.tick()
-        self.assertEqual(self.bot.edits(10), [])
+        self.assertEqual(self.job(jid)["percent"], 30)
         self.fake.finish(URL)
         self.tick()
-        self.assertEqual(len(self.bot.uploads), 1)
+        self.assertEqual(self.job(jid)["status"], "done")
 
-    def test_pending_delivery_is_resumed_after_a_restart(self):
-        jid = self.chat_job(10)
+    def test_same_video_in_two_spellings_is_one_item(self):
+        a = self.sub(10, self.SHARE)
+        b = self.sub(11, "https://www.youtube.com/shorts/AAAAAAAAAAA")
         self.tick()
-        self.fake.finish(URL)
-        with mock.patch.object(dlm.Downloads, "_queue_delivery"):
-            self.dl.tick()
-        self.assertEqual((self.job(jid)["status"], self.job(jid)["delivery"]), ("done", ""))
-        self.assertEqual(self.bot.uploads, [])
-        dl2 = self.make_dl()
-        dl2.tick()
-        dl2.drain()
-        self.assertEqual(len(self.bot.uploads), 1)
+        self.assertEqual(len(self.fake.adds), 1)
+        self.assertEqual(self.job(b)["lead"], a)
+
+    def test_item_reported_under_another_spelling_still_matches_by_canonical_url(self):
+        jid = self.sub(10)
+        self.tick()
+        self.fake.items[URL]["url"] = "https://youtu.be/AAAAAAAAAAA"
+        self.fake.progress(URL, 20)
+        self.tick()
+        self.assertEqual((self.job(jid)["status"], self.job(jid)["percent"]), ("running", 20))
+
+    def test_fallback_takes_a_single_unclaimed_item_of_the_folder(self):
+        jid = self.sub(10)
+        self.tick()
+        it = self.fake.items.pop(URL)
+        it["url"] = "https://example.org/some-other-spelling"    # nothing canonical-equal to ours
+        self.fake.items[it["url"]] = it
+        self.fake.progress(it["url"], 55)
+        self.tick()
+        j = self.job(jid)
+        self.assertEqual((j["status"], j["percent"], j["murls"]), ("running", 55, [it["url"]]))
+        # cancel/delete go by the URL MeTube really uses
+        self.dl.cancel(10, jid)
+        self.assertEqual(self.fake.deletes, [{"ids": [it["url"]], "where": "queue"}])
+
+    def test_fallback_ignores_items_claimed_by_another_job(self):
+        a = self.sub(10, URL)
+        b = self.sub(10, URL2)
+        self.tick()
+        for u in (URL, URL2):                                    # MeTube reports both under foreign spellings
+            it = self.fake.items.pop(u)
+            it["url"] = "https://example.org/" + u[-4:]
+            self.fake.items[it["url"]] = it
+        self.dl._upd(a, murls=["https://example.org/AAAA"])
+        self.dl._upd(b, murls=["https://example.org/BBBB"])
+        self.tick()
+        self.assertEqual([self.job(x)["status"] for x in (a, b)], ["running", "running"])
+        self.assertEqual([self.job(x)["murls"] for x in (a, b)], [["https://example.org/AAAA"], ["https://example.org/BBBB"]])
+
+    def test_fallback_is_not_used_when_it_is_ambiguous(self):
+        jid = self.sub(10)
+        self.tick()
+        base = self.fake.items.pop(URL)
+        for n in ("x", "y"):
+            self.fake.items["https://example.org/" + n] = dict(base, url="https://example.org/" + n)
+        self.tick()
+        self.assertEqual(self.job(jid)["status"], "running")      # unmatched: waits for the stale timeout
+        self.dl.clock = lambda: time.time() + 200
+        self.tick()
+        self.assertEqual(self.job(jid)["status"], "error")
+
+    def test_fallback_respects_kind_and_folder(self):
+        jid = self.sub(10)
+        self.tick()
+        it = self.fake.items.pop(URL)
+        self.fake.items["https://example.org/c"] = dict(it, url="https://example.org/c", download_type="captions")
+        self.fake.items["https://example.org/o"] = dict(it, url="https://example.org/o", folder="u11")
+        self.dl.clock = lambda: time.time() + 200
+        self.tick()
+        self.assertEqual(self.job(jid)["status"], "error")
 
 
 class TestRestart(EngineBase):
     def test_running_job_reattaches_by_url_and_folder(self):
-        jid = self.chat_job(10)
+        jid = self.sub(10)
         self.tick()
         self.fake.progress(URL, 25)
         dl2 = self.make_dl()                                     # "the helper restarted"
@@ -629,19 +624,16 @@ class TestRestart(EngineBase):
         self.assertEqual(len(self.fake.adds), 1)
         self.fake.finish(URL)
         dl2.tick()
-        dl2.drain()
         self.assertEqual(self.job(jid)["status"], "done")
-        self.assertEqual(len(self.bot.uploads), 1)
 
     def test_item_lost_during_the_restart_becomes_an_error(self):
-        jid = self.chat_job(10)
+        jid = self.sub(10)
         self.tick()
         self.fake.items.clear()
         dl2 = self.make_dl()
         dl2.tick()
         j = self.job(jid)
         self.assertEqual((j["status"], j["error"]), ("error", "прервано перезапуском"))
-        self.assertIn("прервано перезапуском", self.bot.edits(10)[-1][2])
 
     def test_other_users_item_with_the_same_url_is_not_mistaken_for_ours(self):
         a = self.dl.submit(10, URL, "v720")["id"]
@@ -681,16 +673,8 @@ class TestCancelDelete(EngineBase):
             self.dl.cancel(11, b)                                # not yours
         self.assertEqual(cm.exception.status, 404)
 
-    def test_cancel_edits_the_progress_message(self):
-        a = self.chat_job(10)
-        self.tick()
-        self.dl.cancel(10, a)
-        last = self.bot.edits(10)[-1]
-        self.assertIn("Отменено", last[2])
-        self.assertEqual(last[3]["reply_markup"], {"inline_keyboard": []})
-
     def test_canceling_a_lead_with_followers_keeps_the_item_running(self):
-        a, b = self.chat_job(10), self.chat_job(11)
+        a, b = self.sub(10), self.sub(11)
         self.tick()
         self.dl.cancel(10, a)
         self.assertEqual(self.fake.deletes, [])
@@ -699,7 +683,6 @@ class TestCancelDelete(EngineBase):
         self.tick()
         self.assertEqual(self.job(b)["status"], "done")
         self.assertEqual(self.job(a)["status"], "canceled")
-        self.assertEqual([u["chat_id"] for u in self.bot.uploads], [11])
 
     def test_delete_removes_the_item_unless_shared(self):
         a = self.dl.submit(10, URL, "v720")["id"]
@@ -748,16 +731,15 @@ class WebBase(tw.Base):
     def setUp(self):
         super().setUp()
         p = mock.patch.dict(os.environ, {"METUBE_PATH": PATH, "METUBE_TTL_MIN": "30", "DL_ACTIVE": "2",
-                                         "DL_PER_HOUR": "10", "DL_PER_DAY": "30", "DL_CHAT_MAX_MB": "49"})
+                                         "DL_PER_HOUR": "10", "DL_PER_DAY": "30"})
         p.start()
         self.addCleanup(p.stop)
         self.root = os.path.join(self.tmp.name, "dl")
         os.makedirs(self.root)
         self.fake = FakeMeTube(self.root)
         self.addCleanup(self.fake.close)
-        self.bot = UpBot()
-        self.dl = dlm.Downloads(self.store, self.h.members, lambda: tw.OWNER, lambda chat: self.bot,
-                                lambda: "https://example.org/app/", self.fake.client(), self.root)
+        self.dl = dlm.Downloads(self.store, self.h.members, lambda: tw.OWNER, lambda: "https://example.org/app/",
+                                self.fake.client(), self.root)
         self.dl.free_gb = lambda: 500.0
         self.h.downloads = self.dl
         self.h.members.set_service_enabled("youtube", True)
@@ -767,7 +749,6 @@ class WebBase(tw.Base):
     def tick(self, n=1):
         for _ in range(n):
             self.dl.tick()
-        self.dl.drain()
 
     def done_job(self, uid=200, url=URL, size=700 * 1024, preset="v720"):
         jid = self.dl.submit(uid, url, preset)["id"]
@@ -915,36 +896,32 @@ class TestApi(WebBase):
         self.assertEqual((st, d["error"]), (403, "no_access"))
         self.assertEqual(self.j("GET", "/api/dl", headers=self.admin())[0], 200)                   # owner always
 
-    def test_create_list_cancel_send_delete(self):
+    def test_create_list_cancel_delete(self):
         h = self.tgh(200)
-        st, job = self.j("POST", "/api/dl", {"url": URL, "preset": "v720", "subs": None, "to_chat": False}, h)
+        st, job = self.j("POST", "/api/dl", {"url": "https://youtu.be/AAAAAAAAAAA?is=zzz", "preset": "v720", "subs": None}, h)
         self.assertEqual(st, 200)
-        self.assertEqual((job["status"], job["preset"], job["preset_label"], job["files"], job["can_send"]),
-                         ("queued", "v720", "720p", [], False))
+        self.assertEqual((job["status"], job["preset"], job["preset_label"], job["files"], job["url"]),
+                         ("queued", "v720", "720p", [], URL))
         self.assertEqual(set(job), {"id", "url", "preset", "preset_label", "title", "status", "percent", "size", "eta",
-                                    "error", "created_ts", "finished_ts", "expires_ts", "files", "can_send",
-                                    "delivered", "origin"})
+                                    "error", "created_ts", "finished_ts", "expires_ts", "files", "origin"})
         self.tick()
         self.fake.finish(URL, size=500)
         self.tick()
         st, lst = self.j("GET", "/api/dl", headers=h)
         self.assertEqual([x["id"] for x in lst], [job["id"]])
         j = lst[0]
-        self.assertEqual((j["status"], j["can_send"], j["title"]), ("done", True, "Title AAAA"))
+        self.assertEqual((j["status"], j["title"]), ("done", "Title AAAA"))
         self.assertTrue(j["files"][0]["url"].startswith("https://example.org/app/dl/"))
         self.assertEqual((j["files"][0]["name"], j["files"][0]["kind"], j["files"][0]["size"]), ("clip.mp4", "video", 500))
         self.assertEqual(j["expires_ts"], j["finished_ts"] + 1800)
         # other users see nothing, cannot touch it
         self.assertEqual(self.j("GET", "/api/dl", headers=self.tgh(201))[1], [])
-        for act in ("cancel", "send", "delete"):
+        for act in ("cancel", "delete"):
             self.assertEqual(self.j("POST", f"/api/dl/{job['id']}/{act}", {}, self.tgh(201))[0], 404, act)
         self.assertEqual(self.j("POST", f"/api/dl/{job['id']}/cancel", {}, h)[1]["error"], "not_active")
-        st, sent = self.j("POST", f"/api/dl/{job['id']}/send", {}, h)
-        self.assertEqual((st, sent["delivered"]), (200, True))
-        self.assertEqual(self.bot.uploads[0]["chat_id"], 200)
-        self.assertEqual(sent["files"], [])                                    # purged after the upload
-        self.assertEqual(self.j("POST", f"/api/dl/{job['id']}/send", {}, h)[1]["error"], "not_ready")
+        self.assertEqual(self.j("POST", f"/api/dl/{job['id']}/send", {}, h)[0], 404)          # chat delivery is gone
         self.assertEqual(self.j("POST", f"/api/dl/{job['id']}/delete", {}, h), (200, {"ok": True}))
+        self.assertEqual(self.fake.deletes, [{"ids": [URL], "where": "done"}])
         self.assertEqual(self.j("GET", "/api/dl", headers=h)[1], [])
 
     def test_cancel_over_the_api(self):
@@ -994,7 +971,7 @@ class ChatBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        p = mock.patch.dict(os.environ, dict(tb.ENV, METUBE_PATH=PATH, METUBE_TTL_MIN="30", DL_CHAT_MAX_MB="49"))
+        p = mock.patch.dict(os.environ, dict(tb.ENV, METUBE_PATH=PATH, METUBE_TTL_MIN="30"))
         p.start()
         self.addCleanup(p.stop)
         self.root = os.path.join(self.tmp.name, "dl")
@@ -1012,7 +989,6 @@ class ChatBase(unittest.TestCase):
     def tick(self, n=1):
         for _ in range(n):
             self.dl.tick()
-        self.dl.drain()
 
     @staticmethod
     def flat(entry):
@@ -1020,106 +996,52 @@ class ChatBase(unittest.TestCase):
 
 
 class TestChatFlow(ChatBase):
-    def test_link_to_buttons_to_progress_to_file(self):
-        self.h.on_message(tb.msg(tb.OWNER, URL))
-        offer = self.b.sent(tb.OWNER)[0]
-        self.assertTrue(offer[2].startswith("Что скачать?"))
-        rows = offer[3]["reply_markup"]["inline_keyboard"]
-        pr = dlm.presets_payload()
-        self.assertEqual([[b["callback_data"].split(":")[2] for b in r] for r in rows[:2]],
-                         [[p["id"] for p in pr["video"]], [p["id"] for p in pr["audio"]]])       # same presets as the API
-        self.assertEqual([b["text"] for b in rows[0]], ["🎬 360p", "🎬 720p", "🎬 1080p", "🎬 Лучшее"])
-        self.assertEqual([b["text"] for b in rows[1]], ["🎵 MP3", "🎵 M4A", "🎵 Opus"])
-        more = rows[2][0]
-        self.assertEqual(more["text"], "⚙️ Ещё (субтитры, фрагмент)")
-        self.assertEqual(more["web_app"]["url"], "https://example.org/app/?p=downloads&url=" + urllib.parse.quote(URL))
-        self.assertEqual(rows[3][0]["text"], "✖ Отмена")
-        mid = 600
-        data = rows[0][1]["callback_data"]                       # 720p
-        self.assertTrue(data.startswith("dl:") and data.endswith(":v720") and len(data) < 64)
-        self.h.on_callback(tb.cb(tb.OWNER, data, mid))
-        q = self.b.edits(tb.OWNER)[-1]
-        self.assertIn("В очереди", q[2])
-        self.assertEqual(q[3]["message_id"], mid)
-        self.assertEqual(q[3]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].split(":")[0], "dlc")
-        job = self.dl._rows("")[0]
-        self.assertEqual((job["origin"], job["chat_msg_id"], job["chat_id"], job["uid"]), ("chat", mid, tb.OWNER, tb.OWNER))
-        t = [5000.0]
-        self.dl.clock = lambda: t[0]
-        self.tick()
-        self.fake.progress(URL, 45, size=3 * MB)
-        self.tick()
-        prog = self.b.edits(tb.OWNER)[-1]
-        self.assertIn("45%", prog[2])
-        self.assertIn("Title AAAA", prog[2])
-        self.fake.finish(URL, size=3 * MB)
-        t[0] += 10
-        self.tick()
-        done = self.b.edits(tb.OWNER)[-1]
-        self.assertIn("Готово", done[2])
-        self.assertEqual(done[3]["reply_markup"], {"inline_keyboard": []})     # keyboard removed
-        up = self.b.uploads[0]
-        self.assertEqual((up["method"], up["chat_id"]), ("sendVideo", tb.OWNER))
-        self.assertEqual(self.fake.adds[0]["quality"], "720")
-        self.assertEqual(self.fake.deletes, [{"ids": [URL], "where": "done"}])
+    APP = "https://example.org/app/"
 
-    def test_cancel_button_and_x(self):
-        self.h.on_message(tb.msg(tb.OWNER, URL))
-        tok = self.flat(self.b.sent(tb.OWNER)[0])
-        x = [b for b in tok if b.get("callback_data", "").endswith(":x")][0]["callback_data"]
-        self.h.on_callback(tb.cb(tb.OWNER, x, 601))
-        self.assertEqual(self.b.edits(tb.OWNER)[-1][2], "Отменено.")
-        self.h.on_callback(tb.cb(tb.OWNER, tok[0]["callback_data"], 601))        # same token, already used
-        self.assertIn("устарела", self.b.edits(tb.OWNER)[-1][2])
-        # the progress cancel button
-        self.h.on_message(tb.msg(tb.OWNER, "/yt " + URL))
-        d = self.flat(self.b.sent(tb.OWNER)[-1])[1]["callback_data"]
-        self.h.on_callback(tb.cb(tb.OWNER, d, 602))
-        self.tick()
-        job = self.dl._rows("")[0]
-        self.h.on_callback(tb.cb(tb.OWNER, f"dlc:{job['id']}", 602))
-        self.assertEqual(self.dl._get(job["id"])["status"], "canceled")
-        self.assertEqual(self.b.answers()[-1][2], "Отменено")
-        self.assertIn("Отменено", self.b.edits(tb.OWNER)[-1][2])
+    def handoff(self, entry, url=URL):
+        self.assertEqual(entry[2], "🎬 Скачать можно в MeowHub — ссылка уже подставлена.")
+        rows = entry[3]["reply_markup"]["inline_keyboard"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows[0]), 1)
+        btn = rows[0][0]
+        self.assertEqual(btn["text"], "Открыть загрузчик")
+        self.assertEqual(set(btn), {"text", "web_app"})              # a web_app button, no callback
+        self.assertEqual(btn["web_app"]["url"], self.APP + "?p=downloads&url=" + urllib.parse.quote(url, safe=""))
 
-    def test_someone_elses_button_is_refused(self):
-        self.mm.set_service_enabled("youtube", True)
-        self.h.bot = self.b
-        self.mm.grant(50, tb.frm(50), 30, [])
+    def test_link_gets_one_message_with_the_app_button_and_no_job(self):
         self.h.on_message(tb.msg(tb.OWNER, URL))
-        data = self.flat(self.b.sent(tb.OWNER)[0])[0]["callback_data"]
-        self.h.on_callback(tb.cb(50, data))
-        self.assertEqual(self.b.answers()[-1][2:], ("Недоступно", {"alert": True}))
+        sent = self.b.sent(tb.OWNER)
+        self.assertEqual(len(sent), 1)
+        self.handoff(sent[0])
         self.assertEqual(self.dl._rows(""), [])
+        self.assertEqual(self.fake.adds, [])
 
-    def test_limit_error_is_shown_in_the_message(self):
-        self.mm.set_service_enabled("youtube", True)
-        self.mm.grant(50, tb.frm(50), 30, [])
-        for i in range(2):
-            self.dl.submit(50, f"{URL}{i}", "v720")
-        self.h.on_message(tb.msg(50, URL2))
-        data = self.flat(self.b.sent(50)[0])[0]["callback_data"]
-        self.h.on_callback(tb.cb(50, data, 610))
-        self.assertIn("❌", self.b.edits(50)[-1][2])
-        self.assertIn("не больше 2", self.b.edits(50)[-1][2])
+    def test_the_prefilled_url_is_canonical(self):
+        self.h.on_message(tb.msg(tb.OWNER, "https://youtu.be/AAAAAAAAAAA?is=ExX5atY71NIVN6rj"))
+        self.handoff(self.b.sent(tb.OWNER)[0])
+        self.h.on_message(tb.msg(tb.OWNER, "/yt https://m.youtube.com/watch?v=AAAAAAAAAAA&list=PL1&si=x"))
+        self.handoff(self.b.sent(tb.OWNER)[1], URL + "&list=PL1")     # the list survives: the app decides
 
-    def test_playlist_link_points_to_the_app(self):
+    def test_playlist_link_is_handed_over_too(self):
         self.h.on_message(tb.msg(tb.OWNER, "https://www.youtube.com/playlist?list=PL1"))
-        e = self.b.sent(tb.OWNER)[0]
-        self.assertIn("плейлист", e[2])
-        btns = self.flat(e)
-        self.assertEqual([b["text"] for b in btns], ["⚙️ Ещё (субтитры, фрагмент)", "✖ Отмена"])
+        self.handoff(self.b.sent(tb.OWNER)[0], "https://www.youtube.com/playlist?list=PL1")
+
+    def test_old_chat_callbacks_are_gone(self):
+        for data in ("dl:abcd1234:v720", "dlc:1"):
+            self.h.on_callback(tb.cb(tb.OWNER, data, 600))
+            self.assertEqual(self.b.answers()[-1][2], "Кнопка устарела")
+        self.assertEqual(self.dl._rows(""), [])
 
     def test_button_and_command_variants(self):
         self.h.on_message(tb.msg(tb.OWNER, tb.botmod.B_YT))
-        self.assertIn("Пришли ссылку", self.b.sent(tb.OWNER)[-1][2])
+        self.assertEqual(self.b.sent(tb.OWNER)[-1][2], "Пришли ссылку — открою загрузчик (YouTube, RuTube, VK Видео).")
         self.h.on_message(tb.msg(tb.OWNER, "/yt"))
         self.assertIn("/yt https://", self.b.sent(tb.OWNER)[-1][2])
         self.h.on_message(tb.msg(tb.OWNER, f"смотри {URL} круто"))
-        self.assertTrue(self.b.sent(tb.OWNER)[-1][2].startswith("Что скачать?"))
+        self.handoff(self.b.sent(tb.OWNER)[-1])
         n = len(self.b.sent(tb.OWNER))
         self.h.on_message(tb.msg(tb.OWNER, f"/setpass nextcloud login https://x.org/{PATH}"))
-        self.assertNotIn("Что скачать?", "".join(e[2] for e in self.b.sent(tb.OWNER)[n:]))
+        self.assertNotIn("Скачать можно", "".join(e[2] for e in self.b.sent(tb.OWNER)[n:]))
 
     def test_member_without_youtube_is_told_once_per_hour(self):
         self.mm.grant(50, tb.frm(50), 30, ["vpn", "tools"])
@@ -1131,15 +1053,8 @@ class TestChatFlow(ChatBase):
         self.h.yt_nag[50] -= 3601
         self.h.on_message(tb.msg(50, URL))
         self.assertEqual(len(self.b.sent(50)), 2)
-        # stale buttons from before the switch-off are refused too
-        self.mm.set_service_enabled("youtube", True)
-        self.h.on_message(tb.msg(50, URL))
-        data = self.flat(self.b.sent(50)[-1])[0]["callback_data"]
-        self.mm.set_service_enabled("youtube", False)
-        self.h.on_callback(tb.cb(50, data))
-        self.assertEqual(self.b.answers()[-1][2], "Недоступно")
 
-    def test_member_with_youtube_gets_the_flow_and_the_keyboard_button(self):
+    def test_member_with_youtube_gets_the_handoff_and_the_keyboard_button(self):
         self.mm.set_service_enabled("youtube", True)
         self.mm.grant(50, tb.frm(50), 30, [])
         labels = [b["text"] for r in self.h.keyboard(50)["keyboard"] for b in r]
@@ -1148,20 +1063,17 @@ class TestChatFlow(ChatBase):
         self.h.on_message(tb.msg(50, tb.botmod.B_YT))
         self.assertIn("Пришли ссылку", self.b.sent(50)[-1][2])
         self.h.on_message(tb.msg(50, URL))
-        data = self.flat(self.b.sent(50)[-1])[3]["callback_data"]          # 1080p
-        self.h.on_callback(tb.cb(50, data, 620))
-        self.tick()
-        self.fake.finish(URL, size=1000)
-        self.tick()
-        self.assertEqual(self.b.uploads[0]["chat_id"], 50)
-        self.assertEqual(self.fake.adds[0]["folder"], "u50")
+        self.handoff(self.b.sent(50)[-1])
+        self.assertEqual(self.dl._rows(""), [])
         owner_labels = [b["text"] for r in self.h.keyboard(tb.OWNER)["keyboard"] for b in r]
         self.assertIn(tb.botmod.B_YT, owner_labels)
 
-    def test_no_miniapp_means_no_more_button(self):
+    def test_no_miniapp_means_plain_text(self):
         self.h.webapp_url = ""
         self.h.on_message(tb.msg(tb.OWNER, URL))
-        self.assertEqual(len(self.b.sent(tb.OWNER)[0][3]["reply_markup"]["inline_keyboard"]), 3)
+        e = self.b.sent(tb.OWNER)[0]
+        self.assertIn("мини-приложении MeowHub", e[2])
+        self.assertIsNone(e[3].get("reply_markup"))
 
 
 class TestTwoBotRouting(t2.TwoBots):
@@ -1194,22 +1106,11 @@ class TestTwoBotRouting(t2.TwoBots):
         self.assertEqual(len(self.hb.sent(t2.OWNER_ID)), 1)
         self.assertEqual(len(self.mb.sent(uid)), 1)
         self.assertEqual(self.hb.sent(uid), [])
-        o = self.btns(self.hb.sent(t2.OWNER_ID)[0])[1]["callback_data"]
-        m = self.btns(self.mb.sent(uid)[0])[1]["callback_data"]
-        self.h.on_callback(tb.cb(t2.OWNER_ID, o, 700))
-        self.front.on_callback(tb.cb(uid, m, 701))
-        self.dl.tick()                                          # two different URLs? no: same URL, same preset
-        self.assertEqual(len(self.fake.adds), 1)               # -> one MeTube item, fanned out
-        self.fake.progress(URL, 50)
-        self.dl.tick()
-        self.assertIn("50%", self.hb.edits(t2.OWNER_ID)[-1][2])
-        self.assertIn("50%", self.mb.edits(uid)[-1][2])
-        self.fake.finish(URL, size=2000)
-        self.dl.tick()
-        self.dl.drain()
-        self.assertEqual([u["chat_id"] for u in self.hb.uploads], [t2.OWNER_ID])
-        self.assertEqual([u["chat_id"] for u in self.mb.uploads], [uid])
-        self.assertEqual(self.fake.deletes, [{"ids": [URL], "where": "done"}])
+        for e in (self.hb.sent(t2.OWNER_ID)[0], self.mb.sent(uid)[0]):
+            btn = e[3]["reply_markup"]["inline_keyboard"][0][0]
+            self.assertEqual(btn["text"], "Открыть загрузчик")
+            self.assertIn("?p=downloads&url=", btn["web_app"]["url"])
+        self.assertEqual(self.dl._rows(""), [])
 
 
 if __name__ == "__main__":

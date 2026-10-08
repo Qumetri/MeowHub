@@ -296,8 +296,8 @@ class TestAwgGroup(unittest.TestCase):
         g = groups[3]
         self.assertEqual(g["title"], "AmneziaWG")
         self.assertEqual(g["apps"], ["AmneziaWG", "AmneziaVPN"])
-        self.assertEqual(g["hint"], "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или сканируй QR). "
-                                    "AmneziaVPN: скопируй ссылку → «+» → «Вставить».")
+        self.assertEqual(g["hint"], "AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». "
+                                    "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).")
         copy, down, qr = g["links"]
         self.assertEqual(copy["action"], "copy")
         self.assertEqual(copy["name"], "AmneziaWG")
@@ -426,8 +426,9 @@ class TestAwgDownload(Web3):
         self.awg_member()
         d = self.vpn()
         self.assertEqual([g["id"] for g in d["groups"]], ["main", "awg"])
-        copy, down, qr = d["groups"][1]["links"]
-        self.assertEqual((copy["action"], down["action"], qr["action"]), ("copy", "download", "qr"))
+        opn, copy, down, qr = d["groups"][1]["links"]
+        self.assertEqual((opn["action"], copy["action"], down["action"], qr["action"]), ("open", "copy", "download", "qr"))
+        self.assertEqual(opn["name"], "Открыть в AmneziaVPN")
         self.assertEqual(decode(copy["url"]), PUBLIC_CONF)                 # BASE_DOMAIN = example.org
         self.assertEqual(qr["text"], PUBLIC_CONF)
         self.assertEqual(down["file_name"], "meowhub-awg.conf")
@@ -443,7 +444,7 @@ class TestAwgDownload(Web3):
 
     def test_conf_is_built_fresh_each_time(self):
         self.awg_member()
-        path = self.dl_path(self.vpn()["groups"][1]["links"][1]["url"])
+        path = self.dl_path(self.vpn()["groups"][1]["links"][2]["url"])
         self.assertEqual(self.req("GET", path)[2].decode(), PUBLIC_CONF)
         newer = CONF.replace("PrivateKey = YFc3", "PrivateKey = ROTATED")
         self.h.xui.client_links = lambda email: [vpn_url(newer)]
@@ -451,7 +452,7 @@ class TestAwgDownload(Web3):
 
     def test_403_after_vpn_revoked_or_switched_off(self):
         self.awg_member()
-        path = self.dl_path(self.vpn()["groups"][1]["links"][1]["url"])
+        path = self.dl_path(self.vpn()["groups"][1]["links"][2]["url"])
         self.assertEqual(self.req("GET", path)[0], 200)
         self.h.members.set_services(200, ["matrix"])
         st, r, body = self.req("GET", path)
@@ -467,7 +468,7 @@ class TestAwgDownload(Web3):
 
     def test_bad_tokens(self):
         self.awg_member()
-        good = self.dl_path(self.vpn()["groups"][1]["links"][1]["url"])
+        good = self.dl_path(self.vpn()["groups"][1]["links"][2]["url"])
         for bad in (good[:-3] + ("AAA" if not good.endswith("AAA") else "BBB"), "/dl/abc", "/dl/a.b",
                     "/dl/" + links.token("awg_conf", "awg", 200, ttl=-5, store=self.store)):
             st, r, body = self.req("GET", bad)
@@ -482,6 +483,40 @@ class TestAwgDownload(Web3):
         self.h.xui.client_links = lambda email: [t2.REALITY]
         tok = links.token("awg_conf", "awg", 200, store=self.store)
         self.assertEqual(self.req("GET", "/dl/" + tok)[0], 404)
+
+    def test_amnezia_open_page_android(self):
+        self.awg_member()
+        path = self.dl_path(self.vpn()["groups"][1]["links"][0]["url"])
+        st, r, body = self.req("GET", path, headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15) Telegram-Android"})
+        self.assertEqual(st, 200)
+        self.assertTrue(r.getheader("Content-Type").startswith("text/html"))
+        page = body.decode()
+        key = webapp.fix_host(vpn_url(CONF), "example.org").partition("#")[0]
+        self.assertIn("intent://" + key[len("vpn://"):] + "#Intent;scheme=vpn;package=org.amnezia.vpn;", page)
+        self.assertIn("play.google.com", page)
+        self.assertIn('href="' + key + '"', page)                       # plain vpn:// fallback
+        self.assertNotIn("location.href", page)                          # never auto-redirects
+        self.assertNotIn("AWG-A", page)
+
+    def test_amnezia_open_page_ios_offers_vpn_file(self):
+        self.awg_member()
+        path = self.dl_path(self.vpn()["groups"][1]["links"][0]["url"])
+        st, r, body = self.req("GET", path, headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"})
+        self.assertEqual(st, 200)
+        page = body.decode()
+        self.assertNotIn("intent://", page)
+        self.assertIn("apps.apple.com/app/id1600529900", page)
+        m = __import__("re").search(r'href="([A-Za-z0-9_.-]+)" download="meowhub.vpn"', page)
+        self.assertIsNotNone(m, page)
+        st, r, body = self.req("GET", "/dl/" + m.group(1))                # sibling of the page
+        self.assertEqual(st, 200)
+        self.assertEqual(r.getheader("Content-Disposition"), 'attachment; filename="meowhub.vpn"')
+        key = webapp.fix_host(vpn_url(CONF), "example.org").partition("#")[0]
+        self.assertEqual(body.decode(), key)
+        self.assertEqual(webapp.vpn_conf(body.decode()), PUBLIC_CONF)
+        self.h.members.suspend(200)
+        self.assertEqual(self.req("GET", path)[0], 403)
+        self.assertEqual(self.req("GET", "/dl/" + m.group(1))[0], 403)
 
     def test_token_for_another_uid_is_still_checked_for_that_uid(self):
         self.awg_member()                                  # 200 has vpn, 201 does not

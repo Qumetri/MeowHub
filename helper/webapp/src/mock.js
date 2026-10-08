@@ -190,7 +190,7 @@ const DL_PRESETS = {
   video: [{ id: 'v360', label: '360p' }, { id: 'v720', label: '720p' }, { id: 'v1080', label: '1080p' }, { id: 'vbest', label: 'Лучшее' }],
   audio: [{ id: 'mp3', label: 'MP3' }, { id: 'm4a', label: 'M4A' }, { id: 'opus', label: 'Opus' }],
   extras: { subs: ['ru', 'en'], clip: true, playlist_max: 10 },
-  limits: { active: 2, per_hour: 10, per_day: 30, ttl_min: 30, chat_max_mb: 49 },
+  limits: { active: 2, per_hour: 10, per_day: 30, ttl_min: 30 },
   sites: ['YouTube', 'RuTube', 'VK Видео'],
 }
 const presetLabel = (id) => [...DL_PRESETS.video, ...DL_PRESETS.audio].find((p) => p.id === id)?.label || id
@@ -198,17 +198,17 @@ const MB = 1024 * 1024
 const dlFile = (name, size, kind) => ({ name, size, url: 'https://' + SERVER + '/app/dl/' + btoa(unescape(encodeURIComponent(name))).replace(/[=+/]/g, '') + '.mockSig', kind })
 const dlJob = (id, uid, url, preset, status, title, extra = {}) => ({
   id, uid, url, preset, preset_label: presetLabel(preset), title, status, percent: status === 'done' ? 100 : 0, size: null, eta: null,
-  error: '', created_ts: now() - 600, finished_ts: null, expires_ts: null, files: [], can_send: false, ...extra,
+  error: '', created_ts: now() - 600, finished_ts: null, expires_ts: null, files: [], ...extra,
 })
 const dlJobs = [
   dlJob(7, 100200301, 'https://www.youtube.com/watch?v=aqz-KE-bpKQ', 'v1080', 'running', 'Как устроен интернет: от кабеля до браузера — лекция', { percent: 47, size: 612 * MB, eta: 74, created_ts: now() - 90 }),
   dlJob(6, 100200301, 'https://rutube.ru/video/5f3c9a1e2b/', 'v360', 'queued', null, { created_ts: now() - 40 }),
   dlJob(5, 100200301, 'https://vk.com/video-22822305_456239018', 'v720', 'done', 'Обзор новой Tesla Model 3 (2026) — честно после года владения', {
-    size: 148 * MB, finished_ts: now() - 300, expires_ts: now() + 25 * 60, can_send: true, created_ts: now() - 420,
+    size: 148 * MB, finished_ts: now() - 300, expires_ts: now() + 25 * 60, created_ts: now() - 420,
     files: [dlFile('Обзор новой Tesla Model 3 (2026).mp4', 148 * MB, 'video'), dlFile('Обзор новой Tesla Model 3 (2026).ru.srt', 62 * 1024, 'subs')],
   }),
   dlJob(4, 100200301, 'https://www.youtube.com/watch?v=5qap5aO4i9A', 'mp3', 'done', 'lofi hip hop radio — beats to relax/study to', {
-    size: int(8.2 * MB), finished_ts: now() - 1500, expires_ts: now() + 4 * 60, can_send: true, created_ts: now() - 1700,
+    size: int(8.2 * MB), finished_ts: now() - 1500, expires_ts: now() + 4 * 60, created_ts: now() - 1700,
     files: [dlFile('lofi hip hop radio - beats to relax_study to.mp3', int(8.2 * MB), 'audio')],
   }),
   dlJob(3, 100200301, 'https://www.youtube.com/watch?v=privatevid01', 'v720', 'error', 'Закрытое видео', {
@@ -225,7 +225,7 @@ function dlAdvance(j) {
   } else if (j.status !== 'done' && j.status !== 'canceled') {
     const audio = DL_PRESETS.audio.some((p) => p.id === j.preset)
     const name = (j.title || 'video') + (audio ? '.' + j.preset : '.mp4')
-    Object.assign(j, { status: 'done', percent: 100, size: audio ? 5 * MB : 160 * MB, eta: null, finished_ts: now(), expires_ts: now() + 30 * 60, can_send: P.get('mode') === 'tg', files: [dlFile(name, audio ? 5 * MB : 160 * MB, audio ? 'audio' : 'video')] })
+    Object.assign(j, { status: 'done', percent: 100, size: audio ? 5 * MB : 160 * MB, eta: null, finished_ts: now(), expires_ts: now() + 30 * 60, files: [dlFile(name, audio ? 5 * MB : 160 * MB, audio ? 'audio' : 'video')] })
   }
   return j
 }
@@ -309,8 +309,9 @@ export async function handle(method, path, body) {
           hint: 'Если обычные не работают. Скопируй → «+» → «Из буфера».',
           links: [{ name: 'Hysteria2', url: 'hysteria2://k3x9a7fq2m@' + SERVER + ':4443?sni=' + SERVER + '#Hysteria2', action: 'copy' }] },
         { id: 'awg', title: 'AmneziaWG', apps: ['AmneziaWG', 'AmneziaVPN'],
-          hint: 'Запасной путь, если обычные конфиги не подключаются: импортируй файл или отсканируй QR в приложении AmneziaWG.',
+          hint: 'AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).',
           links: [
+            { name: 'Открыть в AmneziaVPN', url: 'https://' + SERVER + '/app/dl/b3Blbi1tb2Nr.mockSig', action: 'open' },
             { name: 'Ключ для AmneziaVPN', url: AWG_VPN_URL, action: 'copy' },
             { name: 'Файл .conf', url: 'https://' + SERVER + '/app/dl/Zm9vYmFyLm1vY2std2c.mockSig', action: 'download', file_name: 'meowhub-awg.conf' },
             { name: 'QR для AmneziaWG', action: 'qr', text: AWG_CONF },
@@ -348,7 +349,6 @@ export async function handle(method, path, body) {
     const j = dlJobs.find((x) => x.id === Number(seg[1]))
     if (!j) err(404, 'not_found', 'Загрузка не найдена')
     if (seg[2] === 'cancel') { dlAdvance(j); if (j.status === 'queued' || j.status === 'running') { j.status = 'canceled'; j.sim = 0; j.finished_ts = now() } return dlView(j) }
-    if (seg[2] === 'send') { dlAdvance(j); if (j.status !== 'done') err(409, 'not_ready', 'Файл ещё не готов'); return { ok: true } }
     if (seg[2] === 'delete') { dlJobs.splice(dlJobs.indexOf(j), 1); return { ok: true } }
   }
 

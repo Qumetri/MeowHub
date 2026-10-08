@@ -781,8 +781,8 @@ class TestMemberBot(TwoBots):
         self.assertIn("newsub", self.mb.sent(uid)[-1][2])
         self.assertEqual(self.hb.sent(uid), [])
         # assignments from handlers land on the shared Helper
-        self.front.pending_urls = {"k": 1}
-        self.assertEqual(self.h.pending_urls, {"k": 1})
+        self.front.yt_nag = {"k": 1}
+        self.assertEqual(self.h.yt_nag, {"k": 1})
         self.assertEqual(self.front.kind, "member")
         self.assertEqual(self.h.kind, "helper")
         self.assertIs(self.front.core, self.h)

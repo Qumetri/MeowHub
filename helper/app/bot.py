@@ -25,7 +25,6 @@ import logging
 import math
 import os
 import re
-import secrets
 import threading
 import time
 import types
@@ -113,7 +112,6 @@ class Helper:
         self.member_front = None          # MemberFront for member_bot
         self.helper_id = None             # numeric id of the helper bot (from getMe)
         self.pool = ThreadPoolExecutor(8)
-        self.pending_urls = {}            # token -> (url, user id, ts)
         self.yt_nag = {}                  # uid -> last "downloads are off" notice
         self.nagged = set()               # strangers already reported to the owner
         self.seen_from = {}               # stranger uid -> Telegram `from` (for the grant welcome)
@@ -128,8 +126,7 @@ class Helper:
         base = os.environ.get("BASE_DOMAIN", "").strip()
         path = os.environ.get("BOT_APP_PATH", "").strip().strip("/")
         self.webapp_url = f"https://{base}/{path}/" if base and path else ""
-        self.downloads = downloads.Downloads(store, self.members, self.owner_id, self.bot_for_chat,
-                                             lambda: self.webapp_url)
+        self.downloads = downloads.Downloads(store, self.members, self.owner_id, lambda: self.webapp_url)
 
     @property
     def core(self):
@@ -1001,38 +998,20 @@ class Helper:
                 self.bot.send(cid, "Скачивание видео сейчас выключено.")
             return None
         if text == B_YT:
-            return self.bot.send(cid, "Пришли ссылку на видео (YouTube, RuTube, VK Видео) — "
-                                      "я предложу качество и пришлю файл или ссылку на него.")
+            return self.bot.send(cid, "Пришли ссылку — открою загрузчик (YouTube, RuTube, VK Видео).")
         url = URL_RE.search(arg if cmd == "/yt" else text)
         if not url:
             return self.bot.send(cid, "Формат: <code>/yt https://youtu.be/…</code>")
         return self.offer_download(cid, uid, url.group(0))
 
     def offer_download(self, cid, uid, url):
-        tok = secrets.token_hex(4)
-        now = time.time()
-        self.pending_urls = {k: v for k, v in self.pending_urls.items() if now - v[2] < 3600}
-        self.pending_urls[tok] = (url, uid, now)
-        more = ([[{"text": "⚙️ Ещё (субтитры, фрагмент)",
-                   "web_app": {"url": self.webapp_url + "?p=downloads&url=" + quote(url)}}]]
-                if self.webapp_url else [])
-        cancel = [[{"text": "✖ Отмена", "callback_data": f"dl:{tok}:x"}]]
-        if downloads.is_playlist(url):
-            text = ("Это плейлист — в чате его не скачать. Открой «Ещё» и включи «Плейлист (до 10)»."
-                    if more else "Это плейлист — скачать его можно только в приложении MeowHub.")
-            return self.bot.send(cid, f"{text}\n{esc(url)}", reply_markup={"inline_keyboard": more + cancel})
-        pr = downloads.presets_payload()
-        kb = [[{"text": "🎬 " + p["label"], "callback_data": f"dl:{tok}:{p['id']}"} for p in pr["video"]],
-              [{"text": "🎵 " + p["label"], "callback_data": f"dl:{tok}:{p['id']}"} for p in pr["audio"]]]
-        self.bot.send(cid, f"Что скачать?\n{esc(url)}", reply_markup={"inline_keyboard": kb + more + cancel})
-
-    def start_download(self, cid, mid, uid, url, preset):
-        try:
-            job = self.downloads.submit(uid, url, preset, origin="chat", chat_id=cid, chat_msg_id=mid)
-        except downloads.DlError as e:
-            return self.bot.edit(cid, mid, f"❌ {esc(e.message)}")
-        self.bot.edit(cid, mid, f"⏳ В очереди ({esc(job['preset_label'])})…\n{esc(url)}",
-                      reply_markup=downloads.cancel_markup(job["id"]))
+        """The downloader lives in the Mini App: hand the (canonical) link over, nothing else."""
+        if not self.webapp_url:
+            return self.bot.send(cid, "🎬 Загрузчик теперь работает в мини-приложении MeowHub — "
+                                      "открой приложение и вставь ссылку на странице «Скачать».")
+        link = self.webapp_url + "?p=downloads&url=" + quote(downloads.canonical_url(url, keep_list=True), safe="")
+        self.bot.send(cid, "🎬 Скачать можно в MeowHub — ссылка уже подставлена.",
+                      reply_markup={"inline_keyboard": [[{"text": "Открыть загрузчик", "web_app": {"url": link}}]]})
 
     # ------------------------------------------------------------ passwords --
     def cmd_pass(self, cid):
@@ -1102,25 +1081,6 @@ class Helper:
             self.members.touch(uid, frm, "callback")
         kind, _, rest = data.partition(":")
 
-        if kind == "dl":
-            tok, _, preset = rest.partition(":")
-            p = self.pending_urls.get(tok)
-            if not self.yt_ok(uid, role) or (p and p[1] != uid):
-                return self.bot.answer(q["id"], "Недоступно", alert=True)
-            self.pending_urls.pop(tok, None)
-            self.bot.answer(q["id"])
-            if preset == "x" or not p:
-                return self.bot.edit(cid, mid, "Отменено." if preset == "x" else "Ссылка устарела, пришли ещё раз.")
-            return self.start_download(cid, mid, uid, p[0], preset)
-        if kind == "dlc":
-            if not self.yt_ok(uid, role) or not rest.isdigit():
-                return self.bot.answer(q["id"], "Недоступно", alert=True)
-            try:
-                self.downloads.cancel(uid, int(rest))
-            except downloads.DlError as e:
-                return self.bot.answer(q["id"], e.message, alert=True)
-            return self.bot.answer(q["id"], "Отменено")
-
         # ----- owner only below: checked again here, per press, because a
         # callback carries the presser's id, not the original recipient's.
         if role != "owner":
@@ -1150,7 +1110,7 @@ class MemberFront:
     The handlers are the Helper's own methods, re-bound to this object so that
     `self.bot` is the member bot and `self.kind` is "member"; everything else
     (store, members, xui, ...) is read from -- and assigned to -- the Helper, so a
-    hot-swapped 3x-ui client or a new pending-download map is seen by both bots."""
+    hot-swapped 3x-ui client or a new nag map is seen by both bots."""
     _OWN = ("core", "bot", "kind", "bot_username")
 
     def __init__(self, core, bot, username):

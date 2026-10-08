@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../icons.jsx'
-import { Action, Button, Cell, Chips, Empty, ErrorBox, Field, Pill, Section, Segmented, Skeleton, Switch, toast } from '../ui.jsx'
+import { Action, Button, Cell, Chips, Empty, ErrorBox, Field, Pill, Segmented, Skeleton, Switch, toast } from '../ui.jsx'
 import { api } from '../api.js'
 import { useApi } from '../hooks.js'
 import { t } from '../i18n.js'
-import { MODE, canReadClipboard, haptic, readClipboard, saveFile } from '../tg.js'
+import { canReadClipboard, haptic, readClipboard, saveFile } from '../tg.js'
 import { canDownload, fmtBytes, fmtDur, nowSec, parseClock, plural } from '../util.js'
 import { useApp } from '../ctx.js'
 import { Title } from './shared.jsx'
@@ -119,7 +119,6 @@ function JobRow({ job, audioIds, onRefresh, onGone }) {
     try { await fn() } catch (e) { haptic.notify('error'); toast(e.message, 'bad') } finally { setBusy('') }
   }
   const save = (f) => { haptic.impact('light'); saveFile(f.url, f.name) }
-  const send = () => run('send', async () => { await api(`dl/${job.id}/send`, { method: 'POST' }); haptic.notify('success'); toast(t('dl.sent')) })
   const cancel = () => run('cancel', async () => { await api(`dl/${job.id}/cancel`, { method: 'POST' }); onRefresh() })
   const del = () => run('delete', async () => { await api(`dl/${job.id}/delete`, { method: 'POST' }); onGone(job.id) })
 
@@ -169,7 +168,6 @@ function JobRow({ job, audioIds, onRefresh, onGone }) {
       <div className="job__act">
         {job.status === 'done' && main.length === 1 && fileBtn(main[0], t('dl.save'), save, 'primary')}
         {job.status === 'done' && subs.map((f) => fileBtn(f, `${t('dl.subs_file')}${subs.length > 1 ? ' ' + (f.lang || f.name.split('.').slice(-2, -1)[0] || '') : ''}`, save))}
-        {job.status === 'done' && job.can_send && <Button kind="tonal" size="s" icon="send" loading={busy === 'send'} onClick={send}>{t('dl.to_chat_btn')}</Button>}
         {active && <Button kind="danger" size="s" icon="x" loading={busy === 'cancel'} onClick={cancel}>{t('dl.cancel')}</Button>}
         {!active && <Button kind="plain" size="s" icon="trash" loading={busy === 'delete'} onClick={del}>{t('dl.delete')}</Button>}
       </div>
@@ -182,14 +180,12 @@ export default function Downloads() {
   const allowed = canDownload(me)
   const { data: presets, error: presetsErr, loading: presetsLoading, reload: reloadPresets } = useApi(allowed ? 'dl/presets' : null)
   const { jobs, error: jobsErr, refresh, mutate } = useJobs()
-  const tg = MODE === 'tg'
 
   const [url, setUrl] = useState(() => new URLSearchParams(location.search).get('url') || '')
   const [preset, setPreset] = useState('')
   const [sub, setSub] = useState('')
   const [clip, setClip] = useState({ start: '', end: '' })
   const [playlist, setPlaylist] = useState(false)
-  const [toChat, setToChat] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const canPaste = useMemo(canReadClipboard, [])
@@ -234,7 +230,6 @@ export default function Downloads() {
     if (sub && !isAudio) body.subs = sub
     if (clipUsed) body.clip = { start: cs, end: ce }
     if (playlist) body.playlist = true
-    if (tg) body.to_chat = toChat
     try {
       const job = await api('dl', { method: 'POST', body })
       haptic.notify('success'); toast(t('dl.queued_toast'))
@@ -284,13 +279,6 @@ export default function Downloads() {
             clipBad={!!clipErr} playlist={playlist} setPlaylist={setPlaylist} />
           {clipErr && <p className="formerr" role="alert">{clipErr}</p>}
         </>
-      )}
-
-      {tg && (
-        <Section>
-          <Cell icon="send" title={t('dl.to_chat')} sub={t('dl.to_chat_sub')}
-            right={<Switch checked={toChat} label={t('dl.to_chat')} onChange={setToChat} />} onClick={() => setToChat(!toChat)} />
-        </Section>
       )}
 
       <Action text={t('dl.go')} icon="download" enabled={ready} loading={busy} onClick={submit} />

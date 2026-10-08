@@ -270,14 +270,30 @@ that points at `host.docker.internal`, that rewrite did not run.
 
 Put one AmneziaWG inbound in the member inbounds (at most one, see above) and each
 member gets one peer, which expires with the membership. The "AmneziaWG" group
-offers three things: **copy the `vpn://` link** (AmneziaVPN), **download
-`meowhub-awg.conf`** (AmneziaWG) and a **QR** that carries the `.conf` text (a long
+offers four things: **Открыть в AmneziaVPN** (one tap, below), **copy the `vpn://`
+link** (AmneziaVPN), **download `meowhub-awg.conf`** (AmneziaWG) and a **QR** that
+carries the `.conf` text (a long
 config falls back to error-correction level L, and past that the app says to
 download the file). The panel writes its own host (`localhost`) into the peer's
 `Endpoint`; the helper rewrites it to `BASE_DOMAIN` in both the `vpn://` link and the
 `.conf`, re-encoding the link exactly like its input. The `.conf` download is a
 [signed link](#downloader) (kind `awg_conf`) that re-checks the member's `vpn`
 access at download time.
+
+**"Открыть в AmneziaVPN" (one tap).** The first link of the group is a signed link
+(kind `awg_open`, 1 h) to an HTML hand-off page served by `/dl/<token>` (the app opens
+it with `openLink`, since Telegram will not open custom schemes). AmneziaVPN registers
+`vpn://` **only on Android**, where it shows the config for confirmation (not a silent
+import). So the page looks at the User-Agent: Android gets an
+`intent://<key>#Intent;scheme=vpn;package=org.amnezia.vpn;S.browser_fallback_url=<Google Play>;end`
+link plus a plain `vpn://` fallback; iOS and desktop get a signed `meowhub.vpn` file
+(kind `awg_vpn`, the key text -- AmneziaVPN opens `.vpn` files, not `.conf`, which iOS
+hands to the AmneziaWG app; never put "backup" in the name, iOS AmneziaVPN would treat
+it as a backup restore). Every variant also has "Скопировать ключ" and a store link;
+there is no auto-redirect (Chrome needs a tap). The key is sent without its `#name`.
+Hint shown in the group: "AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться».
+AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR)." See
+[the research note](research/amneziavpn-deeplink-2026-10.md).
 
 ## Inbound auto-dating
 
@@ -390,7 +406,8 @@ bot has it. The hub's own URL comes from `BASE_DOMAIN` + `DASHBOARD_PATH`.
 
 Service `youtube` (an owner-switched, all-members service, off by default -- see
 [Service toggles](#service-toggles); the owner always has it, in the helper bot).
-Send a link to the bot, or use the Mini App page "Скачать" (`?p=downloads&url=…`).
+Downloads happen in the Mini App page "Скачать" (`?p=downloads&url=…`). The bots do
+**not** download or upload anything: a link sent to a bot is handed off to the app.
 
 - **Engine**: MeTube at the internal `METUBE_URL` (default `http://metube:8081`) plus
   `/{METUBE_PATH}/`, pinned in compose (`METUBE_IMAGE`), with `DOWNLOAD_DIRS_INDEXABLE`
@@ -407,23 +424,33 @@ Send a link to the bot, or use the Mini App page "Скачать" (`?p=downloads
   subtitles (separate `.srt`), a from-to clip, and a playlist (first 10).
 - **Limits** per person (the owner is exempt): `DL_ACTIVE` 2, `DL_PER_HOUR` 10,
   `DL_PER_DAY` 30; new jobs are refused below `DL_MIN_FREE_GB` (50) free on the
-  download disk. `DL_CHAT_MAX_MB` (49) is the biggest file the bot sends itself.
-  All optional, see `.env.example`.
-- **Delivery**: a file up to `DL_CHAT_MAX_MB` is uploaded into the chat by the bot
-  the person talks to. Bigger files, and app downloads, get a **signed link**
-  `https://<domain>/<BOT_APP_PATH>/dl/<token>`: an HMAC token (key in the
-  `link_secret` setting) bound to the user and the job, valid about
-  `METUBE_TTL_MIN`. The helper serves the file itself with `Range` support,
-  `Content-Disposition` and CORS for web.telegram.org (what the Mini App's native
-  `downloadFile` needs), re-checks the job and the service on every request, and the
-  token never appears in logs.
-- **Cleanup**: when everyone who asked got the file through Telegram, the item is
-  deleted in MeTube immediately. Otherwise the `metube-janitor` deletes files
-  `METUBE_TTL_MIN` minutes (default 30) after they were last changed, by ctime.
-- **Bot**: a link gives preset buttons, progress, then the file or a link. "Ещё" opens
-  the app for subtitles, clips and playlists. Members with the service get a "Скачать
-  видео" keyboard button; members without it are told at most hourly that downloads
-  are switched off.
+  download disk. All optional, see `.env.example`.
+- **URLs**: `downloads.canonical_url()` runs in `submit()` before anything is stored or
+  sent to MeTube. MeTube rewrites `youtu.be/<id>` to `youtube.com/watch?v=<id>` and jobs
+  are matched to its items by URL, so a share link used to sit "running" forever. YouTube
+  (`youtu.be`, `/shorts`, `/live`, `/embed`, `/v`, `m.`/`music.`, `watch?v=`) becomes
+  `https://www.youtube.com/watch?v=<id>`; `list`/`index` are kept only with the
+  "Плейлист" option (a `watch?v=X&list=Y` share otherwise downloads just the video; a
+  bare `/playlist?list=` still needs the option); `si`, `is`, `feature`, `pp`,
+  `ab_channel`, `utm_*` and `t` are dropped (MeTube would take `t` as a clip start).
+  Other sites only lose `utm_*`/`si`. Matching compares canonical URLs; as a second line
+  of defence a single unclaimed item of the same folder and kind added after the submit
+  is taken as the job's.
+- **Delivery**: only a **signed link** `https://<domain>/<BOT_APP_PATH>/dl/<token>`: an
+  HMAC token (key in the `link_secret` setting) bound to the user and the job, valid
+  about `METUBE_TTL_MIN`, shown as "Сохранить" in the app. The helper serves the file
+  itself with `Range` support, `Content-Disposition` and CORS for web.telegram.org (what
+  the Mini App's native `downloadFile` needs), re-checks the job and the service on
+  every request, and the token never appears in logs. There is no Telegram upload and no
+  chat progress message (Bot API caps uploads at 50 MB anyway).
+- **Cleanup**: the `metube-janitor` deletes files `METUBE_TTL_MIN` minutes (default 30)
+  after they were last changed, by ctime; "Удалить" in the app also removes the item in
+  MeTube.
+- **Bot**: a link (or `/yt <url>`) from the owner or a member with the service gets one
+  message with an "Открыть загрузчик" `web_app` button that opens the app with the
+  canonical URL filled in (plain text when no Mini App URL is configured). Members with
+  the service get a "Скачать видео" keyboard button; members without it are told at most
+  hourly that downloads are switched off.
 - **Admin**: the Bots page "Загрузки" section (disk free, today's jobs and bytes,
   recent jobs).
 

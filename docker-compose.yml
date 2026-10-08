@@ -170,7 +170,6 @@ services:
       DL_ACTIVE: ${DL_ACTIVE:-}
       DL_PER_HOUR: ${DL_PER_HOUR:-}
       DL_PER_DAY: ${DL_PER_DAY:-}
-      DL_CHAT_MAX_MB: ${DL_CHAT_MAX_MB:-}
       DL_MIN_FREE_GB: ${DL_MIN_FREE_GB:-}
       # Logins the owner can ask the bot for. Accounts that only keep a hash
       # (3x-ui, Immich, n8n) are added from Telegram with /setpass.
