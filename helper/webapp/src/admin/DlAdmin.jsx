@@ -2,13 +2,11 @@ import { useState } from 'react'
 import { Button, Cell, ErrorBox, Pill, Section, Skeleton } from '../ui.jsx'
 import Icon from '../icons.jsx'
 import { useApi } from '../hooks.js'
+import { t } from '../i18n.js'
 import { fmtBytes, fmtDateTime, plural } from '../util.js'
 import { useApp } from '../ctx.js'
 
-const ST = {
-  queued: ['mute', 'В очереди'], running: ['accent', 'Скачивается'], done: ['ok', 'Готово'],
-  error: ['bad', 'Ошибка'], canceled: ['mute', 'Отменено'], expired: ['mute', 'Удалён'],
-}
+const ST_TONE = { queued: 'mute', running: 'accent', done: 'ok', error: 'bad', canceled: 'mute', expired: 'mute' }
 const who = (j) => j.user_name || j.user?.name || (typeof j.user === 'string' ? j.user : '') || (j.uid != null ? String(j.uid) : '—')
 const SHOWN = 8
 
@@ -19,28 +17,29 @@ export default function DlAdmin() {
   const [all, setAll] = useState(false)
 
   if (loading && !data) return <Skeleton rows={3} />
-  if (error && !data) return <ErrorBox error={error} onRetry={reload} what="Не удалось загрузить загрузки" />
+  if (error && !data) return <ErrorBox error={error} onRetry={reload} what={t('dla.load_fail')} />
 
   const jobs = data.jobs || data.items || []
   const shown = all ? jobs : jobs.slice(0, SHOWN)
   const free = data.disk_free_gb
   const low = free != null && free < 50
-  const t = data.today || {}
+  const today = data.today || {}
   return (
     <>
-      <Section title="Загрузки" footer={low ? 'Меньше 50 ГБ: новые загрузки отклоняются.' : undefined}>
-        <Cell icon="server" tone={low ? 'warn' : 'accent'} title="Свободно на диске"
+      <Section title={t('dla.title')} footer={low ? t('dla.low') : undefined}>
+        <Cell icon="server" tone={low ? 'warn' : 'accent'} title={t('dla.free')}
           value={free != null ? fmtBytes(free * 1024 ** 3) : '—'} />
-        <Cell icon="download" tone={data.active ? 'ok' : 'mute'} title="Сейчас качается" value={data.active ?? 0} />
-        <Cell icon="calendar" tone="mute" title="За сегодня"
-          value={`${t.jobs ?? 0} ${plural(t.jobs ?? 0, ['загрузка', 'загрузки', 'загрузок'])}, ${fmtBytes(t.bytes ?? 0)}`} />
+        <Cell icon="download" tone={data.active ? 'ok' : 'mute'} title={t('dla.active')} value={data.active ?? 0} />
+        <Cell icon="calendar" tone="mute" title={t('dla.today')}
+          value={t('dla.today_v', { n: today.jobs ?? 0, unit: plural(today.jobs ?? 0, t('dla.unit_job').split('|')), size: fmtBytes(today.bytes ?? 0) })} />
       </Section>
       <section className="sec">
-        <div className="sec__h"><h3>Последние за 24 часа{jobs.length ? <em> {jobs.length}</em> : null}</h3></div>
+        <div className="sec__h"><h3>{t('dla.recent')}{jobs.length ? <em> {jobs.length}</em> : null}</h3></div>
         <div className="group">
-          {jobs.length === 0 && <Cell icon="info" tone="mute" title="Пока ничего не качали" />}
+          {jobs.length === 0 && <Cell icon="info" tone="mute" title={t('dla.none')} />}
           {shown.map((j) => {
-            const [tone, label] = ST[j.status] || ['mute', j.status]
+            const tone = ST_TONE[j.status] || 'mute'
+            const label = j.status in ST_TONE ? t('dl.st.' + j.status) : j.status
             return (
               <div className="dlrow" key={j.id}>
                 <div className="dlrow__main">
@@ -59,7 +58,7 @@ export default function DlAdmin() {
         {jobs.length > SHOWN && (
           <div className="more">
             <Button kind="plain" size="s" onClick={() => setAll(!all)}>
-              {all ? 'Свернуть' : `Показать все (${jobs.length})`}
+              {all ? t('dla.collapse') : t('dla.show_all', { n: jobs.length })}
               <Icon name="chevdown" size={16} className={'rot' + (all ? ' open' : '')} />
             </Button>
           </div>

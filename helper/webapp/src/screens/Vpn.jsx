@@ -3,7 +3,7 @@ import qrcode from 'qrcode-generator'
 import Icon from '../icons.jsx'
 import { Cell, Dot, ErrorBox, Section, Skeleton, doCopy, Button, Empty } from '../ui.jsx'
 import { api } from '../api.js'
-import { t } from '../i18n.js'
+import { getLang, t } from '../i18n.js'
 import { haptic, openLink, openTelegramLink, saveFile } from '../tg.js'
 import { fmtBytes, shortUrl } from '../util.js'
 import { useApp } from '../ctx.js'
@@ -11,6 +11,9 @@ import { Title } from './shared.jsx'
 
 // Error correction trades capacity for resilience: short payloads get M, long ones (AWG
 // configs run to a few hundred bytes) step down to L to keep the module grid scannable.
+// The server renders the /go/<app> hand-off page itself; tell it which language to use.
+const goUrl = (u) => new URL(u + (u.includes('?') ? '&' : '?') + 'l=' + getLang(), location.href).href
+
 function buildQr(text) {
   const levels = text.length > 400 ? ['L'] : ['M', 'L']
   for (const level of levels) {
@@ -184,7 +187,7 @@ export default function Vpn() {
             <Section title={t('vpn.add')} footer={t('vpn.add_foot')}>
               {apps.map((a) => (
                 <Cell key={a.id} icon="external" title={a.name} sub={Array.isArray(a.platforms) ? a.platforms.join(' · ') : (a.platforms || '')} chevron
-                  onClick={() => { haptic.impact('light'); openLink(new URL(a.go_url, location.href).href) }} />
+                  onClick={() => { haptic.impact('light'); openLink(goUrl(a.go_url)) }} />
               ))}
             </Section>
           </>

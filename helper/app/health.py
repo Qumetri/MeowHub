@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import hub
+import i18n
 
 log = logging.getLogger("health")
 
@@ -54,13 +55,27 @@ CERT_WARN_D, CERT_CRIT_D = _f("HEALTH_CERT_WARN_DAYS", 14), _f("HEALTH_CERT_CRIT
 
 
 class Finding:
-    __slots__ = ("key", "level", "text")
+    """`text` is the Russian rendering (also what plain tests compare); a finding
+    built with `tkey`/`args` can be rendered in any language through `t(lang)`."""
+    __slots__ = ("key", "level", "text", "tkey", "args")
 
-    def __init__(self, key, level, text):
+    def __init__(self, key, level, text, tkey=None, args=None):
         self.key, self.level, self.text = key, level, text
+        self.tkey, self.args = tkey, args or {}
+
+    def t(self, lang="ru"):
+        if not self.tkey:
+            return self.text
+        args = {k: (v.get(lang) or v["ru"] if isinstance(v, dict) else v) for k, v in self.args.items()}
+        return i18n.tr(lang, self.tkey, **args)
 
     def __repr__(self):
         return f"<{self.level} {self.key}: {self.text}>"
+
+
+def F(key, level, tkey, **args):
+    """A Finding whose text comes from the i18n catalog."""
+    return Finding(key, level, i18n.tr("ru", tkey, **args), tkey, args)
 
 
 def _json(url, timeout=8):
@@ -80,7 +95,7 @@ def check_system(store):
     try:
         s = _json(STATS)
     except Exception as e:                                    # noqa: BLE001
-        return [Finding("stats", "warn", f"hub-stats не отвечает: {e}")], info
+        return [F("stats", "warn", "health.stats_down", e=e)], info
     info["stats"] = s
     for key, name, warn, crit in (("disk", "SSD", SSD_WARN, SSD_CRIT),
                                   ("hdd", "HDD", HDD_WARN, HDD_CRIT)):
@@ -89,29 +104,26 @@ def check_system(store):
             continue
         p = d["percent"]
         lvl = "crit" if p >= crit else "warn" if p >= warn else "ok"
-        out.append(Finding(f"disk:{key}", lvl,
-                           f"{name} заполнен на {p:.0f}% (свободно {gb(d['total'] - d['used'])} GB)"))
+        out.append(F(f"disk:{key}", lvl, "health.disk", name=name, p=f"{p:.0f}",
+                     free=gb(d["total"] - d["used"])))
     m = s.get("mem") or {}
     if m:
-        out.append(Finding("ram", "warn" if m["percent"] >= RAM_WARN else "ok",
-                           f"RAM занята на {m['percent']:.0f}%"))
+        out.append(F("ram", "warn" if m["percent"] >= RAM_WARN else "ok", "health.ram",
+                     p=f"{m['percent']:.0f}"))
     t = (s.get("cpu") or {}).get("temp")
     if t is not None:
-        out.append(Finding("cpu:temp", "warn" if t >= CPU_TEMP_WARN else "ok",
-                           f"CPU {t:.0f}°C"))
+        out.append(F("cpu:temp", "warn" if t >= CPU_TEMP_WARN else "ok", "health.cpu_temp", t=f"{t:.0f}"))
     g = s.get("gpu")
     if g:
         store.set("gpu_seen", "1")
-        out.append(Finding("gpu:temp", "warn" if g["temp"] >= GPU_TEMP_WARN else "ok",
-                           f"GPU {g['temp']:.0f}°C"))
-        out.append(Finding("gpu", "ok", "GPU отвечает"))
+        out.append(F("gpu:temp", "warn" if g["temp"] >= GPU_TEMP_WARN else "ok", "health.gpu_temp",
+                     t=f"{g['temp']:.0f}"))
+        out.append(F("gpu", "ok", "health.gpu_ok"))
     elif store.get("gpu_seen") == "1":
         # The failure class this exists for: an unattended NVIDIA driver
         # upgrade without a reboot leaves nvidia-smi unable to talk to the
         # kernel module, and Immich ML + Ollama silently lose the GPU.
-        out.append(Finding("gpu", "crit",
-                           "GPU не отвечает (nvidia-smi). Частая причина — обновился драйвер "
-                           "NVIDIA без перезагрузки"))
+        out.append(F("gpu", "crit", "health.gpu_lost"))
     return out, info
 
 
@@ -164,10 +176,7 @@ def check_host():
     info = {"tcp": _tcp_established(), "wifi": _wifi(), "uptime": _uptime(), "load": _load()}
     n = info["tcp"]
     lvl = "crit" if n >= TCP_CRIT else "warn" if n >= TCP_WARN else "ok"
-    text = f"{n} открытых TCP-соединений"
-    if lvl != "ok":
-        text += " — похоже на утечку соединений VPN (xray); помогает перезапуск 3x-ui"
-    return [Finding("tcp", lvl, text)], info
+    return [F("tcp", lvl, "health.tcp" if lvl == "ok" else "health.tcp_leak", n=n)], info
 
 
 # ------------------------------------------------------------- containers --
@@ -179,7 +188,7 @@ def check_containers():
     try:
         cs = _json(f"{DOCKER}/containers/json?all=1")
     except Exception as e:                                    # noqa: BLE001
-        return [Finding("docker", "warn", f"docker-proxy не отвечает: {e}")], info
+        return [F("docker", "warn", "health.docker_down", e=e)], info
     info["total"] = len(cs)
     for c in cs:
         name = (c.get("Names") or ["?"])[0].lstrip("/")
@@ -188,9 +197,9 @@ def check_containers():
             info["running"] += 1
         key = f"ct:{name}"
         if state == "restarting":
-            out.append(Finding(key, "crit", f"контейнер {name} перезапускается по кругу"))
+            out.append(F(key, "crit", "health.ct_loop", name=name))
         elif "(unhealthy)" in status:
-            out.append(Finding(key, "crit", f"контейнер {name} unhealthy"))
+            out.append(F(key, "crit", "health.ct_unhealthy", name=name))
         elif state in ("exited", "dead"):
             # A stopped container is usually deliberate (docker stop, a
             # one-shot job). Only a non-zero exit that is not a stop signal
@@ -201,12 +210,11 @@ def check_containers():
                 st = {}
             code, oom = st.get("ExitCode", 0), st.get("OOMKilled", False)
             if oom or code not in (0, 137, 143):
-                why = "нехватка памяти (OOM)" if oom else f"код выхода {code}"
-                out.append(Finding(key, "crit", f"контейнер {name} упал: {why}"))
+                out.append(F(key, "crit", "health.ct_oom" if oom else "health.ct_exit", name=name, code=code))
             else:
                 info["stopped"].append(name)
         else:
-            out.append(Finding(key, "ok", f"{name} работает"))
+            out.append(F(key, "ok", "health.ct_ok", name=name))
         if state == "running":
             # A crash followed by an automatic restart leaves the container
             # "running" -- the restart counter is the only trace.
@@ -218,8 +226,7 @@ def check_containers():
             if rc is not None:
                 _seen_restarts[name] = rc
                 if prev is not None and rc > prev:
-                    out.append(Finding(f"restart:{name}:{rc}", "event",
-                                       f"контейнер {name} упал и был перезапущен (раз: {rc})"))
+                    out.append(F(f"restart:{name}:{rc}", "event", "health.ct_restarted", name=name, rc=rc))
     return out, info
 
 
@@ -243,11 +250,10 @@ def check_tls_routes(with_certs=True):
         try:
             s = _tls_connect(host, port)
         except ssl.SSLCertVerificationError as e:
-            out.append(Finding(f"tls:{host}:{port}", "crit",
-                               f"{name}: сертификат недействителен ({e.verify_message})"))
+            out.append(F(f"tls:{host}:{port}", "crit", "health.tls_bad", name=name, msg=e.verify_message))
             continue
         except OSError as e:
-            out.append(Finding(f"route:{sid}", "crit", f"{name} недоступен: {e}"))
+            out.append(F(f"route:{sid}", "crit", "health.route_down", name=name, e=e))
             continue
         try:
             if with_certs and (host, port) not in seen_hosts:
@@ -256,23 +262,22 @@ def check_tls_routes(with_certs=True):
                 days = (exp - time.time()) / 86400
                 info["certs"].append((days, host if port == 443 else f"{host}:{port}"))
                 lvl = "crit" if days < CERT_CRIT_D else "warn" if days < CERT_WARN_D else "ok"
-                out.append(Finding(f"cert:{host}:{port}", lvl,
-                                   f"сертификат {host}{'' if port == 443 else ':' + str(port)} "
-                                   f"истекает через {days:.0f} дн."))
+                out.append(F(f"cert:{host}:{port}", lvl, "health.cert",
+                             host=f"{host}{'' if port == 443 else ':' + str(port)}", days=f"{days:.0f}"))
             s.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: meowhub-helper\r\n"
                       f"Connection: close\r\n\r\n".encode())
             line = s.recv(256).split(b"\r\n", 1)[0].decode(errors="replace")
             code = int(line.split()[1]) if len(line.split()) > 1 else 0
         except (OSError, ValueError) as e:
-            out.append(Finding(f"route:{sid}", "crit", f"{name} не ответил: {e}"))
+            out.append(F(f"route:{sid}", "crit", "health.route_noans", name=name, e=e))
             continue
         finally:
             s.close()
         if code >= 500 or code == 0:
-            out.append(Finding(f"route:{sid}", "crit", f"{name} отвечает ошибкой HTTP {code}"))
+            out.append(F(f"route:{sid}", "crit", "health.route_http", name=name, code=code))
         else:
             info["routes_ok"] += 1
-            out.append(Finding(f"route:{sid}", "ok", f"{name} отвечает ({code})"))
+            out.append(F(f"route:{sid}", "ok", "health.route_ok", name=name, code=code))
     return out, info
 
 
@@ -297,7 +302,7 @@ def check_dns():
     info = {"ip": public_ip(), "hosts": []}
     ip = info["ip"]
     if not ip:
-        return [Finding("ip", "warn", "не удалось узнать внешний IP")], info
+        return [F("ip", "warn", "health.ip_unknown")], info
     hosts = sorted({h for _, _, h, _, _ in hub.own_hosts()} | ({hub.base_domain()} - {""}))
     bad = []
     for h in hosts:
@@ -307,12 +312,15 @@ def check_dns():
             addrs = []
         info["hosts"].append((h, addrs))
         if ip not in addrs:
-            bad.append(f"{h} → {', '.join(addrs) or 'не резолвится'}")
+            bad.append((h, addrs))
     if bad:
-        return [Finding("dns", "crit",
-                        f"DNS не совпадает с внешним IP {ip}: " + "; ".join(bad)
-                        + ". Обнови A-записи у регистратора")], info
-    return [Finding("dns", "ok", f"DNS указывает на {ip}")], info
+        # the "doesn't resolve" wording is language-dependent: render the list per language
+        ru = "; ".join(f"{h} → {', '.join(a) or i18n.tr('ru', 'health.dns_none')}" for h, a in bad)
+        en = "; ".join(f"{h} → {', '.join(a) or i18n.tr('en', 'health.dns_none')}" for h, a in bad)
+        f = F("dns", "crit", "health.dns_bad", ip=ip, bad=ru)
+        f.args = {"ip": ip, "bad": {"ru": ru, "en": en}}
+        return [f], info
+    return [F("dns", "ok", "health.dns_ok", ip=ip)], info
 
 
 # ----------------------------------------------------------------- report --
@@ -325,29 +333,31 @@ def full(store):
             f, i = fn()
         except Exception as e:                                # noqa: BLE001
             log.exception("check failed")
-            f, i = [Finding(f"check:{getattr(fn, '__name__', '?')}", "warn", f"проверка упала: {e}")], {}
+            f, i = [F(f"check:{getattr(fn, '__name__', '?')}", "warn", "health.check_failed", e=e)], {}
         findings += f
         info.update(i)
     return findings, info
 
 
-def _dur(sec):
+def _dur(sec, lang="ru"):
     d, h = int(sec // 86400), int(sec % 86400 // 3600)
-    return f"{d} д {h} ч" if d else f"{h} ч {int(sec % 3600 // 60)} мин"
+    return i18n.tr(lang, "health.dur_dh", d=d, h=h) if d else i18n.tr(lang, "health.dur_hm", h=h, m=int(sec % 3600 // 60))
 
 
-def render(findings, info):
+def render(findings, info, lang="ru"):
+    tr = lambda key, **kw: i18n.tr(lang, key, **kw)                  # noqa: E731
     probs = [f for f in findings if f.level in ("warn", "crit")]
     crit = sum(1 for f in probs if f.level == "crit")
     if not probs:
-        head = "✅ <b>Сервер в порядке</b>"
+        head = tr("health.head_ok")
     elif crit:
-        head = f"🔴 <b>Проблем: {crit}</b>" + (f", предупреждений: {len(probs) - crit}" if len(probs) > crit else "")
+        head = tr("health.head_crit", n=crit) + (tr("health.head_crit_warn", n=len(probs) - crit)
+                                                 if len(probs) > crit else "")
     else:
-        head = f"⚠️ <b>Предупреждений: {len(probs)}</b>"
+        head = tr("health.head_warn", n=len(probs))
     lines = [head]
     for f in sorted(probs, key=lambda f: f.level != "crit"):
-        lines.append(f"{'🔴' if f.level == 'crit' else '⚠️'} {esc(f.text)}")
+        lines.append(f"{'🔴' if f.level == 'crit' else '⚠️'} {esc(f.t(lang))}")
     lines = ["\n".join(lines)]
 
     s = info.get("stats") or {}
@@ -368,32 +378,33 @@ def render(findings, info):
     if g:
         sysl.append(f"GPU {g['percent']:.0f}% · VRAM {gb(g['memUsed'])}/{gb(g['memTotal'])} GB · {g['temp']:.0f}°C")
     if info.get("uptime"):
-        sysl.append(f"Аптайм {_dur(info['uptime'])}")
+        sysl.append(tr("health.uptime", v=_dur(info["uptime"], lang)))
     if sysl:
-        lines.append("🖥 <b>Система</b>\n" + "\n".join(sysl))
+        lines.append(tr("health.sys") + "\n" + "\n".join(sysl))
 
     netl = []
     if info.get("wifi"):
         iface, lvl = info["wifi"]
-        q = "отличный" if lvl > -55 else "хороший" if lvl > -67 else "слабый" if lvl > -75 else "плохой"
+        q = tr("health.wifi_q4" if lvl > -55 else "health.wifi_q3" if lvl > -67
+               else "health.wifi_q2" if lvl > -75 else "health.wifi_q1")
         netl.append(f"Wi-Fi {iface}: {lvl:.0f} dBm ({q})")
     if "tcp" in info:
-        netl.append(f"TCP-соединений: {info['tcp']}")
+        netl.append(tr("health.tcp_line", n=info["tcp"]))
     if info.get("ip"):
-        netl.append(f"Внешний IP {info['ip']}")
+        netl.append(tr("health.ip_line", ip=info["ip"]))
     if netl:
-        lines.append("🌐 <b>Сеть</b>\n" + "\n".join(netl))
+        lines.append(tr("health.net") + "\n" + "\n".join(netl))
 
     if info.get("total"):
-        t = f"🐳 <b>Контейнеры</b>\nРаботают {info['running']} из {info['total']}"
+        t = tr("health.ct_head", run=info["running"], total=info["total"])
         if info.get("stopped"):
-            t += f"\nОстановлены вручную: {', '.join(info['stopped'])}"
+            t += "\n" + tr("health.ct_stopped", v=", ".join(info["stopped"]))
         lines.append(t)
     if info.get("routes"):
-        t = f"🔗 <b>Сайты</b>\nОтвечают {info['routes_ok']} из {info['routes']}"
+        t = tr("health.sites_head", ok=info["routes_ok"], n=info["routes"])
         if info.get("certs"):
             days, host = min(info["certs"])
-            t += f"\nБлижайший сертификат истекает через {days:.0f} дн. ({host})"
+            t += "\n" + tr("health.cert_soon", days=f"{days:.0f}", host=host)
         lines.append(t)
     lines.append(f"<i>{datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>")
     return "\n\n".join(lines)

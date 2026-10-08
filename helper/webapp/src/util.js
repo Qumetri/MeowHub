@@ -1,7 +1,7 @@
 import { getLang, t } from './i18n.js'
 
 export const nowSec = () => Math.floor(Date.now() / 1000)
-const loc = () => (getLang() === 'ru' ? 'ru-RU' : 'en-US')
+const loc = () => (getLang() === 'ru' ? 'ru-RU' : 'en-GB')
 
 export function fmtDate(ts, withYear) {
   const d = new Date(ts * 1000)
@@ -16,38 +16,43 @@ export function fmtDateTime(ts) {
   return new Intl.DateTimeFormat(loc(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ts * 1000))
 }
 
+// forms: ru [one, few, many]; en [one, other] (a 3-form list works for both).
 export function plural(n, forms) {
   n = Math.abs(n)
   if (getLang() === 'ru') {
     const a = n % 10, b = n % 100
     if (a === 1 && b !== 11) return forms[0]
     if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return forms[1]
-    return forms[2]
+    return forms[2] ?? forms[1]
   }
-  return n === 1 ? forms[3] ?? forms[0] : forms[4] ?? forms[1]
+  return n === 1 ? forms[0] : forms[1]
 }
-export const daysWord = (n) => plural(n, ['день', 'дня', 'дней', 'day', 'days'])
+export const daysWord = (n) => plural(n, t('unit.day').split('|'))
+
+// 1.5 -> "1,5" (ru) / "1.5" (en)
+export const fmtDec = (n, digits = 1) => n.toFixed(digits).replace('.', getLang() === 'ru' ? ',' : '.')
 
 export function fmtBytes(n) {
   if (n == null) return '—'
-  const u = getLang() === 'ru' ? ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'] : ['B', 'KB', 'MB', 'GB', 'TB']
+  const u = t('unit.bytes').split('|')
   let i = 0
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
-  const v = i === 0 || n >= 100 ? Math.round(n) : n.toFixed(1).replace('.', getLang() === 'ru' ? ',' : '.')
+  const v = i === 0 || n >= 100 ? Math.round(n) : fmtDec(n)
   return `${v} ${u[i]}`
 }
 
-export function ago(ts) {
-  if (!ts) return getLang() === 'ru' ? 'не заходил(а)' : 'never seen'
+// "12 min ago" without the "seen" wrapper (for places that add their own context).
+export function agoShort(ts) {
   const s = Math.max(0, nowSec() - ts)
-  const ru = getLang() === 'ru'
-  let v
-  if (s < 90) v = ru ? 'только что' : 'just now'
-  else if (s < 3600) v = ru ? `${Math.round(s / 60)} мин назад` : `${Math.round(s / 60)} min ago`
-  else if (s < 86400) v = ru ? `${Math.round(s / 3600)} ч назад` : `${Math.round(s / 3600)} h ago`
-  else if (s < 86400 * 60) v = ru ? `${Math.round(s / 86400)} дн назад` : `${Math.round(s / 86400)} d ago`
-  else v = fmtDate(ts, true)
-  return ru ? `был(а) ${v}` : `seen ${v}`
+  if (s < 90) return t('ago.now')
+  if (s < 3600) return t('ago.min', { n: Math.round(s / 60) })
+  if (s < 86400) return t('ago.h', { n: Math.round(s / 3600) })
+  if (s < 86400 * 60) return t('ago.d', { n: Math.round(s / 86400) })
+  return fmtDate(ts, true)
+}
+export function ago(ts) {
+  if (!ts) return t('ago.never')
+  return t('ago.seen', { v: agoShort(ts) })
 }
 
 export function personName(m) {
@@ -85,13 +90,12 @@ export function canDownload(me) {
   return !!me && (me.role === 'owner' || !!me.services?.find((s) => s.id === 'youtube')?.available)
 }
 
-// Seconds -> "45 с" / "3 мин" / "1 ч 05 мин".
+// Seconds -> "45 s" / "3 min" / "1 h 05 min".
 export function fmtDur(sec) {
-  const ru = getLang() === 'ru'
   sec = Math.max(0, Math.round(sec))
-  if (sec < 60) return `${sec} ${ru ? 'с' : 's'}`
-  if (sec < 3600) return `${Math.round(sec / 60)} ${ru ? 'мин' : 'min'}`
-  return `${Math.floor(sec / 3600)} ${ru ? 'ч' : 'h'} ${String(Math.round((sec % 3600) / 60)).padStart(2, '0')} ${ru ? 'мин' : 'min'}`
+  if (sec < 60) return t('dur.s', { n: sec })
+  if (sec < 3600) return t('dur.min', { n: Math.round(sec / 60) })
+  return t('dur.hm', { h: Math.floor(sec / 3600), m: String(Math.round((sec % 3600) / 60)).padStart(2, '0') })
 }
 // "1:23" / "83" / "1:02:03" -> seconds; '' -> null; garbage -> NaN.
 export function parseClock(s) {

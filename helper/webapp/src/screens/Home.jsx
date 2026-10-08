@@ -5,7 +5,7 @@ import { t } from '../i18n.js'
 import { haptic } from '../tg.js'
 import { canDownload, fmtDate, hasService, personName, svcList, uiState } from '../util.js'
 import { useApp } from '../ctx.js'
-import { ContactCell, contactVars } from './shared.jsx'
+import { ContactCell, LangSection, contactVars } from './shared.jsx'
 
 function ActionBtn({ icon, label, onClick, dim }) {
   return (
@@ -79,6 +79,8 @@ export default function Home() {
           sub={m.username ? '@' + m.username : undefined} />
         <Cell icon="calendar" tone="mute" title={t('home.since')} value={fmtDate(m.created_ts, true)} />
       </Section>
+
+      <LangSection />
     </div>
   )
 }

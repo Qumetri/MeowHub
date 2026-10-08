@@ -6,7 +6,7 @@ import { t } from '../i18n.js'
 import { haptic } from '../tg.js'
 import { normCode } from '../util.js'
 import { useApp } from '../ctx.js'
-import { ContactCell, contactHandle, redeemMessage } from './shared.jsx'
+import { ContactCell, LangSection, contactHandle, redeemMessage } from './shared.jsx'
 import Icon from '../icons.jsx'
 
 export default function Stranger() {
@@ -64,6 +64,7 @@ export default function Stranger() {
       <Action text={t('stranger.activate')} enabled={ready} loading={busy} onClick={submit} />
       <div className="wide-col">
         {contactHandle(me) && <Section><ContactCell me={me} /></Section>}
+        <LangSection />
       </div>
     </div>
   )

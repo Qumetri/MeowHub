@@ -18,6 +18,9 @@ import threading
 import time
 from datetime import date, timedelta
 
+import i18n
+from i18n import MONTHS, ru_date                       # noqa: F401  (re-exported: bot/webapp/tests use them)
+
 log = logging.getLogger("members")
 
 # mode: "grant" = the member needs it in their membership `services` (codes, member card);
@@ -47,12 +50,6 @@ SUB_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 RATE_MAX, RATE_WINDOW = 5, 3600
 MEMBER_PROTOCOLS = {"vless", "vmess", "trojan", "shadowsocks", "hysteria", "mtproto"}
 AWG_PROTOCOLS = {"wireguard", "amneziawg"}
-MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
-          "сентября", "октября", "ноября", "декабря"]
-
-
-def esc(s):
-    return html.escape(str(s), quote=False)
 
 
 def owner_contact():
@@ -66,6 +63,10 @@ def ask_owner(cap=False):
     return ("Напиши " if cap else "напиши ") + (esc(c) if c else "владельцу")
 
 
+def esc(s):
+    return html.escape(str(s), quote=False)
+
+
 def norm_code(s):
     """User input -> bare code: uppercase, only A-Z0-9 (dashes/spaces dropped)."""
     return re.sub(r"[^A-Z0-9]", "", str(s or "").upper())
@@ -76,11 +77,6 @@ def _services(services):
     in the canonical SERVICES order."""
     want = set(services or [])
     return [k for k in GRANTABLE if k in want]
-
-
-def ru_date(ts):
-    d = date.fromtimestamp(ts)
-    return f"{d.day} {MONTHS[d.month - 1]}"
 
 
 def awg_limited(ids, by_id):
@@ -244,7 +240,7 @@ class Members:
         m = self.get(uid)
         return bool(m) and self.has_row(m, service)
 
-    def services_state(self):
+    def services_state(self, lang="ru"):
         sw = self._switches()
         active = [m for m in self.list() if self.status(m) == "active"]
         out = []
@@ -252,7 +248,7 @@ class Members:
             on = sw.get(k)
             on = on if isinstance(on, bool) else SERVICE_DEFAULTS.get(k, False)
             n = sum(1 for m in active if on and (v["mode"] == "all" or k in m["services"]))
-            out.append({"id": k, "name": v["name_ru"], "description": v["desc_ru"], "mode": v["mode"],
+            out.append({"id": k, "name": v["name_" + lang], "description": v["desc_" + lang], "mode": v["mode"],
                         "enabled": on, "members_with_access": n})
         return out
 
@@ -697,6 +693,9 @@ class Reconciler:
                     raise RuntimeError("; ".join(errors))
 
     # -------------------------------------------------------------- reminders --
+    def _contact(self):
+        return owner_contact()
+
     def _just_started(self, uid, now, window=2 * 3600):
         """True when the newest redeem/grant/extend is within `window` and no manual
         expiry change came after it (the owner moving the date should still remind)."""
@@ -707,6 +706,9 @@ class Reconciler:
                 return now - e["ts"] < window
         return False
 
+    def _lang(self, uid, m=None):
+        return i18n.lang_of(self.m.s, uid, (m or {}).get("lang"))
+
     def reminders(self):
         now = time.time()
         owner = self.owner_id()
@@ -716,33 +718,31 @@ class Reconciler:
                 continue
             uid, left, flag = m["id"], exp - now, m["reminded"]
             text = None
+            L = self._lang(uid, m)
             if left <= 0:
                 if flag == -1:
                     continue
-                text = ("⏸ Подписка MeowHub закончилась. Сервисы приостановлены, аккаунты сохранены. "
-                        f"Пришли новый код или {ask_owner()}.")
+                text = i18n.tr(L, "rem.expired", c=esc(self._contact()))
                 self.m.set_reminded(uid, -1)
                 self.m.log(uid, "expire", "reminder")
                 self.send(uid, text)
                 text = None
                 if owner:
-                    self.send(owner, f"⌛ {esc(self._name(m))} — подписка истекла",
+                    OL = self._lang(owner)
+                    self.send(owner, i18n.tr(OL, "rem.owner_expired", name=esc(self._name(m))),
                               {"inline_keyboard": [[
-                                  {"text": "➕ 30 дней", "callback_data": f"m:ext:{uid}:30"},
-                                  {"text": "👤 Открыть", "callback_data": f"m:open:{uid}"}]]})
+                                  {"text": i18n.tr(OL, "btn.ext30_long"), "callback_data": f"m:ext:{uid}:30"},
+                                  {"text": i18n.tr(OL, "btn.open"), "callback_data": f"m:open:{uid}"}]]})
             elif left <= DAY:
                 if flag in (0, 3):
+                    self.m.set_reminded(uid, 1)
                     # A membership started or extended moments ago with under a day left
                     # (a 1-day code) shouldn't greet the user with "expires tomorrow".
                     if not self._just_started(uid, now):
-                        text = (f"⏳ Подписка MeowHub закончится через 24 часа — {ru_date(exp)} "
-                                f"в {time.strftime('%H:%M', time.localtime(exp))}. "
-                                "Чтобы продлить, пришли новый код.")
-                    self.m.set_reminded(uid, 1)
+                        text = i18n.tr(L, "rem.24h", when=i18n.fmt_when(L, exp))
             elif left <= 3 * DAY:
                 if flag == 0:
-                    text = (f"⏳ Подписка MeowHub закончится через 3 дня (до {ru_date(exp)}). "
-                            "Чтобы продлить, пришли новый код.")
+                    text = i18n.tr(L, "rem.3d", date=i18n.fmt_date(L, exp))
                     self.m.set_reminded(uid, 3)
             if text:
                 self.send(uid, text)
@@ -771,11 +771,12 @@ class Reconciler:
                         i["remark"] = dated
                     except Exception as e:
                         log.warning("dating inbound %s failed: %s", i["id"], e)
+                OL = self._lang(owner)
                 self.send(owner,
-                          f"🆕 Новый инбаунд в 3x-ui: <b>{esc(i.get('remark', ''))}</b> "
-                          f"({esc(i.get('protocol', ''))}, :{esc(i.get('port', ''))}). Выдать его участникам?",
+                          i18n.tr(OL, "inb.new", r=esc(i.get("remark", "")), proto=esc(i.get("protocol", "")),
+                                  port=esc(i.get("port", ""))),
                           {"inline_keyboard": [[
-                              {"text": "✅ Выдать", "callback_data": f"inb:add:{i['id']}"},
-                              {"text": "Пропустить", "callback_data": f"inb:skip:{i['id']}"}]]})
+                              {"text": i18n.tr(OL, "btn.share_inb"), "callback_data": f"inb:add:{i['id']}"},
+                              {"text": i18n.tr(OL, "btn.skip"), "callback_data": f"inb:skip:{i['id']}"}]]})
                 known.add(i["id"])
                 self.m.set_known_inbounds(known)

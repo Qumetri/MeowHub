@@ -2,6 +2,7 @@
 // App.jsx loads it lazily via import() for the owner's "preview as member" -
 // either way it is its own chunk, never part of the main bundle. Dev switches: ?mock=member|owner|stranger|expired
 // (+ &mode=tg for the fake Telegram shell, &theme=dark, &lang=en, &pending=1, &fail=<path part>,
+// &lang=auto|ru|en (initial stored preference; `auto` follows &lc=ru|en, the simulated Telegram language_code),
 // &member_bot=1 (member bot configured), &via=member, &preview=guest|member|expired, &tab=overview).
 import { ApiError } from './api.js'
 import { MOCK_USERS } from './mock-users.js'
@@ -12,7 +13,13 @@ let ROLE = P.get('mock')
 let previewOn = false
 const D = 86400
 const now = () => Math.floor(Date.now() / 1000)
-const L = () => (previewOn ? getLang() : P.get('lang') === 'en' ? 'en' : 'ru')
+// Language: `langPref` is the stored preference (POST lang); L() the effective one for /api/me.
+// tr() localizes the mock's own messages by the UI language (like the server honouring X-Lang).
+let langPref = ['ru', 'en'].includes(P.get('lang')) ? P.get('lang') : 'auto'
+let autoLang = P.get('lc') === 'en' ? 'en' : 'ru'
+const L = () => (langPref === 'auto' ? autoLang : langPref)
+const tr = (ru, en) => (getLang() === 'en' ? en : ru)
+let realPref = null
 const SERVER = 'example.org'
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -72,24 +79,27 @@ const state = {
       ? { source: 'page', masked: '7345…Qm2x', bot: { id: 7345, username: 'ExampleMemberBot', name: 'MeowHub', ok: true, error: '' } }
       : { source: 'none', masked: '', bot: null },
     crypto: { source: 'env', masked: '6011…Lp0d', bot: { id: 6011, username: 'ExampleCryptoBot', name: 'Crypto News', ok: false, error: 'api.telegram.org: timeout' } },
-    xui: { source: 'page', masked: 'x7Kq…93Fa', check: { ok: true, error: '', detail: '25 инбаундов' } },
+    xui: { source: 'page', masked: 'x7Kq…93Fa', check: { ok: true, error: '' } },
   },
 }
-const NOTE_CRYPTO = 'n8n хранит свою копию токена крипто-бота: после смены обнови токен в его Telegram-credential в n8n.'
+const noteCrypto = () => tr('n8n хранит свою копию токена крипто-бота: после смены обнови токен в его Telegram-credential в n8n.', 'n8n keeps its own copy of the crypto bot token: after changing it, update the token in its Telegram credential in n8n.')
 const keyItem = (id) => {
   const k = state.keys[id]
   return {
     id, kind: id === 'xui' ? 'api' : 'bot', configured: k.source !== 'none', source: k.source, masked: k.masked,
     updated_ts: k.source === 'page' ? now() - 3600 : null, restart_on_change: id === 'helper' || id === 'member',
-    ...(k.bot !== undefined ? { bot: k.bot } : {}), ...(k.check ? { check: k.check } : {}),
-    ...(id === 'crypto' ? { note: NOTE_CRYPTO } : {}),
+    ...(k.bot !== undefined ? { bot: k.bot ? { ...k.bot, error: k.bot.error ? tr('api.telegram.org: таймаут', 'api.telegram.org: timeout') : '' } : k.bot } : {}),
+    ...(k.check ? { check: { ...k.check, detail: k.check.ok ? tr('25 инбаундов', '25 inbounds') : '' } } : {}),
+    ...(id === 'crypto' ? { note: noteCrypto() } : {}),
   }
 }
 const pickSelf = (r) => (r === 'stranger' ? null : (r === 'owner' ? MOCK_USERS.owner : r === 'expired' ? MOCK_USERS.expired : MOCK_USERS.member))
 let SELF = pickSelf(ROLE)
 let TG_USER = MOCK_USERS[ROLE] || MOCK_USERS.member
 // Owner preview: act as 'stranger' | 'member' | 'expired'; configure(null) goes back to the URL's role.
-export function configure(role) {
+export function configure(role, lang) {
+  if (role && lang) { realPref ??= { langPref, autoLang }; langPref = lang.pref || 'auto'; autoLang = lang.lang }
+  else if (!role && realPref) { ({ langPref, autoLang } = realPref); realPref = null }
   previewOn = !!role
   ROLE = role || P.get('mock')
   SELF = pickSelf(ROLE)
@@ -157,7 +167,7 @@ const SERVICES = [
 const adminServices = () => SVC_STATE.map((x) => {
   const sv = SERVICES.find((y) => y.id === x.id)
   const n = state.members.filter((m) => statusOf(m) === 'active' && (x.mode === 'all' || m.services.includes(x.id))).length
-  return { id: x.id, name: sv.ru[0], description: sv.ru[1], mode: x.mode, enabled: x.enabled, members_with_access: n }
+  return { id: x.id, name: sv[L()][0], description: sv[L()][1], mode: x.mode, enabled: x.enabled, members_with_access: n }
 })
 const AWG_CONF = `[Interface]
 PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
@@ -186,14 +196,14 @@ PersistentKeepalive = 25
 const AWG_VPN_URL = 'vpn://' + btoa(JSON.stringify({ containers: [{ container: 'amnezia-awg', awg: { config: AWG_CONF, port: '20443', transport_proto: 'udp' } }], defaultContainer: 'amnezia-awg', description: 'MeowHub', dns1: '1.1.1.1', dns2: '1.0.0.1', hostName: SERVER })).replace(/=+$/, '')
 
 // ---- downloader (CONTRACT3). Jobs seeded in several states; new ones advance queued -> running -> done by wall clock.
-const DL_PRESETS = {
-  video: [{ id: 'v360', label: '360p' }, { id: 'v720', label: '720p' }, { id: 'v1080', label: '1080p' }, { id: 'vbest', label: 'Лучшее' }],
+const dlPresets = () => ({
+  video: [{ id: 'v360', label: '360p' }, { id: 'v720', label: '720p' }, { id: 'v1080', label: '1080p' }, { id: 'vbest', label: tr('Лучшее', 'Best') }],
   audio: [{ id: 'mp3', label: 'MP3' }, { id: 'm4a', label: 'M4A' }, { id: 'opus', label: 'Opus' }],
   extras: { subs: ['ru', 'en'], clip: true, playlist_max: 10 },
   limits: { active: 2, per_hour: 10, per_day: 30, ttl_min: 30 },
-  sites: ['YouTube', 'RuTube', 'VK Видео'],
-}
-const presetLabel = (id) => [...DL_PRESETS.video, ...DL_PRESETS.audio].find((p) => p.id === id)?.label || id
+  sites: ['YouTube', 'RuTube', tr('VK Видео', 'VK Video')],
+})
+const presetLabel = (id) => { const p = dlPresets(); return [...p.video, ...p.audio].find((x) => x.id === id)?.label || id }
 const MB = 1024 * 1024
 const dlFile = (name, size, kind) => ({ name, size, url: 'https://' + SERVER + '/app/dl/' + btoa(unescape(encodeURIComponent(name))).replace(/[=+/]/g, '') + '.mockSig', kind })
 const dlJob = (id, uid, url, preset, status, title, extra = {}) => ({
@@ -212,7 +222,7 @@ const dlJobs = [
     files: [dlFile('lofi hip hop radio - beats to relax_study to.mp3', int(8.2 * MB), 'audio')],
   }),
   dlJob(3, 100200301, 'https://www.youtube.com/watch?v=privatevid01', 'v720', 'error', 'Закрытое видео', {
-    error: 'Видео недоступно: оно закрыто автором или удалено.', finished_ts: now() - 2400, created_ts: now() - 2500,
+    err_t: ['Видео недоступно: оно закрыто автором или удалено.', 'The video is unavailable: it is private or was removed by the author.'], finished_ts: now() - 2400, created_ts: now() - 2500,
   }),
 ]
 function int(n) { return Math.round(n) }
@@ -223,24 +233,27 @@ function dlAdvance(j) {
   if (e < 3) { j.status = 'queued'; j.percent = 0 } else if (e < 18) {
     j.status = 'running'; j.percent = Math.min(97, Math.round(((e - 3) / 15) * 100)); j.size = int(j.percent * 1.6 * MB); j.eta = Math.max(1, 18 - e)
   } else if (j.status !== 'done' && j.status !== 'canceled') {
-    const audio = DL_PRESETS.audio.some((p) => p.id === j.preset)
+    const audio = dlPresets().audio.some((p) => p.id === j.preset)
     const name = (j.title || 'video') + (audio ? '.' + j.preset : '.mp4')
     Object.assign(j, { status: 'done', percent: 100, size: audio ? 5 * MB : 160 * MB, eta: null, finished_ts: now(), expires_ts: now() + 30 * 60, files: [dlFile(name, audio ? 5 * MB : 160 * MB, audio ? 'audio' : 'video')] })
   }
   return j
 }
-const dlView = (j) => { const { uid, sim, ...rest } = dlAdvance(j); return rest }
+const dlView = (j) => {
+  const { uid, sim, err_t, ...rest } = dlAdvance(j)
+  return { ...rest, preset_label: presetLabel(rest.preset), ...(err_t ? { error: tr(...err_t) } : {}) }
+}
 const mineJobs = () => dlJobs.filter((j) => j.uid === SELF?.id || ROLE === 'owner').sort((a, b) => b.id - a.id)
 const dlAvailable = () => ROLE === 'owner' || (selfMember() && statusOf(selfMember()) === 'active' && effectiveOf(selfMember()).includes('youtube'))
 const err = (status, error, message) => { throw new ApiError(status, error, message) }
 const selfMember = () => (SELF ? find(SELF.id) : null)
 const hasSvc = (s) => { const m = selfMember(); return m && statusOf(m) === 'active' && m.services.includes(s) }
-const ownerOnly = () => { if (ROLE !== 'owner') err(403, 'forbidden', 'Только для владельца') }
+const ownerOnly = () => { if (ROLE !== 'owner') err(403, 'forbidden', tr('Только для владельца', 'Owner only')) }
 
 export async function handle(method, path, body) {
   await delay(180 + Math.random() * 160)
   const failPart = P.get('fail')
-  if (failPart && path.includes(failPart)) err(500, 'boom', 'Внутренняя ошибка сервера (mock)')
+  if (failPart && path.includes(failPart)) err(500, 'boom', tr('Внутренняя ошибка сервера (mock)', 'Internal server error (mock)'))
   const seg = path.split('?')[0].split('/')
 
   if (path === 'me') {
@@ -250,7 +263,8 @@ export async function handle(method, path, body) {
     return {
       role: ROLE === 'owner' && !viaMember ? 'owner' : m ? 'member' : 'stranger',
       mode: P.get('mode') === 'tg' ? 'tg' : 'browser',
-      user: { ...TG_USER, language_code: L() },
+      user: { ...TG_USER, language_code: autoLang },
+      lang: L(), lang_pref: langPref,
       member: m ? view(m) : null, contact: '@owner', bot_username: 'ExampleBot',
       via: viaMember ? 'member' : P.get('mode') === 'tg' ? 'helper' : 'browser',
       member_bot_username: state.keys.member.bot?.username || '',
@@ -261,6 +275,12 @@ export async function handle(method, path, body) {
         available: ROLE === 'owner' && !viaMember ? true : !!m && statusOf(m) === 'active' && effectiveOf(m).includes(s.id),
       })),
     }
+  }
+
+  if (path === 'lang' && method === 'POST') {
+    if (!['auto', 'ru', 'en'].includes(body?.lang)) err(400, 'bad_request', tr('Неверный язык', 'Invalid language'))
+    langPref = body.lang
+    return { lang: L(), lang_pref: langPref }
   }
 
   if (path === 'redeem') {
@@ -281,8 +301,8 @@ export async function handle(method, path, body) {
   }
 
   if (path === 'vpn') {
-    if (!hasSvc('vpn')) err(403, 'no_access', 'Нет доступа')
-    if (pendingOnce) { pendingOnce = false; err(409, 'pending', 'Клиент ещё создаётся') }
+    if (!hasSvc('vpn')) err(403, 'no_access', tr('Нет доступа', 'No access'))
+    if (pendingOnce) { pendingOnce = false; err(409, 'pending', tr('Клиент ещё создаётся', 'The client is still being created')) }
     const sub = 'https://' + SERVER + '/sub/k3x9a7fq2mzp81vd'
     const go = (a) => `./go/${a}?u=${encodeURIComponent(sub)}`
     return {
@@ -294,31 +314,31 @@ export async function handle(method, path, body) {
         { name: 'Shadowsocks 2022', url: 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206a2V5@' + SERVER + ':8388#SS' },
       ],
       groups: [
-        { id: 'main', title: 'VLESS и Shadowsocks', apps: ['Happ', 'v2RayTun', 'v2rayNG', 'Hiddify'],
-          hint: 'Скопируй → в приложении «+» → «Импорт из буфера».',
+        { id: 'main', title: tr('VLESS и Shadowsocks', 'VLESS and Shadowsocks'), apps: ['Happ', 'v2RayTun', 'v2rayNG', 'Hiddify'],
+          hint: tr('Скопируй → в приложении «+» → «Импорт из буфера».', 'Copy → in the app tap “+” → “Import from clipboard”.'),
           links: [
             { name: 'Speed · Vision Reality', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':443?security=reality&flow=xtls-rprx-vision&sni=www.icloud.com#Speed', action: 'copy' },
             { name: 'Resistance · XHTTP', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':443?type=xhttp&security=reality&sni=dl.google.com#Resistance', action: 'copy' },
             { name: 'Trojan TLS', url: 'trojan://q7Zp2mXk9d@' + SERVER + ':8443?sni=' + SERVER + '#Trojan', action: 'copy' },
             { name: 'Shadowsocks 2022', url: 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206a2V5@' + SERVER + ':8388#SS', action: 'copy' },
           ] },
-        { id: 'new', title: '🧪 Новые протоколы (тест)', apps: ['Happ', 'v2RayTun'],
-          hint: 'Нужна последняя версия Happ или v2RayTun. Скопируй → «+» → «Из буфера».',
+        { id: 'new', title: tr('🧪 Новые протоколы (тест)', '🧪 New protocols (test)'), apps: ['Happ', 'v2RayTun'],
+          hint: tr('Нужна последняя версия Happ или v2RayTun. Скопируй → «+» → «Из буфера».', 'Needs the latest Happ or v2RayTun. Copy → “+” → “From clipboard”.'),
           links: [{ name: 'VLESS Encryption (ML-KEM)', url: 'vless://6f2a1c3e-91b4-4d0e-8a57-0c9d1b2e3f40@' + SERVER + ':2096?encryption=mlkem768x25519plus.native.0rtt.xxxx&type=tcp#🧪 Enc', action: 'copy' }] },
         { id: 'udp', title: 'Hysteria2 (UDP)', apps: ['Happ', 'Hiddify', 'v2RayTun'],
-          hint: 'Если обычные не работают. Скопируй → «+» → «Из буфера».',
+          hint: tr('Если обычные не работают. Скопируй → «+» → «Из буфера».', 'If the regular ones don’t work. Copy → “+” → “From clipboard”.'),
           links: [{ name: 'Hysteria2', url: 'hysteria2://k3x9a7fq2m@' + SERVER + ':4443?sni=' + SERVER + '#Hysteria2', action: 'copy' }] },
         { id: 'awg', title: 'AmneziaWG', apps: ['AmneziaWG', 'AmneziaVPN'],
-          hint: 'AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).',
+          hint: tr('AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).', 'AmneziaVPN: “Open in AmneziaVPN” → “Connect”. AmneziaWG: download the .conf → “+” → “Import from file” (or QR).'),
           links: [
-            { name: 'Открыть в AmneziaVPN', url: 'https://' + SERVER + '/app/dl/b3Blbi1tb2Nr.mockSig', action: 'open' },
-            { name: 'Ключ для AmneziaVPN', url: AWG_VPN_URL, action: 'copy' },
-            { name: 'Файл .conf', url: 'https://' + SERVER + '/app/dl/Zm9vYmFyLm1vY2std2c.mockSig', action: 'download', file_name: 'meowhub-awg.conf' },
-            { name: 'QR для AmneziaWG', action: 'qr', text: AWG_CONF },
+            { name: tr('Открыть в AmneziaVPN', 'Open in AmneziaVPN'), url: 'https://' + SERVER + '/app/dl/b3Blbi1tb2Nr.mockSig', action: 'open' },
+            { name: tr('Ключ для AmneziaVPN', 'Key for AmneziaVPN'), url: AWG_VPN_URL, action: 'copy' },
+            { name: tr('Файл .conf', '.conf file'), url: 'https://' + SERVER + '/app/dl/Zm9vYmFyLm1vY2std2c.mockSig', action: 'download', file_name: 'meowhub-awg.conf' },
+            { name: tr('QR для AmneziaWG', 'QR for AmneziaWG'), action: 'qr', text: AWG_CONF },
           ] },
-        { id: 'tg', title: 'Прокси для Telegram', apps: ['Telegram'],
-          hint: 'Нажми — Telegram сам предложит включить.',
-          links: [{ name: 'MTProto-прокси', url: 'https://t.me/proxy?server=' + SERVER + '&port=9443&secret=ee1f2e3d4c5b6a79880a1b2c3d4e5f6a7b', action: 'telegram' }] },
+        { id: 'tg', title: tr('Прокси для Telegram', 'Proxy for Telegram'), apps: ['Telegram'],
+          hint: tr('Нажми — Telegram сам предложит включить.', 'Tap it — Telegram offers to switch it on.'),
+          links: [{ name: tr('MTProto-прокси', 'MTProto proxy'), url: 'https://t.me/proxy?server=' + SERVER + '&port=9443&secret=ee1f2e3d4c5b6a79880a1b2c3d4e5f6a7b', action: 'telegram' }] },
       ],
       traffic: { up: 1.2e9, down: 18.7e9 }, online: true,
       apps: [
@@ -332,44 +352,44 @@ export async function handle(method, path, body) {
   }
 
   if (seg[0] === 'dl') {
-    if (!dlAvailable()) err(403, 'no_access', 'Скачивание видео выключено')
-    if (path === 'dl/presets') return DL_PRESETS
+    if (!dlAvailable()) err(403, 'no_access', tr('Скачивание видео выключено', 'Video downloads are switched off'))
+    if (path === 'dl/presets') return dlPresets()
     if (path === 'dl' && method === 'POST') {
-      if (!/^https?:\/\/\S+$/i.test(body.url || '')) err(400, 'bad_url', 'Это не похоже на ссылку на видео.')
-      if (/playlist\?list=/.test(body.url) && !body.playlist) err(400, 'playlist', 'Это плейлист. Включи «Плейлист» в дополнительных настройках.')
-      if (/limit/.test(body.url)) err(429, 'limit', 'Лимит: не больше 2 загрузок одновременно. Дождись окончания текущих.')
-      if (/disk/.test(body.url)) err(503, 'disk_full', 'На сервере кончилось место. Попробуй позже.')
+      if (!/^https?:\/\/\S+$/i.test(body.url || '')) err(400, 'bad_url', tr('Это не похоже на ссылку на видео.', 'That doesn’t look like a video link.'))
+      if (/playlist\?list=/.test(body.url) && !body.playlist) err(400, 'playlist', tr('Это плейлист. Включи «Плейлист» в дополнительных настройках.', 'This is a playlist. Turn on “Playlist” in the extra options.'))
+      if (/limit/.test(body.url)) err(429, 'limit', tr('Лимит: не больше 2 загрузок одновременно. Дождись окончания текущих.', 'Limit: no more than 2 downloads at a time. Wait for the current ones to finish.'))
+      if (/disk/.test(body.url)) err(503, 'disk_full', tr('На сервере кончилось место. Попробуй позже.', 'The server is out of space. Try again later.'))
       const id = Math.max(...dlJobs.map((j) => j.id)) + 1
       const host = (() => { try { return new URL(body.url).hostname.replace(/^www\./, '') } catch { return body.url } })()
-      const j = dlJob(id, SELF?.id ?? 0, body.url, body.preset, 'queued', 'Видео с ' + host + (body.clip ? ' (фрагмент)' : ''), { sim: now(), created_ts: now() })
+      const j = dlJob(id, SELF?.id ?? 0, body.url, body.preset, 'queued', tr('Видео с ', 'Video from ') + host + (body.clip ? tr(' (фрагмент)', ' (clip)') : ''), { sim: now(), created_ts: now() })
       dlJobs.push(j)
       return dlView(j)
     }
     if (path === 'dl') return mineJobs().map(dlView)
     const j = dlJobs.find((x) => x.id === Number(seg[1]))
-    if (!j) err(404, 'not_found', 'Загрузка не найдена')
+    if (!j) err(404, 'not_found', tr('Загрузка не найдена', 'Download not found'))
     if (seg[2] === 'cancel') { dlAdvance(j); if (j.status === 'queued' || j.status === 'running') { j.status = 'canceled'; j.sim = 0; j.finished_ts = now() } return dlView(j) }
     if (seg[2] === 'delete') { dlJobs.splice(dlJobs.indexOf(j), 1); return { ok: true } }
   }
 
   if (path === 'matrix') {
-    if (!hasSvc('matrix')) err(403, 'no_access', 'Нет доступа')
+    if (!hasSvc('matrix')) err(403, 'no_access', tr('Нет доступа', 'No access'))
     const accounts = state.matrix[SELF.id] || []
     return { server_name: SERVER, client_url: 'https://matrix.' + SERVER, element_url: 'https://app.element.io/#/welcome', accounts, max: 2, can_create: accounts.length < 2 }
   }
   if (path === 'matrix/create') {
-    if (!hasSvc('matrix')) err(403, 'no_access', 'Нет доступа')
-    if (!/^[a-z0-9._=-]{3,24}$/.test(body.username)) err(400, 'bad_username', 'Недопустимое имя')
-    if (body.password.length < 10) err(400, 'weak_password', 'Слишком короткий пароль')
-    if (['admin', 'taken'].includes(body.username)) err(409, 'taken', 'Имя занято')
+    if (!hasSvc('matrix')) err(403, 'no_access', tr('Нет доступа', 'No access'))
+    if (!/^[a-z0-9._=-]{3,24}$/.test(body.username)) err(400, 'bad_username', tr('Недопустимое имя', 'Invalid username'))
+    if (body.password.length < 10) err(400, 'weak_password', tr('Слишком короткий пароль', 'Password is too short'))
+    if (['admin', 'taken'].includes(body.username)) err(409, 'taken', tr('Имя занято', 'Username is taken'))
     const list = (state.matrix[SELF.id] ||= [])
-    if (list.length >= 2) err(400, 'limit', 'Лимит аккаунтов')
+    if (list.length >= 2) err(400, 'limit', tr('Лимит аккаунтов', 'Account limit reached'))
     const mxid = `@${body.username}:${SERVER}`
     list.push({ mxid, created_ts: now(), locked: false })
     return { mxid }
   }
   if (path === 'matrix/password') {
-    if (body.password.length < 10) err(400, 'weak_password', 'Слишком короткий пароль')
+    if (body.password.length < 10) err(400, 'weak_password', tr('Слишком короткий пароль', 'Password is too short'))
     return { ok: true }
   }
 
@@ -397,8 +417,8 @@ export async function handle(method, path, body) {
     if (rest[0] === 'services') {
       if (rest[1] && method === 'POST') {
         const x = SVC_STATE.find((v) => v.id === rest[1])
-        if (!x) err(404, 'not_found', 'Неизвестный сервис')
-        if (typeof body.enabled !== 'boolean') err(400, 'bad_request', 'Нужно true или false')
+        if (!x) err(404, 'not_found', tr('Неизвестный сервис', 'Unknown service'))
+        if (typeof body.enabled !== 'boolean') err(400, 'bad_request', tr('Нужно true или false', 'Expected true or false'))
         x.enabled = body.enabled
       }
       return adminServices()
@@ -409,7 +429,7 @@ export async function handle(method, path, body) {
         dlJob(12, 100200302, 'https://rutube.ru/video/aa11/', 'v720', 'done', 'Кулинарный мастер-класс: бешбармак', { size: 212 * MB, created_ts: now() - 3 * 3600 }),
         dlJob(11, 100200307, 'https://www.youtube.com/watch?v=jNQXAC9IVRw', 'vbest', 'done', 'Me at the zoo', { size: 3 * MB, created_ts: now() - 5 * 3600 }),
         dlJob(10, 100200300, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'm4a', 'expired', 'Rick Astley — Never Gonna Give You Up', { size: 4 * MB, created_ts: now() - 9 * 3600 }),
-        dlJob(9, 100200302, 'https://vk.com/video-1_1', 'v1080', 'error', 'VK клип', { error: 'HTTP 403: доступ запрещён', created_ts: now() - 11 * 3600 }),
+        dlJob(9, 100200302, 'https://vk.com/video-1_1', 'v1080', 'error', 'VK клип', { err_t: ['HTTP 403: доступ запрещён', 'HTTP 403: access denied'], created_ts: now() - 11 * 3600 }),
         dlJob(8, 100200307, 'https://www.youtube.com/watch?v=lecture', 'mp3', 'canceled', 'Лекция по сетям, часть 2', { created_ts: now() - 20 * 3600 }),
       ]
       const all = [...dlJobs, ...extra].map((j) => ({ ...dlView(j), user: NAMES[j.uid] || String(j.uid), uid: j.uid })).sort((x, y) => y.created_ts - x.created_ts)
@@ -420,20 +440,20 @@ export async function handle(method, path, body) {
       await delay(300)
       if (rest.length === 1) return { items: ['helper', 'member', 'crypto', 'xui'].map(keyItem) }
       const id = rest[1], k = state.keys[id]
-      if (!k) err(404, 'not_found', 'Неизвестный ключ')
+      if (!k) err(404, 'not_found', tr('Неизвестный ключ', 'Unknown key'))
       if (rest[2] === 'reset') {
-        if (k.source !== 'page') err(404, 'no_override', 'Нет ключа, заданного здесь')
+        if (k.source !== 'page') err(404, 'no_override', tr('Нет ключа, заданного здесь', 'No key set here'))
         k.source = id === 'member' ? 'none' : 'env'; k.masked = id === 'member' ? '' : k.masked
         if (id === 'member') k.bot = null
         return { item: keyItem(id), restarting: id === 'helper' || id === 'member' }
       }
       const tok = String(body.token || '').trim()
-      if (tok.length < 8) err(400, 'bad_token', 'Telegram ответил: Unauthorized — токен не подошёл.')
-      if (tok.includes('bad')) err(400, 'bad_token', 'Telegram ответил: Unauthorized — токен не подошёл.')
-      if (id === 'member' && tok.includes('same')) err(400, 'same_bot', 'Это тот же бот, что и служебный. Нужен отдельный бот от @BotFather.')
-      if (id === 'crypto' && tok.includes('apply')) err(502, 'crypto_apply_failed', 'Крипто-сервис не принял токен (502). Ничего не сохранено.')
+      if (tok.length < 8) err(400, 'bad_token', tr('Telegram ответил: Unauthorized — токен не подошёл.', 'Telegram answered: Unauthorized — the token was rejected.'))
+      if (tok.includes('bad')) err(400, 'bad_token', tr('Telegram ответил: Unauthorized — токен не подошёл.', 'Telegram answered: Unauthorized — the token was rejected.'))
+      if (id === 'member' && tok.includes('same')) err(400, 'same_bot', tr('Это тот же бот, что и служебный. Нужен отдельный бот от @BotFather.', 'That is the same bot as the service one. You need a separate bot from @BotFather.'))
+      if (id === 'crypto' && tok.includes('apply')) err(502, 'crypto_apply_failed', tr('Крипто-сервис не принял токен (502). Ничего не сохранено.', 'The crypto service rejected the token (502). Nothing was saved.'))
       k.source = 'page'; k.masked = tok.slice(0, 4) + '…' + tok.slice(-4)
-      if (id === 'xui') k.check = { ok: true, error: '', detail: '25 инбаундов' }
+      if (id === 'xui') k.check = { ok: true, error: '' }
       else k.bot = { id: 9000 + id.length, username: id === 'member' ? 'ExampleMemberBot' : 'NewBot', name: id === 'member' ? 'MeowHub' : 'New Bot', ok: true, error: '' }
       return { item: keyItem(id), restarting: id === 'helper' || id === 'member' }
     }
@@ -441,7 +461,7 @@ export async function handle(method, path, body) {
       if (method === 'POST') {
         const ids = body.member_ids
         const awg = state.inbounds.filter((i) => ids.includes(i.id) && ['wireguard', 'amneziawg'].includes(i.protocol))
-        if (awg.length > 1) err(400, 'two_awg', 'Нельзя выдавать два AmneziaWG/WireGuard инбаунда одновременно')
+        if (awg.length > 1) err(400, 'two_awg', tr('Нельзя выдавать два AmneziaWG/WireGuard инбаунда одновременно', 'You can’t assign two AmneziaWG/WireGuard inbounds at once'))
         state.inbounds.forEach((i) => { i.member = ids.includes(i.id) })
       }
       return state.inbounds.map((i) => ({ ...i }))
@@ -456,7 +476,7 @@ export async function handle(method, path, body) {
     }
     if (rest[0] === 'members') {
       const m = find(rest[1])
-      if (!m) err(404, 'not_found', 'Участник не найден')
+      if (!m) err(404, 'not_found', tr('Участник не найден', 'Member not found'))
       if (method === 'POST') {
         const a = body.action
         if (a === 'extend') m.expires_ts = Math.max(now(), m.expires_ts || now()) + body.days * D
@@ -473,15 +493,15 @@ export async function handle(method, path, body) {
         ...view(m), traffic: traffic(m), online: online(m), vpn_links_count: m.services.includes('vpn') ? 4 : 0,
         matrix_accounts: state.matrix[m.id] || [],
         events: [
-          ev(5, 'extend', 1.2, '+30 дн.'), ev(4, 'redeem', 31, 'MEOW-X8LD-2FGJ · 30 дн.'),
+          ev(5, 'extend', 1.2, tr('+30 дн.', '+30 d')), ev(4, 'redeem', 31, 'MEOW-X8LD-2FGJ · 30 дн.'),
           ev(3, 'matrix_create', 30, '@' + (m.username || 'user') + ':' + SERVER), ev(2, 'services', 40, 'vpn, matrix'),
-          ev(1, 'join', (Date.now() / 1000 - m.created_ts) / D, 'Первый вход'),
+          ev(1, 'join', (Date.now() / 1000 - m.created_ts) / D, tr('Первый вход', 'First sign-in')),
         ],
       }
     }
     if (rest[0] === 'grant') {
       let m = find(body.uid)
-      if (!m) { m = U(body.uid, 'Новый', 'участник', '', body.days, body.services, null, 0); state.members.unshift(m) } else {
+      if (!m) { m = U(body.uid, tr('Новый', 'New'), tr('участник', 'member'), '', body.days, body.services, null, 0); state.members.unshift(m) } else {
         m.expires_ts = Math.max(now(), m.expires_ts || now()) + body.days * D
         m.services = [...new Set([...m.services, ...body.services])]
       }
@@ -497,5 +517,5 @@ export async function handle(method, path, body) {
       return state.codes.map(codeView)
     }
   }
-  return err(404, 'not_found', 'Не найдено: ' + path)
+  return err(404, 'not_found', tr('Не найдено: ', 'Not found: ') + path)
 }

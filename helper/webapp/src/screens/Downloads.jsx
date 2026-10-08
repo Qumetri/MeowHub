@@ -9,7 +9,7 @@ import { canDownload, fmtBytes, fmtDur, nowSec, parseClock, plural } from '../ut
 import { useApp } from '../ctx.js'
 import { Title } from './shared.jsx'
 
-const DEFAULT_SITES = ['YouTube', 'RuTube', 'VK Видео']
+const defaultSites = () => ['YouTube', 'RuTube', t('dl.site_vk')]
 const isActive = (j) => j.status === 'queued' || j.status === 'running'
 const ST_TONE = { queued: 'mute', running: 'accent', done: 'ok', error: 'bad', canceled: 'mute', expired: 'mute' }
 const listOf = (r) => (Array.isArray(r) ? r : r?.jobs || r?.items || [])
@@ -200,7 +200,7 @@ export default function Downloads() {
   const audioIds = useMemo(() => (presets ? new Set((presets.audio || []).map((p) => p.id)) : null), [presets])
   const isAudio = !!audioIds?.has(preset)
   const extras = presets?.extras || {}
-  const sites = presets?.sites?.length ? presets.sites : DEFAULT_SITES
+  const sites = presets?.sites?.length ? presets.sites : defaultSites()
   const ttl = presets?.limits?.ttl_min ?? 30
 
   const cs = parseClock(clip.start), ce = parseClock(clip.end)

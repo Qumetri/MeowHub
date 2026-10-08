@@ -29,6 +29,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import downloads as dlm
+import i18n
 import links as signed
 import members as mem
 import tokens
@@ -66,32 +67,11 @@ VPN_APPS = [
 ]
 APPS_BY_ID = {a[0]: a for a in VPN_APPS}
 
-RESULT_MESSAGES = {
-    "new": "Доступ открыт.",
-    "extended": "Подписка продлена.",
-    "invalid": "Код не найден. Проверь, что он введён без ошибок.",
-    "used": "Этот код уже использован.",
-    "expired_code": "Срок действия кода истёк.",
-    "revoked_code": "Этот код отозван.",
-    "suspended": "Доступ приостановлен владельцем — по коду его не вернуть.",
-    "rate_limited": "Слишком много неверных попыток. Попробуй через час.",
-}
-MESSAGES = {
-    "unauthorized": "Нужна авторизация.",
-    "forbidden": "Недостаточно прав.",
-    "not_found": "Не найдено.",
-    "bad_request": "Некорректный запрос.",
-    "internal": "Внутренняя ошибка.",
-    "bad_token": "Токен не подошёл.",
-    "same_bot": "Это токен того же бота, что и служебный: нужен отдельный бот.",
-    "crypto_apply_failed": "Не удалось передать токен крипто-трекеру.",
-    "no_override": "Токен не менялся на странице — сбрасывать нечего.",
-    "no_fallback": "Без токена бот не запустится: в .env его нет.",
-    "not_grantable": "Этот сервис не выдаётся участникам по одному: он включается для всех главным выключателем.",
-    "bad_link": "Ссылка недействительна или устарела.",
-}
-CRYPTO_NOTE = ("n8n хранит свою копию токена крипто-бота: после смены обнови токен "
-               "в его Telegram-credential в n8n.")
+# Human texts live in i18n.T; these two are the Russian renderings, kept for callers that want a dict.
+RESULT_MESSAGES = {k: i18n.tr("ru", "result." + k) for k in
+                   ("new", "extended", "invalid", "used", "expired_code", "revoked_code", "suspended",
+                    "rate_limited")}
+MESSAGES = {k[4:]: v["ru"] for k, v in i18n.T.items() if k.startswith("msg.")}
 
 
 def esc(s):
@@ -104,10 +84,23 @@ def env(name, default=""):
 
 
 class ApiError(Exception):
-    def __init__(self, status, code, message=None):
+    """`message` is an i18n catalog key (or plain text) with its `vars`; without one the
+    code's default text (`msg.<code>`) is used. Rendered at response time in the caller's
+    language: `render(lang)`; `.message` is the Russian rendering."""
+
+    def __init__(self, status, code, message=None, **vars):
         super().__init__(code)
-        self.status, self.code = status, code
-        self.message = message or MESSAGES.get(code, code)
+        self.status, self.code, self.key, self.vars = status, code, message, vars
+
+    def render(self, lang="ru"):
+        key = self.key or "msg." + self.code
+        if i18n.has(key):
+            return i18n.tr(lang, key, **self.vars)
+        return self.key or self.code
+
+    @property
+    def message(self):
+        return self.render("ru")
 
 
 class Resp:
@@ -123,8 +116,9 @@ def jr(obj, status=200, headers=None):
 
 
 class Ctx:
-    def __init__(self, uid, role, mode, user, via="browser"):
+    def __init__(self, uid, role, mode, user, via="browser", lang="ru"):
         self.uid, self.role, self.mode, self.user, self.via = uid, role, mode, user, via
+        self.lang = lang                    # effective language of this request (set after auth)
 
 
 # --------------------------------------------------------------- initData --
@@ -173,19 +167,19 @@ def name_of(m):
     return n or (f"@{m['username']}" if m.get("username") else str(m["id"]))
 
 
-def svc_names(services):
-    return " + ".join(mem.SERVICES[s]["name_ru"] for s in services if s in mem.SERVICES) or "—"
+def svc_names(services, lang="ru"):
+    return " + ".join(mem.SERVICES[s]["name_" + lang] for s in services if s in mem.SERVICES) or "—"
 
 
 def as_int(v, lo, hi, field):
     if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
-        raise ApiError(400, "bad_request", f"Поле {field}: ожидается число {lo}..{hi}.")
+        raise ApiError(400, "bad_request", "api.bad_int", field=field, lo=lo, hi=hi)
     return v
 
 
 def as_services(v, field="services"):
     if not isinstance(v, list) or not all(isinstance(s, str) and s in mem.SERVICES for s in v):
-        raise ApiError(400, "bad_request", f"Поле {field}: неизвестный сервис.")
+        raise ApiError(400, "bad_request", "api.bad_service", field=field)
     if any(s not in mem.GRANTABLE for s in v):
         raise ApiError(400, "not_grantable")
     return v
@@ -205,7 +199,7 @@ def run_timeout(fn, timeout=SYNC_TIMEOUT):
     t.start()
     t.join(timeout)
     if t.is_alive():
-        raise ApiError(504, "timeout", "Операция идёт слишком долго, попробуй позже.")
+        raise ApiError(504, "timeout", "api.timeout")
     if "e" in box:
         raise box["e"]
     return box.get("v")
@@ -244,12 +238,14 @@ def crypto_apply(token):
         return False
 
 
-def plural_inbounds(n):
+def plural_inbounds(n, lang="ru"):
+    if lang == "en":
+        return i18n.tr("en", "integ.inbounds_one" if n == 1 else "integ.inbounds_many", n=n)
     if n % 10 == 1 and n % 100 != 11:
-        return f"{n} инбаунд"
+        return i18n.tr(lang, "integ.inbounds_one", n=n)
     if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return f"{n} инбаунда"
-    return f"{n} инбаундов"
+        return i18n.tr(lang, "integ.inbounds_few", n=n)
+    return i18n.tr(lang, "integ.inbounds_many", n=n)
 
 
 # ------------------------------------------------------- VPN link grouping --
@@ -259,18 +255,12 @@ BAD_HOSTS = {"host.docker.internal", "localhost", "127.0.0.1", "0.0.0.0", "::1",
 AUTHORITY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)([^@/?#]*@)?(\[[^\]]*\]|[^:/?#]*)")
 UDP_SCHEMES = ("hysteria2", "hy2", "hysteria")
 TG_PREFIXES = ("tg://proxy", "https://t.me/proxy")
-LINK_GROUPS = [
-    ("main", "VLESS и Shadowsocks", ["Happ", "v2RayTun", "v2rayNG", "Hiddify"],
-     "Скопируй → в приложении «+» → «Импорт из буфера».", "copy"),
-    ("new", "🧪 Новые протоколы (тест)", ["Happ", "v2RayTun"],
-     "Нужна последняя версия Happ или v2RayTun. Скопируй → «+» → «Из буфера».", "copy"),
-    ("udp", "Hysteria2 (UDP)", ["Happ", "Hiddify", "v2RayTun"],
-     "Если обычные не работают. Скопируй → «+» → «Из буфера».", "copy"),
-    ("awg", "AmneziaWG", ["AmneziaWG", "AmneziaVPN"],
-     "AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». "
-     "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).", "copy"),
-    ("tg", "Прокси для Telegram", ["Telegram"],
-     "Нажми — Telegram сам предложит включить.", "telegram"),
+LINK_GROUPS = [          # id, title key, apps, hint key, action
+    ("main", "grp.main.title", ["Happ", "v2RayTun", "v2rayNG", "Hiddify"], "grp.main.hint", "copy"),
+    ("new", "grp.new.title", ["Happ", "v2RayTun"], "grp.new.hint", "copy"),
+    ("udp", "grp.udp.title", ["Happ", "Hiddify", "v2RayTun"], "grp.udp.hint", "copy"),
+    ("awg", "grp.awg.title", ["AmneziaWG", "AmneziaVPN"], "grp.awg.hint", "copy"),
+    ("tg", "grp.tg.title", ["Telegram"], "grp.tg.hint", "telegram"),
 ]
 
 
@@ -374,12 +364,13 @@ def tg_proxy_url(url, domain):
     return "https://t.me/proxy?" + "&".join(p for p in parts if p)
 
 
-def link_name(url, email, i):
+def link_name(url, email, i, lang="ru"):
     name = _fragment_of(url).strip()
     if email and name.endswith("-" + email):
         name = name[:-len(email) - 1].strip()
     g = link_group(url)
-    return name or ("MTProto-прокси" if g == "tg" else "AmneziaWG" if g == "awg" else f"Конфиг {i}")
+    return name or (i18n.tr(lang, "link.mtproto") if g == "tg" else "AmneziaWG" if g == "awg"
+                    else i18n.tr(lang, "link.config", i=i))
 
 
 AWG_FILE = "meowhub-awg.conf"
@@ -389,21 +380,22 @@ AMNEZIA_APPSTORE = "https://apps.apple.com/app/id1600529900"
 AMNEZIA_SITE = "https://amnezia.org/downloads"
 
 
-def awg_links(items, conf_url, open_url=None):
+def awg_links(items, conf_url, open_url=None, lang="ru"):
     """The AmneziaWG group's links: (with `open_url`) a one-tap hand-off page for the
     AmneziaVPN app, copy each vpn:// link, then (for the first) a signed .conf download
     and a QR carrying the .conf text."""
-    out = [{"name": "Открыть в AmneziaVPN", "url": open_url, "action": "open"}] if open_url and items else []
+    out = [{"name": i18n.tr(lang, "link.open_amnezia"), "url": open_url, "action": "open"}] \
+        if open_url and items else []
     out += [dict(l, action="copy") for l in items]
     conf = vpn_conf(items[0]["url"]) if items else None
     if conf_url:
-        out.append({"name": "Файл .conf", "url": conf_url, "action": "download", "file_name": AWG_FILE})
+        out.append({"name": i18n.tr(lang, "link.conf"), "url": conf_url, "action": "download", "file_name": AWG_FILE})
     if conf:
-        out.append({"name": "QR для AmneziaWG", "action": "qr", "text": conf})
+        out.append({"name": i18n.tr(lang, "link.qr"), "action": "qr", "text": conf})
     return out
 
 
-def build_links(urls, email, domain, conf_url=None, open_url=None):
+def build_links(urls, email, domain, conf_url=None, open_url=None, lang="ru"):
     """-> (links, groups) for /api/vpn: host-fixed, named, grouped by app family.
     `conf_url` is the (absolute) signed URL of the AmneziaWG .conf, `open_url` the signed
     AmneziaVPN hand-off page, when there are such."""
@@ -414,11 +406,11 @@ def build_links(urls, email, domain, conf_url=None, open_url=None):
         url = url.strip()
         g = link_group(url)
         url = tg_proxy_url(url, domain) if g == "tg" else fix_host(url, domain)
-        item = {"name": link_name(url, email, i), "url": url}
+        item = {"name": link_name(url, email, i, lang), "url": url}
         links.append(item)
         by_group.setdefault(g, []).append(item)
-    groups = [{"id": gid, "title": title, "apps": list(apps), "hint": hint,
-               "links": awg_links(by_group[gid], conf_url, open_url) if gid == "awg"
+    groups = [{"id": gid, "title": i18n.tr(lang, title), "apps": list(apps), "hint": i18n.tr(lang, hint),
+               "links": awg_links(by_group[gid], conf_url, open_url, lang) if gid == "awg"
                else [dict(l, action=action) for l in by_group[gid]]}
               for gid, title, apps, hint, action in LINK_GROUPS if by_group.get(gid)]
     return links, groups
@@ -454,15 +446,15 @@ class App:
             m = self.h.members.get(uid) if uid is not None else None
             user = ({"id": m["id"], "first_name": m["first_name"], "last_name": m["last_name"],
                      "username": m["username"], "language_code": m["lang"]} if m else
-                    {"id": uid, "first_name": "Владелец", "last_name": "", "username": "",
-                     "language_code": "ru"})
+                    {"id": uid, "first_name": i18n.tr(i18n.lang_of(self.h.store, uid), "common.owner"),
+                     "last_name": "", "username": "", "language_code": "ru"})
             return Ctx(uid, "owner", "browser", user, "browser")
         raw = headers.get("X-Tg-Init-Data", "")
         if not raw:
             raise ApiError(401, "unauthorized")
         cands = [(via, t) for via, t in self.h.bot_tokens().items() if t]
         if not cands:
-            raise ApiError(503, "bot_not_ready", "Бот ещё запускается, попробуй через минуту.")
+            raise ApiError(503, "bot_not_ready", "api.bot_starting")
         try:
             max_age = int(env("WEBAPP_INITDATA_MAX_AGE", "86400"))
         except ValueError:
@@ -474,9 +466,9 @@ class App:
                 break
             except InitDataError as e:
                 if e.code != "bad_init_data":   # right token, but expired
-                    raise ApiError(401, e.code, "Сессия недействительна, открой приложение заново.") from None
+                    raise ApiError(401, e.code, "api.session_invalid") from None
         if user is None:
-            raise ApiError(401, "bad_init_data", "Сессия недействительна, открой приложение заново.")
+            raise ApiError(401, "bad_init_data", "api.session_invalid")
         uid = user["id"]
         ctx = Ctx(uid, self.role_of(uid, via), "tg", user, via)
         now = time.time()
@@ -486,7 +478,18 @@ class App:
                 self._touched[uid] = now
         if due:
             self.h.members.touch(uid, user, "app")
+            i18n.remember_code(self.h.store, uid, user.get("language_code"))
         return ctx
+
+    # --------------------------------------------------------- language --
+    def pure_lang(self, ctx):
+        """Effective language from the stored preference, else the user's language_code."""
+        code = ctx.user.get("language_code") if ctx.mode == "tg" else None
+        return i18n.lang_of(self.h.store, ctx.uid, code)
+
+    def ctx_lang(self, ctx, headers):
+        """What this request's messages use: X-Lang when valid, else `pure_lang`."""
+        return i18n.norm(headers.get("X-Lang")) or self.pure_lang(ctx)
 
     def need_owner(self, ctx):
         if ctx.role != "owner":
@@ -495,21 +498,22 @@ class App:
     def need_service(self, ctx, svc):
         """Member endpoints: the caller's own membership only (owner included)."""
         if ctx.uid is None or not self.h.members.has(ctx.uid, svc):
-            raise ApiError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
+            raise ApiError(403, "no_access", "api.no_access")
         return ctx.uid
 
     # ---------------------------------------------------------- notifying --
-    def tell(self, uid, text):
+    def tell(self, uid, make):
+        """Notify `uid` in their own language: `make(lang)` builds the text."""
         if uid == self.h.owner_id():
             return
         try:
-            self.h.notify(uid, text)
+            self.h.notify(uid, make(i18n.lang_of(self.h.store, uid)) if callable(make) else make)
         except Exception:
             log.warning("notify %s failed", uid)
 
-    def tell_owner(self, text):
+    def tell_owner(self, make):
         try:
-            self.h.notify_owner(text)
+            self.h.notify_owner(make(i18n.lang_of(self.h.store, self.h.owner_id())) if callable(make) else make)
         except Exception:
             log.warning("notify_owner failed")
 
@@ -642,7 +646,7 @@ class App:
                 stale = read(path)
                 if stale:
                     return stale
-                raise ApiError(502, "telegram_error", "Не удалось получить аватар.") from None
+                raise ApiError(502, "telegram_error", "api.avatar_failed") from None
             try:
                 os.makedirs(d, mode=0o700, exist_ok=True)
                 target, other = (path, none) if data else (none, path)
@@ -663,11 +667,11 @@ class App:
     # ---------------------------------------------------------- endpoints --
     def api_me(self, req, ctx):
         m = self.h.members.get(ctx.uid) if ctx.uid is not None else None
-        lang = str(ctx.user.get("language_code") or (m or {}).get("lang") or "")
-        loc = "ru" if lang.lower()[:2] in ("ru", "uk", "be", "kk") else "en"
+        loc = self.pure_lang(ctx)
         user = {k: ctx.user.get(k, "") for k in ("id", "first_name", "last_name", "username", "language_code")}
         return jr({
             "role": ctx.role, "mode": ctx.mode, "user": user,
+            "lang": loc, "lang_pref": i18n.get_pref(self.h.store, ctx.uid),
             "member": self.h.members.view(m) if m else None,
             "contact": env("OWNER_CONTACT"),
             "services": [{"id": k, "name": v["name_" + loc], "description": v["desc_" + loc],
@@ -677,17 +681,38 @@ class App:
             "via": ctx.via, "member_bot_username": self.member_username(),
             "can_preview": ctx.role == "owner" and ctx.via in ("helper", "browser")})
 
+    def api_lang(self, req, ctx):
+        """Save the caller's language preference (browser admin = the owner's)."""
+        if ctx.uid is None:
+            raise ApiError(403, "forbidden")
+        pref = req.json().get("lang")
+        if pref not in i18n.PREFS:
+            raise ApiError(400, "bad_request", "api.bad_lang")
+        i18n.set_pref(self.h.store, ctx.uid, pref)
+        cb = getattr(self.h, "lang_changed", None)
+        if cb is not None:
+            threading.Thread(target=self._lang_changed, args=(cb, ctx.uid), daemon=True,
+                             name="lang-changed").start()
+        return jr({"lang": self.pure_lang(ctx), "lang_pref": pref})
+
+    @staticmethod
+    def _lang_changed(cb, uid):
+        try:
+            cb(uid)
+        except Exception:                                   # noqa: BLE001 - best effort
+            log.warning("lang_changed hook failed for %s", uid)
+
     def api_redeem(self, req, ctx):
         if ctx.mode != "tg":
-            raise ApiError(403, "tg_only", "Код активируется в Telegram.")
+            raise ApiError(403, "tg_only", "api.tg_only")
         code = req.json().get("code")
         if not isinstance(code, str) or not code.strip() or len(code) > 64:
-            raise ApiError(400, "bad_request", "Введи код доступа.")
+            raise ApiError(400, "bad_request", "api.enter_code")
         res, row = self.h.members.redeem(ctx.uid, ctx.user, code)
         if row is not None and res in ("new", "extended"):
             self._announce_redeem(ctx, row, res)
         cur = self.h.members.get(ctx.uid)
-        return jr({"result": res, "message": RESULT_MESSAGES.get(res, ""),
+        return jr({"result": res, "message": i18n.tr(ctx.lang, "result." + res) if i18n.has("result." + res) else "",
                    "member": self.h.members.view(cur) if cur else None})
 
     def _announce_redeem(self, ctx, row, res):
@@ -704,14 +729,16 @@ class App:
         who = f"<b>{esc(name_of(row))}</b> ("
         who += f"@{esc(row['username'])}, " if row["username"] else ""
         who += f"<code>{ctx.uid}</code>)"
-        verb = "активировал(а) код" if res == "new" else "продлил(а) подписку кодом"
-        self.tell_owner(f"🎉 {who} {verb} <code>{esc(code)}</code>: +{days} д, {esc(svc_names(svcs))}")
+        self.tell_owner(lambda L: i18n.tr(
+            L, "code.owner_line", who=who, verb=i18n.tr(L, "code.owner_verb_new" if res == "new"
+                                                        else "code.owner_verb_ext"),
+            code=esc(code), days=days, svcs=esc(svc_names(svcs, L))))
 
     def api_vpn(self, req, ctx):
         uid = self.need_service(ctx, "vpn")
         xui = self.h.xui
         if xui is None:
-            raise ApiError(503, "vpn_unconfigured", "VPN пока не настроен.")
+            raise ApiError(503, "vpn_unconfigured", "api.vpn_unconfigured")
         email = f"mh-{uid}"
         client = xui.client_get(email)
         m = self.h.members.get(uid)
@@ -722,13 +749,14 @@ class App:
                 m = self.h.members.get(uid)
                 client = xui.client_get(email)
             if client is None or not (m["vpn_sub_id"] or client.get("subId")):
-                raise ApiError(409, "pending", "Конфиг ещё создаётся, повтори через несколько секунд.")
+                raise ApiError(409, "pending", "api.pending")
         sub = sub_base() + (m["vpn_sub_id"] or client.get("subId"))
         conf_url = signed.absolute(signed.sign("awg_conf", "awg", uid, store=self.h.store),
                                    getattr(self.h, "webapp_url", ""))
         open_url = signed.absolute(signed.sign("awg_open", "awg", uid, ttl=3600, store=self.h.store),
                                    getattr(self.h, "webapp_url", ""))
-        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url, open_url)
+        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url, open_url,
+                                   ctx.lang)
         tr = traffic_of(client)
         if tr is None:
             tr = next((traffic_of(c) for c in xui.clients() if c.get("email") == email), None)
@@ -756,31 +784,30 @@ class App:
         body = req.json()
         syn = self.h.syn
         if syn is None:
-            raise ApiError(503, "matrix_unconfigured", "Мессенджер пока не настроен.")
+            raise ApiError(503, "matrix_unconfigured", "api.matrix_unconfigured")
         username, password, display = body.get("username"), body.get("password"), body.get("displayname")
         with self._create_lock:
             if len(self.h.members.matrix_accounts(uid)) >= self.matrix_max():
-                raise ApiError(409, "limit", "Достигнут лимит аккаунтов.")
+                raise ApiError(409, "limit", "api.matrix_limit")
             local = username.strip().lower() if isinstance(username, str) else ""
             if not syn.valid_localpart(local):
-                raise ApiError(400, "bad_username",
-                               "Имя: 3–24 символа, строчные латинские буквы, цифры и . _ = -")
+                raise ApiError(400, "bad_username", "api.bad_username")
             if not isinstance(password, str) or not 10 <= len(password) <= 128:
-                raise ApiError(400, "weak_password", "Пароль должен быть от 10 до 128 символов.")
+                raise ApiError(400, "weak_password", "api.weak_password")
             if not isinstance(display, str) or not display.strip():
                 display = (self.h.members.get(uid) or {}).get("first_name", "")
             try:
                 mxid = syn.create(local, password, display.strip()[:64])
             except SynapseError as e:
                 if e.code == "M_USER_IN_USE":
-                    raise ApiError(409, "taken", "Это имя уже занято.") from None
+                    raise ApiError(409, "taken", "api.username_taken") from None
                 if e.code == "M_INVALID_USERNAME":
-                    raise ApiError(400, "bad_username", "Это имя недопустимо.") from None
+                    raise ApiError(400, "bad_username", "api.username_invalid") from None
                 log.warning("matrix create failed: %s %s", type(e).__name__, e.code)
-                raise ApiError(502, "matrix_error", "Мессенджер не отвечает, попробуй позже.") from None
+                raise ApiError(502, "matrix_error", "api.matrix_error") from None
             self.h.members.add_matrix(uid, mxid)     # also writes the matrix_create event
         m = self.h.members.get(uid) or {"id": uid, "first_name": "", "last_name": "", "username": ""}
-        self.tell_owner(f"💬 {esc(name_of(m))} создал(а) аккаунт <code>{esc(mxid)}</code>")
+        self.tell_owner(lambda L: i18n.tr(L, "n.matrix_created", name=esc(name_of(m)), mxid=esc(mxid)))
         return jr({"mxid": mxid})
 
     def api_matrix_password(self, req, ctx):
@@ -788,17 +815,17 @@ class App:
         body = req.json()
         syn = self.h.syn
         if syn is None:
-            raise ApiError(503, "matrix_unconfigured", "Мессенджер пока не настроен.")
+            raise ApiError(503, "matrix_unconfigured", "api.matrix_unconfigured")
         mxid, password = body.get("mxid"), body.get("password")
         if not isinstance(mxid, str) or mxid not in {a["mxid"] for a in self.h.members.matrix_accounts(uid)}:
-            raise ApiError(403, "not_yours", "Это не твой аккаунт.")
+            raise ApiError(403, "not_yours", "api.not_yours")
         if not isinstance(password, str) or not 10 <= len(password) <= 128:
-            raise ApiError(400, "weak_password", "Пароль должен быть от 10 до 128 символов.")
+            raise ApiError(400, "weak_password", "api.weak_password")
         try:
             syn.reset_password(mxid, password)
         except SynapseError as e:
             log.warning("matrix reset failed: %s %s", type(e).__name__, e.code)
-            raise ApiError(502, "matrix_error", "Мессенджер не отвечает, попробуй позже.") from None
+            raise ApiError(502, "matrix_error", "api.matrix_error") from None
         return jr({"ok": True})
 
     def api_avatar(self, req, ctx, uid):
@@ -826,10 +853,10 @@ class App:
 
     def _avatar_resp(self, key, bot, user_id):
         if bot is None:
-            raise ApiError(503, "bot_not_ready", "Бот ещё запускается.")
+            raise ApiError(503, "bot_not_ready", "api.bot_starting_short")
         data = self.avatar(key, bot, user_id)
         if not data:
-            raise ApiError(404, "not_found", "Аватара нет.")
+            raise ApiError(404, "not_found", "api.no_avatar")
         return Resp(data, "image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
     # -------------------------------------------------------------- admin --
@@ -887,7 +914,7 @@ class App:
         uid = int(uid)
         m = self.h.members.get(uid)
         if m is None:
-            raise ApiError(404, "not_found", "Участник не найден.")
+            raise ApiError(404, "not_found", "api.member_not_found")
         v = self.h.members.view(m)
         traffic = links = None
         online = False
@@ -911,41 +938,41 @@ class App:
         body = req.json()
         ms = self.h.members
         if ms.get(uid) is None:
-            raise ApiError(404, "not_found", "Участник не найден.")
+            raise ApiError(404, "not_found", "api.member_not_found")
         act = body.get("action")
         contact = env("OWNER_CONTACT")
-        ask = f" Вопросы — {esc(contact)}." if contact else ""
         if act == "extend":
             row = ms.extend(uid, as_int(body.get("days"), 1, 3650, "days"))
-            self.tell(uid, f"✅ Подписка продлена до {mem.ru_date(row['expires_ts'])}.")
+            self.tell(uid, lambda L: i18n.tr(L, "n.extended", date=i18n.fmt_date(L, row["expires_ts"])))
         elif act == "set_expiry":
             ts = body.get("ts")
             if ts is not None:
                 ts = as_int(ts, 1, 4102444800, "ts")
             ms.set_expiry(uid, ts)
-            self.tell(uid, "✅ Подписка теперь без срока." if ts is None
-                      else f"📅 Подписка действует до {mem.ru_date(ts)}.")
+            self.tell(uid, lambda L: i18n.tr(L, "n.noexp") if ts is None
+                      else i18n.tr(L, "n.until", date=i18n.fmt_date(L, ts)))
         elif act == "suspend":
             ms.suspend(uid)
-            self.tell(uid, f"⏸ Доступ приостановлен владельцем.{ask}")
+            self.tell(uid, lambda L: i18n.tr(L, "n.suspended", c=esc(contact)))
         elif act == "resume":
             ms.resume(uid)
-            self.tell(uid, "▶️ Доступ снова открыт.")
+            self.tell(uid, lambda L: i18n.tr(L, "n.resumed"))
         elif act == "services":
             svcs = as_services(body.get("services"))
             ms.set_services(uid, svcs)
-            self.tell(uid, f"🔧 Твои сервисы обновлены: {esc(svc_names(ms.get(uid)['services']))}.")
+            new_svcs = ms.get(uid)["services"]
+            self.tell(uid, lambda L: i18n.tr(L, "n.svcs", svcs=esc(svc_names(new_svcs, L))))
         elif act == "note":
             note = body.get("note", "")
             if not isinstance(note, str) or len(note) > 200:
-                raise ApiError(400, "bad_request", "Заметка: не больше 200 символов.")
+                raise ApiError(400, "bad_request", "api.note_long")
             ms.set_note(uid, note)
         elif act == "delete":
             ms.delete(uid)
-            self.tell(uid, f"🚫 Доступ к MeowHub закрыт владельцем.{ask}")
+            self.tell(uid, lambda L: i18n.tr(L, "n.closed", c=esc(contact)))
             return jr({"deleted": True})
         else:
-            raise ApiError(400, "bad_request", "Неизвестное действие.")
+            raise ApiError(400, "bad_request", "api.bad_action")
         return jr(ms.view(ms.get(uid)))
 
     def api_grant(self, req, ctx):
@@ -956,8 +983,8 @@ class App:
         svcs = body.get("services")
         svcs = mem.DEFAULT_SERVICES if svcs is None else as_services(svcs)
         row = self.h.members.grant(uid, None, days, svcs)
-        self.tell(uid, f"🎁 Тебе открыт доступ к MeowHub до {mem.ru_date(row['expires_ts'])}: "
-                       f"{esc(svc_names(row['services']))}.")
+        self.tell(uid, lambda L: i18n.tr(L, "n.granted", date=i18n.fmt_date(L, row["expires_ts"]),
+                                         svcs=esc(svc_names(row["services"], L))))
         return jr(self.h.members.view(row))
 
     def share_url(self, code):
@@ -978,19 +1005,19 @@ class App:
         valid = as_int(body.get("valid_days", 30), 1, 365, "valid_days")
         note = body.get("note", "")
         if not isinstance(note, str) or len(note) > 200:
-            raise ApiError(400, "bad_request", "Заметка: не больше 200 символов.")
+            raise ApiError(400, "bad_request", "api.note_long")
         code = self.h.members.new_code(days, svcs, uses, valid, note)
         return jr({"code": code, "share_url": self.share_url(code)})
 
     def api_code_revoke(self, req, ctx, code):
         self.need_owner(ctx)
         if not self.h.members.revoke_code(code):
-            raise ApiError(404, "not_found", "Код не найден.")
+            raise ApiError(404, "not_found", "api.code_not_found")
         return jr({"ok": True})
 
     def api_services(self, req, ctx):
         self.need_owner(ctx)
-        return jr(self.h.members.services_state())
+        return jr(self.h.members.services_state(ctx.lang))
 
     def api_service_set(self, req, ctx, svc):
         self.need_owner(ctx)
@@ -998,13 +1025,13 @@ class App:
             raise ApiError(404, "not_found")
         on = req.json().get("enabled")
         if not isinstance(on, bool):
-            raise ApiError(400, "bad_request", "Поле enabled: ожидается true или false.")
+            raise ApiError(400, "bad_request", "api.bad_enabled")
         self.h.members.set_service_enabled(svc, on)
-        return jr(self.h.members.services_state())
+        return jr(self.h.members.services_state(ctx.lang))
 
     def _inbounds(self):
         if self.h.xui is None:
-            raise ApiError(503, "vpn_unconfigured", "VPN пока не настроен.")
+            raise ApiError(503, "vpn_unconfigured", "api.vpn_unconfigured")
         return self.h.xui.inbounds()
 
     def _inbound_rows(self, inbounds):
@@ -1025,14 +1052,14 @@ class App:
         self.need_owner(ctx)
         ids = req.json().get("member_ids")
         if not isinstance(ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
-            raise ApiError(400, "bad_request", "member_ids: список чисел.")
+            raise ApiError(400, "bad_request", "api.bad_member_ids")
         inbounds = self._inbounds()
         by_id = {i["id"]: i for i in inbounds}
         ids = list(dict.fromkeys(ids))
         if any(i not in by_id for i in ids):
-            raise ApiError(400, "unknown_inbound", "Такого инбаунда нет в 3x-ui.")
+            raise ApiError(400, "unknown_inbound", "api.unknown_inbound")
         if sum(str(by_id[i].get("protocol", "")).lower() in mem.AWG_PROTOCOLS for i in ids) > 1:
-            raise ApiError(400, "two_awg", "Можно выдать не больше одного WireGuard/AmneziaWG инбаунда.")
+            raise ApiError(400, "two_awg", "api.two_awg")
         self.h.members.set_member_inbounds(ids)
         self.h.members.set_known_inbounds(set(self.h.members.known_inbounds()) | set(ids))
         return jr(self._inbound_rows(inbounds))
@@ -1050,60 +1077,68 @@ class App:
             info["avatar_url"] = f"./api/admin/bot-avatar/{tid}" if info["ok"] else None
         return info
 
-    def _xui_check(self, token):
-        """{"ok", "error", "detail"} from a real inbounds() call, cached a minute."""
+    def _xui_check(self, token, lang="ru"):
+        """{"ok", "error", "detail"} from a real inbounds() call, cached a minute (the
+        count is kept, the detail text is built per call in `lang`)."""
         if not token:
-            return {"ok": False, "error": "", "detail": "не настроен"}
+            return {"ok": False, "error": "", "detail": i18n.tr(lang, "integ.not_configured")}
         ck = hashlib.sha256(token.encode()).hexdigest()
         with self._lock:
             hit = self._xui_chk
         if hit and hit[0] == ck and time.time() - hit[1] < XUI_CHECK_TTL:
-            return hit[2]
+            return self._xui_detail(hit[2], lang)
         client = self.h.xui if self.h.xui is not None and getattr(self.h.xui, "token", None) == token \
             else tokens.make_xui(token)
         try:
             n = len(client.inbounds())
-            res = {"ok": True, "error": "", "detail": plural_inbounds(n)}
+            res = {"ok": True, "error": "", "detail": "", "n": n}
         except XUIError as e:
             res = {"ok": False, "error": tokens.scrub(e, token)[:200], "detail": ""}
         with self._lock:
             self._xui_chk = (ck, time.time(), res)
-        return res
+        return self._xui_detail(res, lang)
 
-    def _integration(self, tid):
+    @staticmethod
+    def _xui_detail(res, lang):
+        out = {k: v for k, v in res.items() if k != "n"}
+        if "n" in res:
+            out["detail"] = plural_inbounds(res["n"], lang)
+        return out
+
+    def _integration(self, tid, lang="ru"):
         st = self.h.store
         tok, src = tokens.resolve(st, tid)
         item = {"id": tid, "kind": "api" if tid == "xui" else "bot", "configured": bool(tok),
                 "source": src, "masked": tokens.mask(tok), "updated_ts": tokens.updated_ts(st, tid),
                 "restart_on_change": tid in ("helper", "member")}
         if tid == "xui":
-            item["check"] = self._xui_check(tok)
+            item["check"] = self._xui_check(tok, lang)
         else:
             item["bot"] = self._with_avatar(self._bot_info(tok), tid)
         if tid == "crypto":
-            item["note"] = CRYPTO_NOTE
+            item["note"] = i18n.tr(lang, "integ.crypto_note")
         return item
 
     def api_integrations(self, req, ctx):
         self.need_owner(ctx)
-        return jr({"items": [self._integration(t) for t in tokens.IDS]})
+        return jr({"items": [self._integration(t, ctx.lang) for t in tokens.IDS]})
 
     def _check_bot(self, token):
         """getMe on a candidate token -> the raw answer; ApiError 400 bad_token otherwise."""
         if not tokens.BOT_TOKEN_RE.match(token):
-            raise ApiError(400, "bad_token", "Это не похоже на токен бота: нужен вид 123456789:AAH…")
+            raise ApiError(400, "bad_token", "api.token_format")
         try:
             return self._bot_obj(token).call("getMe", _timeout=10)
         except TelegramError as e:
-            raise ApiError(400, "bad_token", f"Telegram ответил: {tokens.scrub(e, token)[:150]}") from None
+            raise ApiError(400, "bad_token", "api.tg_replied", e=tokens.scrub(e, token)[:150]) from None
 
     def _check_xui(self, token):
         if not tokens.API_TOKEN_RE.match(token):
-            raise ApiError(400, "bad_token", "Токен 3x-ui не должен содержать пробелов и спецсимволов.")
+            raise ApiError(400, "bad_token", "api.xui_token_format")
         try:
             n = len(tokens.make_xui(token).inbounds())
         except XUIError as e:
-            raise ApiError(400, "bad_token", f"3x-ui ответил: {tokens.scrub(e, token)[:150]}") from None
+            raise ApiError(400, "bad_token", "api.xui_replied", e=tokens.scrub(e, token)[:150]) from None
         return n
 
     def _other_bot_ids(self, tid):
@@ -1122,7 +1157,7 @@ class App:
         if self.h.rec is not None:
             self.h.rec.xui = new
 
-    def _apply_integration(self, tid, new, reset):
+    def _apply_integration(self, tid, new, reset, lang="ru"):
         st = self.h.store
         old = tokens.resolve(st, tid)[0]
         me = None
@@ -1154,7 +1189,7 @@ class App:
         restart = tid in ("helper", "member") and new != old
         if restart:
             schedule_restart()
-        return jr({"item": self._integration(tid), "restarting": restart})
+        return jr({"item": self._integration(tid, lang), "restarting": restart})
 
     def api_integration_set(self, req, ctx, tid):
         self.need_owner(ctx)
@@ -1162,27 +1197,27 @@ class App:
             raise ApiError(404, "not_found")
         tok = req.json().get("token")
         if not isinstance(tok, str):
-            raise ApiError(400, "bad_request", "Поле token: ожидается строка.")
+            raise ApiError(400, "bad_request", "api.token_str")
         tok = tok.strip()
         if not tok:
-            raise ApiError(400, "bad_token", "Токен пустой.")
+            raise ApiError(400, "bad_token", "api.token_empty")
         if len(tok) > tokens.MAX_LEN:
-            raise ApiError(400, "bad_token", "Токен слишком длинный.")
+            raise ApiError(400, "bad_token", "api.token_long")
         with self._integ_lock:
-            return self._apply_integration(tid, tok, False)
+            return self._apply_integration(tid, tok, False, ctx.lang)
 
     def api_integration_reset(self, req, ctx, tid):
         self.need_owner(ctx)
         if tid not in tokens.IDS:
             raise ApiError(404, "not_found")
         with self._integ_lock:
-            return self._apply_integration(tid, "", True)
+            return self._apply_integration(tid, "", True, ctx.lang)
 
     def api_sync(self, req, ctx):
         self.need_owner(ctx)
         rec = self.h.rec
         if rec is None:
-            raise ApiError(503, "bot_not_ready", "Синхронизация ещё не запущена.")
+            raise ApiError(503, "bot_not_ready", "api.sync_not_started")
         run_timeout(rec.sync_all)
         return jr(rec.last_sync)
 
@@ -1191,27 +1226,27 @@ class App:
         """The downloader engine, for the owner or a member with `youtube`."""
         d = getattr(self.h, "downloads", None)
         if d is None:
-            raise ApiError(503, "bot_not_ready", "Загрузчик ещё запускается, попробуй через минуту.")
+            raise ApiError(503, "bot_not_ready", "api.dl_starting")
         if ctx.role != "owner" and not (ctx.uid is not None and self.h.members.has(ctx.uid, "youtube")):
-            raise ApiError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
+            raise ApiError(403, "no_access", "api.no_access")
         return d
 
     def api_dl_presets(self, req, ctx):
         self.need_dl(ctx)
-        return jr(dlm.presets_payload())
+        return jr(dlm.presets_payload(ctx.lang))
 
     def api_dl_new(self, req, ctx):
         d = self.need_dl(ctx)
         b = req.json()
         job = d.submit(ctx.uid, b.get("url"), b.get("preset"),
-                       {k: b.get(k) for k in ("subs", "clip", "playlist")})
+                       {k: b.get(k) for k in ("subs", "clip", "playlist")}, lang=ctx.lang)
         return jr(job)
 
     def api_dl_list(self, req, ctx):
-        return jr(self.need_dl(ctx).jobs_for(ctx.uid))
+        return jr(self.need_dl(ctx).jobs_for(ctx.uid, ctx.lang))
 
     def api_dl_cancel(self, req, ctx, jid):
-        return jr(self.need_dl(ctx).cancel(ctx.uid, int(jid)))
+        return jr(self.need_dl(ctx).cancel(ctx.uid, int(jid), ctx.lang))
 
     def api_dl_delete(self, req, ctx, jid):
         return jr(self.need_dl(ctx).delete(ctx.uid, int(jid)))
@@ -1220,12 +1255,12 @@ class App:
         self.need_owner(ctx)
         d = getattr(self.h, "downloads", None)
         if d is None:
-            raise ApiError(503, "bot_not_ready", "Загрузчик ещё запускается, попробуй через минуту.")
+            raise ApiError(503, "bot_not_ready", "api.dl_starting")
 
         def name(uid):
             m = self.h.members.get(uid)
-            return name_of(m) if m else ("Владелец" if uid == self.h.owner_id() else str(uid))
-        return jr(d.admin(name))
+            return name_of(m) if m else (i18n.tr(ctx.lang, "common.owner") if uid == self.h.owner_id() else str(uid))
+        return jr(d.admin(name, ctx.lang))
 
     # -------------------------------------------------------- /dl download --
     def dl(self, tok, req=None):
@@ -1250,7 +1285,7 @@ class App:
         stream it (Range supported, never read whole into memory)."""
         d = getattr(self.h, "downloads", None)
         if d is None:
-            raise ApiError(503, "bot_not_ready", "Загрузчик ещё запускается, попробуй через минуту.")
+            raise ApiError(503, "bot_not_ready", "api.dl_starting")
         path, name = d.file_for_link(uid, ident)
         try:
             size = os.path.getsize(path)
@@ -1283,17 +1318,17 @@ class App:
     def awg_key(self, uid):
         """The member's host-fixed AmneziaWG vpn:// link (no #name), re-checking access."""
         if not self.h.members.has(uid, "vpn"):
-            raise ApiError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
+            raise ApiError(403, "no_access", "api.no_access")
         xui = self.h.xui
         if xui is None:
-            raise ApiError(503, "vpn_unconfigured", "VPN пока не настроен.")
+            raise ApiError(503, "vpn_unconfigured", "api.vpn_unconfigured")
         domain = env("BASE_DOMAIN")
         for url in xui.client_links(f"mh-{uid}") or []:
             if isinstance(url, str) and link_group(url.strip()) == "awg":
                 fixed = fix_host(url.strip(), domain).partition("#")[0]
                 if vpn_conf(fixed):
                     return fixed
-        raise ApiError(404, "not_found", "AmneziaWG-конфиг не найден.")
+        raise ApiError(404, "not_found", "api.awg_missing")
 
     def dl_awg_conf(self, uid):
         conf = vpn_conf(self.awg_key(uid))
@@ -1313,24 +1348,29 @@ class App:
         package and falls back to Google Play); elsewhere the app only opens files, so the
         page offers the .vpn file. Never auto-redirects: Chrome needs a user gesture."""
         key = self.awg_key(uid)
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(getattr(req, "path", "") or "").query)
+        L = i18n.norm((qs.get("l") or [""])[0]) or i18n.lang_of(self.h.store, uid)
         ua = ((req.headers.get("User-Agent") if req is not None and getattr(req, "headers", None) else "") or "")
         android, ios = "Android" in ua, bool(re.search(r"iPhone|iPad|iPod", ua))
         file_href = signed.sign("awg_vpn", "awg", uid, store=self.h.store)[len("./dl/"):]   # sibling of this page
         intent = (f"intent://{key[len('vpn://'):]}#Intent;scheme=vpn;package=org.amnezia.vpn;"
                   f"S.browser_fallback_url={urllib.parse.quote(AMNEZIA_PLAY, safe='')};end")
         if android:
-            main = f'<a class="b" href="{esc(intent)}">Открыть в AmneziaVPN</a>'
-            alt = f'<a class="l" href="{esc(key)}">Не открылось? Попробовать ещё так</a>'
-            store, howto = AMNEZIA_PLAY, "Откроется AmneziaVPN — нажми «Подключиться»."
+            main = f'<a class="b" href="{esc(intent)}">{esc(i18n.tr(L, "awg.open"))}</a>'
+            alt = f'<a class="l" href="{esc(key)}">{esc(i18n.tr(L, "awg.retry"))}</a>'
+            store, howto = AMNEZIA_PLAY, i18n.tr(L, "awg.how_android")
         else:
-            main = f'<a class="b" href="{esc(file_href)}" download="{AMNEZIA_FILE}">Скачать ключ для AmneziaVPN</a>'
+            main = (f'<a class="b" href="{esc(file_href)}" download="{AMNEZIA_FILE}">'
+                    f'{esc(i18n.tr(L, "awg.download"))}</a>')
             alt = ""
             store = AMNEZIA_APPSTORE if ios else AMNEZIA_SITE
-            howto = ("Открой файл → «Поделиться» → AmneziaVPN." if ios
-                     else "Открой скачанный файл в AmneziaVPN (или «+» → «Файл с настройками»).")
+            howto = i18n.tr(L, "awg.how_ios" if ios else "awg.how_other")
         js = json.dumps(key).replace("<", "\\u003c")
+        ok_js = json.dumps(i18n.tr(L, "awg.copied"), ensure_ascii=False).replace("<", "\\u003c")
+        bad_js = json.dumps(i18n.tr(L, "awg.copy_failed"), ensure_ascii=False).replace("<", "\\u003c")
+        noapp = i18n.tr(L, "awg.noapp", a=f'<a class="l" href="{esc(store)}">{esc(i18n.tr(L, "awg.install"))}</a>')
         page = f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8">
+<html lang="{L}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>AmneziaVPN</title>
@@ -1347,9 +1387,9 @@ a.l{{color:var(--ac)}} p{{margin:0;color:var(--mu);max-width:22rem}}
 {main}
 <p>{esc(howto)}</p>
 {alt}
-<button type="button" id="c">Скопировать ключ</button>
-<p>Нет приложения? <a class="l" href="{esc(store)}">Установить AmneziaVPN</a>, потом нажми кнопку ещё раз.</p>
-<script>document.getElementById("c").onclick=function(){{var b=this;navigator.clipboard.writeText({js}).then(function(){{b.textContent="Скопировано — «+» → «Вставить» в AmneziaVPN"}},function(){{b.textContent="Не удалось скопировать"}})}};</script>
+<button type="button" id="c">{esc(i18n.tr(L, "awg.copy"))}</button>
+<p>{noapp}</p>
+<script>document.getElementById("c").onclick=function(){{var b=this;navigator.clipboard.writeText({js}).then(function(){{b.textContent={ok_js}}},function(){{b.textContent={bad_js}}})}};</script>
 </body></html>"""
         return Resp(page.encode(), "text/html; charset=utf-8", headers={
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
@@ -1358,15 +1398,17 @@ a.l{{color:var(--ac)}} p{{margin:0;color:var(--mu);max-width:22rem}}
     # ----------------------------------------------------------- /go page --
     def go_page(self, app_id, query):
         spec = APPS_BY_ID.get(app_id)
-        u = (urllib.parse.parse_qs(query).get("u") or [""])[0]
+        qs = urllib.parse.parse_qs(query)
+        L = i18n.norm((qs.get("l") or [""])[0]) or "ru"
+        u = (qs.get("u") or [""])[0]
         base = sub_base()
         if spec is None or not u.startswith(base) or len(u) > 2000 or re.search(r"[\x00-\x20\"'<>\\`]", u):
-            raise ApiError(400, "bad_request", "Некорректная ссылка.")
+            raise ApiError(400, "bad_request", "api.bad_url")
         scheme = spec[3](u)
-        title = f"Открыть в {spec[1]}"
+        title = i18n.tr(L, "go.title", app=spec[1])
         js = json.dumps(scheme).replace("<", "\\u003c")
         page = f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8">
+<html lang="{L}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="0;url={esc(scheme)}">
 <title>{esc(title)}</title>
@@ -1379,7 +1421,7 @@ a.b{{display:inline-block;padding:14px 28px;border-radius:12px;background:var(--
 p{{margin:0;opacity:.7}}
 </style></head><body>
 <a class="b" href="{esc(scheme)}">{esc(title)}</a>
-<p>Если приложение не открылось, установи {esc(spec[1])} и нажми кнопку ещё раз.</p>
+<p>{esc(i18n.tr(L, "go.hint", app=spec[1]))}</p>
 <script>location.href={js};</script>
 </body></html>"""
         return Resp(page.encode(), "text/html; charset=utf-8", headers={
@@ -1425,6 +1467,7 @@ p{{margin:0;opacity:.7}}
 # (method, regex, auth, handler name); auth: "public" | "any"
 ROUTES = [
     ("GET", r"/api/me", "any", "api_me"),
+    ("POST", r"/api/lang", "any", "api_lang"),
     ("POST", r"/api/redeem", "any", "api_redeem"),
     ("GET", r"/api/vpn", "any", "api_vpn"),
     ("GET", r"/api/matrix", "any", "api_matrix"),
@@ -1480,7 +1523,7 @@ class Handler(BaseHTTPRequestHandler):
     def json(self):
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
-            raise ApiError(400, "bad_content_type", "Ожидается application/json.")
+            raise ApiError(400, "bad_content_type", "api.bad_content_type")
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
@@ -1495,7 +1538,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not chunk:
                     break
                 left -= len(chunk)
-            raise ApiError(413, "too_large", "Слишком большой запрос.")
+            raise ApiError(413, "too_large", "api.too_large")
         raw = self.rfile.read(n) if n else b""
         self._body_read = True
         if not raw.strip():
@@ -1503,9 +1546,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = json.loads(raw)
         except ValueError:
-            raise ApiError(400, "bad_json", "Тело запроса — не JSON.") from None
+            raise ApiError(400, "bad_json", "api.bad_json") from None
         if not isinstance(body, dict):
-            raise ApiError(400, "bad_json", "Тело запроса должно быть объектом.")
+            raise ApiError(400, "bad_json", "api.bad_json_obj")
         return body
 
     # ---- dispatch ----
@@ -1513,23 +1556,27 @@ class Handler(BaseHTTPRequestHandler):
         self._body_read = False
         path, _, query = self.path.partition("#")[0].partition("?")
         app = self.server.app
+        # Language of this request's messages: X-Lang, else ?l= (server-rendered pages); once the
+        # caller is authenticated _route replaces it with their stored preference.
+        self._lang = (i18n.norm(self.headers.get("X-Lang"))
+                      or i18n.norm((urllib.parse.parse_qs(query).get("l") or [""])[0]))
         try:
             resp = self._route(app, method, path, query)
         except ApiError as e:
-            resp = jr({"error": e.code, "message": e.message}, e.status)
+            resp = jr({"error": e.code, "message": e.render(self._lang or "ru")}, e.status)
             if e.status == 503 and e.code == "not_built":
                 resp = Resp(b"frontend not built", "text/plain; charset=utf-8", 503)
         except dlm.DlError as e:
-            resp = jr({"error": e.code, "message": e.message}, e.status)
+            resp = jr({"error": e.code, "message": e.render(self._lang or "ru")}, e.status)
         except XUIError as e:
             log.warning("xui error on %s: %s", path, e)
-            resp = jr({"error": "vpn_error", "message": "VPN-панель не отвечает, попробуй позже."}, 502)
+            resp = jr({"error": "vpn_error", "message": i18n.tr(self._lang or "ru", "api.vpn_error")}, 502)
         except SynapseError as e:
             log.warning("synapse error on %s: %s", path, type(e).__name__)
-            resp = jr({"error": "matrix_error", "message": "Мессенджер не отвечает, попробуй позже."}, 502)
+            resp = jr({"error": "matrix_error", "message": i18n.tr(self._lang or "ru", "api.matrix_error")}, 502)
         except Exception:
             log.exception("unhandled error on %s %s", method, path)
-            resp = jr({"error": "internal", "message": MESSAGES["internal"]}, 500)
+            resp = jr({"error": "internal", "message": i18n.tr(self._lang or "ru", "msg.internal")}, 500)
         if method == "POST" and not self._body_read and (self.headers.get("Content-Length") or "0").strip() != "0":
             self.close_connection = True
         self._send(resp)
@@ -1540,12 +1587,13 @@ class Handler(BaseHTTPRequestHandler):
                 mo = rx.match(path)
                 if mo and m == method:
                     ctx = app.authenticate(self.headers)
+                    ctx.lang = self._lang = app.ctx_lang(ctx, self.headers)
                     return getattr(app, fn)(self, ctx, *mo.groups())
             if any(rx.match(path) for _, rx, _, _ in ROUTES):
-                raise ApiError(405, "method_not_allowed", "Метод не поддерживается.")
+                raise ApiError(405, "method_not_allowed", "api.method")
             raise ApiError(404, "not_found")
         if method != "GET":
-            raise ApiError(405, "method_not_allowed", "Метод не поддерживается.")
+            raise ApiError(405, "method_not_allowed", "api.method")
         mo = GO_RE.match(path)
         if mo:
             return app.go_page(mo.group(1), query)

@@ -284,6 +284,9 @@ textarea.input { resize: vertical; min-height: 80px; line-height: 1.4; }
 html[data-mode='browser'] .chip.on { background: var(--btn-bg); }
 .seg { display: inline-flex; padding: 2px; border-radius: 10px; background: color-mix(in srgb, var(--text) 8%, transparent); max-width: 100%; overflow-x: auto; }
 .seg button { padding: 6px 12px; min-height: 32px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--hint); white-space: nowrap; }
+.langrow { padding: 10px 12px; }
+.langrow .seg { display: flex; width: 100%; }
+.langrow .seg button { flex: 1 1 0; padding-left: 6px; padding-right: 6px; }
 .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
 html[data-mode='browser'] .seg button.on { background: rgba(255, 255, 255, 0.12); }
 

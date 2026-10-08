@@ -3,11 +3,12 @@ import { Cell, ErrorBox, Section, Skeleton, Switch, toast } from '../ui.jsx'
 import { api } from '../api.js'
 import { useApi } from '../hooks.js'
 import { confirmDialog, haptic } from '../tg.js'
+import { t } from '../i18n.js'
 import { plural } from '../util.js'
 
 const ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download' }
-const MODE_NOTE = { all: 'для всех активных участников', grant: 'главный выключатель' }
-const people = (n) => `${n} ${plural(n, ['участник', 'участника', 'участников'])} с доступом`
+const modeNote = (m) => (m === 'all' || m === 'grant' ? t('sv.mode.' + m) : m)
+const people = (n) => t('sv.people', { n, unit: plural(n, t('sv.unit_person').split('|')) })
 
 // Owner: master switches for the services members can have (GET/POST /api/admin/services).
 export default function Services() {
@@ -15,14 +16,14 @@ export default function Services() {
   const [busy, setBusy] = useState(null)
 
   if (loading && !data) return <Skeleton rows={4} />
-  if (error && !data) return <ErrorBox error={error} onRetry={reload} what="Не удалось загрузить сервисы" />
+  if (error && !data) return <ErrorBox error={error} onRetry={reload} what={t('sv.load_fail')} />
   const list = Array.isArray(data) ? data : data?.items || []
 
   async function toggle(s, enabled) {
     if (busy) return
     // Switching a "grant" service off cuts access for everyone who holds it.
     if (!enabled && s.mode === 'grant') {
-      const ok = await confirmDialog(`Выключить «${s.name}»? Доступ пропадёт у всех участников (${s.members_with_access}), пока снова не включишь.`)
+      const ok = await confirmDialog(t('sv.confirm_off', { name: s.name, n: s.members_with_access }))
       if (!ok) return
     }
     const prev = list
@@ -39,13 +40,13 @@ export default function Services() {
   }
 
   return (
-    <Section title="Сервисы для участников" footer="Выключенный сервис исчезает у всех участников и в приложении, и в боте.">
+    <Section title={t('sv.title')} footer={t('sv.foot')}>
       {list.map((s) => (
         <Cell key={s.id} icon={ICON[s.id] || 'info'} tone={s.enabled ? 'accent' : 'mute'} title={s.name} sub={s.description}
           right={<Switch checked={!!s.enabled} disabled={busy === s.id} label={s.name} onChange={(on) => toggle(s, on)} />}
           onClick={() => toggle(s, !s.enabled)}>
           <span className="cell__sub svcmeta">
-            <span>{MODE_NOTE[s.mode] || s.mode}</span>
+            <span>{modeNote(s.mode)}</span>
             <span>{people(s.members_with_access ?? 0)}</span>
           </span>
         </Cell>

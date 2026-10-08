@@ -402,6 +402,48 @@ The list is **`dashboard/dist/services.json`**, written by the dashboard build
 from the same `src/services.js` the page renders — add a card, rebuild, and the
 bot has it. The hub's own URL comes from `BASE_DOMAIN` + `DASHBOARD_PATH`.
 
+## Language
+
+Everything the bots and the Mini App backend say exists in **Russian and English**
+(`app/i18n.py`: the catalog `T = {"key": {"ru": …, "en": …}}`, `tr(lang, key, **vars)`; ~400 keys).
+The Russian texts are the originals; add a key with both languages whenever you add a message
+(`tests/test_lang.py` fails on a missing language or mismatched `{placeholders}`).
+
+- **Preference** per Telegram id: `auto` | `ru` | `en` in table `prefs` (`uid, lang, lc, updated_ts`;
+  `lc` = the last Telegram `language_code` seen, for ids without a members row). Default `auto`.
+  `members.lang` is still Telegram's `language_code` and is not the preference.
+- **One rule** — `i18n.resolve(pref, language_code)`: `ru`/`en` pref wins; `auto` follows Telegram
+  (`ru`, `uk`, `be`, `kk` → Russian, any other non-empty code → English, empty → Russian).
+  `i18n.lang_of(store, uid, code)` adds the lookups (pref → fresh code → remembered `lc` → members row → ru).
+- **Switching**: `/lang` or the **🌐 Язык / 🌐 Language** button (member and owner keyboards, strangers
+  too) → inline `Русский · English · Авто`, callback `lang:ru|en|auto`; it saves, confirms in the
+  new language and re-sends the reply keyboard. In the app: `POST /api/lang {"lang": "auto|ru|en"}`
+  → `{"lang": <effective>, "lang_pref": <pref>}`; `GET /api/me` carries both. The browser admin
+  page (no Telegram user) reads and writes the **owner's** preference, so it is one setting.
+- **Per request** (`webapp.py`): the header `X-Lang: ru|en` (the frontend's current UI language) wins,
+  else the stored preference, else `language_code`. That language renders every JSON `message`
+  (`ApiError(status, code, "api.key", **vars)` / `DlError` carry a catalog key and are rendered in
+  `Handler._handle`), `result` messages, service names/descriptions, VPN group titles/hints and link
+  names, downloader labels and job errors. `X-Warning` stays a machine code. Server-rendered pages:
+  `/go/<app>?l=ru|en` (default ru), the AmneziaVPN hand-off page by the token's uid preference with
+  `?l=` override. Data (ids, statuses, 3x-ui inbound remarks, Telegram profile names) is never translated.
+- **Notifications** to someone (welcome, 24 h / 3 day / expired reminders, owner extend / suspend,
+  Reconciler notices) use the *recipient's* language; owner notices (new inbound, stranger, health
+  alerts, morning report) use the owner's.
+- **Reply-keyboard routing** matches the labels of both languages (`bot.btn_key()`), so a keyboard
+  left on screen after a switch keeps working.
+- **Command lists** (`setMyCommands`): default scope = English, plus Russian lists for `ru`/`uk`/`be`/`kk`;
+  the owner's chat has its own full list in the owner's language. A language change re-sends that
+  chat's list (`refresh_commands`; for `auto` on a non-owner chat it deletes the chat scope so the
+  language-coded defaults apply again) — best effort, async.
+- Dates: Russian `12 ноября`, English `12 Nov 2026` (with time `12 Nov 2026, 14:05`).
+- Left in Russian on purpose: the hub card names/descriptions from `services.json` (shown by 🔗 Links),
+  `ctl.py` output, container logs.
+- No `OWNER_CONTACT` set: messages that say "write {contact}" fall back to "the owner" / "владельцу"
+  (the catalog gets an empty `c`, `i18n.tr` fills the wording); the Mini App hides the contact cell.
+- Frontend strings live in `webapp/src/i18n.js` (`ru` and `en` dictionaries); `npm run build` runs
+  `scripts/check-i18n.mjs` first and fails on a key or `{placeholder}` missing in either language.
+
 ## Downloader
 
 Service `youtube` (an owner-switched, all-members service, off by default -- see

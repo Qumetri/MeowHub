@@ -35,11 +35,12 @@ from urllib.parse import quote
 import downloads
 import health
 import hub
+import i18n
 import links
 import tokens
 import webapp
-from members import (AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, Members, Reconciler, ask_owner,
-                     norm_code, owner_contact, ru_date)
+from i18n import tr
+from members import AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, Members, Reconciler, norm_code, owner_contact, ru_date
 from store import Store
 from synapse import Synapse
 from tg import Bot, TelegramError
@@ -53,15 +54,28 @@ DAY = 86400
 WIZ_TTL = 3600
 PAGE = 8
 
-B_HEALTH, B_LINKS, B_YT, B_PASS = "🩺 Здоровье", "🔗 Ссылки", "🎬 Скачать видео", "🔑 Пароли"
-B_VPN, B_MX, B_SUB, B_HELP = "🔐 VPN", "💬 Мессенджер", "🗓 Подписка", "❓ Помощь"
-B_MEMBERS, B_CODE, B_APP = "👥 Участники", "🎟 Код", "📱 MeowHub"
-B_SVC = "⚙️ Сервисы"
+# Reply-keyboard buttons: B_* are the Russian labels; a pressed button is matched through btn_key(),
+# which knows the labels of BOTH languages (a user may still have the old keyboard on screen).
+BTN_KEYS = ("health", "links", "yt", "pass", "vpn", "mx", "sub", "help", "members", "code", "app", "svc", "lang")
+B_HEALTH, B_LINKS, B_YT, B_PASS = (tr("ru", "btn." + k) for k in ("health", "links", "yt", "pass"))
+B_VPN, B_MX, B_SUB, B_HELP = (tr("ru", "btn." + k) for k in ("vpn", "mx", "sub", "help"))
+B_MEMBERS, B_CODE, B_APP = (tr("ru", "btn." + k) for k in ("members", "code", "app"))
+B_SVC, B_LANG = tr("ru", "btn.svc"), tr("ru", "btn.lang")
+BTN_BY_LABEL = {tr(lg, "btn." + k): k for k in BTN_KEYS for lg in i18n.LANGS}
+
+
+def btn_key(text):
+    """'health' | 'vpn' | ... for the text of a pressed reply-keyboard button, else None."""
+    return BTN_BY_LABEL.get(text)
 URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
 OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services")
-SHORT = {"vpn": "VPN", "matrix": "Мессенджер", "tools": "Инструменты"}
+SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
+
+
+def short(s, lang="ru"):
+    return tr(lang, "short." + s)
 WIZ_DAYS = (30, 90, 180, 365)
 SEEN_MAX = 500
 YT_NAG_EVERY = 3600
@@ -76,8 +90,8 @@ def code_fmt(norm):
     return f"{norm[:4]}-{norm[4:8]}-{norm[8:]}" if len(norm) == 12 else norm
 
 
-def svc_names(svcs, sep=", "):
-    return sep.join(SERVICES[s]["name_ru"] for s in SERVICES if s in (svcs or []))
+def svc_names(svcs, sep=", ", lang="ru"):
+    return sep.join(SERVICES[s]["name_" + lang] for s in SERVICES if s in (svcs or []))
 
 
 def days_left(m):
@@ -112,6 +126,7 @@ class Helper:
         self.member_front = None          # MemberFront for member_bot
         self.helper_id = None             # numeric id of the helper bot (from getMe)
         self.pool = ThreadPoolExecutor(8)
+        self.lc = {}                      # uid -> last Telegram language_code seen
         self.yt_nag = {}                  # uid -> last "downloads are off" notice
         self.nagged = set()               # strangers already reported to the owner
         self.seen_from = {}               # stranger uid -> Telegram `from` (for the grant welcome)
@@ -175,26 +190,47 @@ class Helper:
             return None
         return {"inline_keyboard": [[{"text": label, "web_app": {"url": self.app_url(page)}}]]}
 
+    def lang(self, uid, frm=None):
+        """Effective language of `uid` (preference, else Telegram's language_code, else ru).
+        Passing the update's `from` also remembers its language_code."""
+        core = self.core
+        if frm is not None and uid is not None:
+            code = frm.get("language_code")
+            if code and core.lc.get(uid) != code:
+                core.lc[uid] = code
+                try:
+                    i18n.remember_code(core.store, uid, code)
+                except Exception:                           # noqa: BLE001 - never break an update for this
+                    log.warning("remember language_code failed")
+        return i18n.lang_of(core.store, uid, core.lc.get(uid))
+
+    def olang(self):
+        """The owner's language (for notices to the owner)."""
+        return self.lang(self.core.owner_id())
+
     def keyboard(self, uid):
         role = self.role(uid)
-        app = [[{"text": B_APP, "web_app": {"url": self.app_url()}}]] if self.webapp_url else []
+        L = self.lang(uid)
+        lb = lambda k: {"text": tr(L, "btn." + k)}               # noqa: E731
+        app = [[{"text": tr(L, "btn.app"), "web_app": {"url": self.app_url()}}]] if self.webapp_url else []
         if role == "owner":
-            rows = [[{"text": B_HEALTH}, {"text": B_LINKS}, {"text": B_PASS}], [{"text": B_YT}],
-                    [{"text": B_MEMBERS}, {"text": B_CODE}, {"text": B_SVC}]] + app
+            rows = [[lb("health"), lb("links"), lb("pass")], [lb("yt")],
+                    [lb("members"), lb("code"), lb("svc")]]
+            rows += [app[0] + [lb("lang")]] if app else [[lb("lang")]]
         elif role == "member":
             m = self.members.get(uid)
             if self.members.status(m) != "active":
-                rows = app + [[{"text": B_HELP}]]
+                rows = app + [[lb("help"), lb("lang")]]
             else:
                 rows = list(app)
-                svc = [{"text": t} for s, t in (("vpn", B_VPN), ("matrix", B_MX)) if self.members.has(uid, s)]
+                svc = [lb(k) for s, k in (("vpn", "vpn"), ("matrix", "mx")) if self.members.has(uid, s)]
                 if svc:
                     rows.append(svc)
-                rows.append([{"text": B_SUB}, {"text": B_HELP}])
+                rows.append([lb("sub"), lb("help"), lb("lang")])
                 if self.members.has(uid, "tools"):
-                    rows.append([{"text": B_HEALTH}, {"text": B_LINKS}])
+                    rows.append([lb("health"), lb("links")])
                 if self.members.has(uid, "youtube"):
-                    rows.append([{"text": B_YT}])
+                    rows.append([lb("yt")])
         else:
             return None
         return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
@@ -247,8 +283,9 @@ class Helper:
     def send_menu(self, cid, uid, text, page=None):
         """Text with the inline app button, then the reply keyboard (one
         message cannot carry both kinds of markup)."""
-        self.bot.send(cid, text, reply_markup=self.app_markup("📱 Открыть MeowHub", page))
-        self.bot.send(cid, "👇 Меню — кнопками внизу.", reply_markup=self.keyboard(uid))
+        L = self.lang(uid)
+        self.bot.send(cid, text, reply_markup=self.app_markup(tr(L, "menu.open_app"), page))
+        self.bot.send(cid, tr(L, "menu.hint"), reply_markup=self.keyboard(uid))
 
     # ------------------------------------------------------------------ loop --
     def run(self):
@@ -362,36 +399,62 @@ class Helper:
         except TelegramError as e:
             log.warning("setChatMenuButton (%s): %s", self.kind, e)
 
+    @staticmethod
+    def command_list(lang, owner=False):
+        """setMyCommands payload in `lang`: the member list, plus the ops commands for the owner."""
+        d = lambda c: {"command": c, "description": tr(lang, "cmd." + c)}      # noqa: E731
+        base = [d("start"), d("help"), d("vpn"), d("matrix"), d("sub"), d("lang")]
+        if not owner:
+            return base
+        return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"),
+                       d("pass"), d("setpass"), d("delpass")]
+
     def _commands(self):
-        base = [{"command": "start", "description": "Начало"},
-                {"command": "help", "description": "Помощь"},
-                {"command": "vpn", "description": "Мой VPN"},
-                {"command": "matrix", "description": "Мессенджер"},
-                {"command": "sub", "description": "Моя подписка"}]
+        """Default-scope commands: English text, plus Russian for the Russian-speaking
+        Telegram languages; the owner's chat gets its own list in the owner's language."""
+        def default(lang):
+            cmds = self.command_list(lang)
+            return cmds[:2] if self.kind == "helper" and self.core.member_bot is not None else cmds
+
         if self.kind == "member":
             try:
-                self.bot.call("setMyCommands", commands=base)
+                self.bot.call("setMyCommands", commands=default("en"))
+                for code in i18n.RU_CODES:
+                    self.bot.call("setMyCommands", commands=default("ru"), language_code=code)
             except TelegramError as e:
                 log.warning("member bot commands: %s", e)
             return
-        two = self.core.member_bot is not None
-        self.bot.call("setMyCommands", commands=base[:2] if two else base)
+        self.bot.call("setMyCommands", commands=default("en"))
+        for code in i18n.RU_CODES:
+            self.bot.call("setMyCommands", commands=default("ru"), language_code=code)
         oid = self.owner_id()
         if oid:
             try:
-                self.bot.call("setMyCommands", scope={"type": "chat", "chat_id": oid}, commands=base + [
-                    {"command": "health", "description": "Состояние сервера"},
-                    {"command": "links", "description": "Ссылки хаба"},
-                    {"command": "yt", "description": "Скачать видео: /yt <ссылка>"},
-                    {"command": "code", "description": "/code [дней] [vpn,matrix,tools]"},
-                    {"command": "members", "description": "Участники"},
-                    {"command": "services", "description": "Включить/выключить сервисы"},
-                    {"command": "pass", "description": "Пароли к сервисам"},
-                    {"command": "setpass", "description": "/setpass <сервис> <логин> <пароль>"},
-                    {"command": "delpass", "description": "/delpass <сервис>"},
-                ])
+                self.bot.call("setMyCommands", scope={"type": "chat", "chat_id": oid},
+                              commands=self.command_list(self.lang(oid), owner=True))
             except TelegramError as e:
                 log.info("owner commands: %s (has the owner pressed /start yet?)", e)
+
+    def refresh_commands(self, uid):
+        """After a language change: this chat's own command list in the user's language
+        (the owner's full list; for everybody else an explicit list, or none for `auto`
+        so Telegram's language-coded defaults apply)."""
+        L = self.lang(uid)
+        owner = self.kind == "helper" and uid == self.owner_id()
+        scope = {"type": "chat", "chat_id": uid}
+        try:
+            if owner or i18n.get_pref(self.store, uid) != "auto":
+                self.bot.call("setMyCommands", scope=scope, commands=self.command_list(L, owner=owner))
+            else:
+                self.bot.call("deleteMyCommands", scope=scope)
+        except TelegramError as e:
+            log.info("commands for %s: %s", uid, e)
+
+    def lang_changed(self, uid):
+        """Hook for the Mini App (POST /api/lang): refresh the chat commands of whichever
+        bot talks to `uid`. Best effort."""
+        front = self.front_for(uid)
+        front.refresh_commands(uid)
 
     def _safe(self, u):
         try:
@@ -409,6 +472,8 @@ class Helper:
         text = (m.get("text") or "").strip()
         if chat.get("type") != "private":
             return                                       # never answer in groups
+        L = self.lang(uid, frm)
+        btn = btn_key(text)
         role = self.role(uid)
         if role == "member":
             self.members.touch(uid, frm, "message")
@@ -416,294 +481,297 @@ class Helper:
         cmd, _, arg = text.partition(" ")
         cmd = cmd.split("@")[0].lower()
         if role is None and self.kind == "helper" and self.core.member_bot is not None:
-            return self.redirect_to_member_bot(cid, arg if cmd == "/start" and CODE_RE.match(arg) else text)
+            return self.redirect_to_member_bot(cid, arg if cmd == "/start" and CODE_RE.match(arg) else text, L)
         # An access code works from anyone, also as the /start deep-link payload.
         if cmd == "/start" and CODE_RE.match(arg):
             return self.redeem_code(cid, uid, frm, arg)
         if CODE_RE.match(text):
             return self.redeem_code(cid, uid, frm, text)
+        # The language picker works for everybody (also strangers and paused members).
+        if cmd == "/lang" or btn == "lang":
+            return self.cmd_lang(cid, uid)
         if role is None:
             return self.stranger(frm, cid)
 
         if role == "member":
             mem = self.members.get(uid)
             if self.members.status(mem) != "active":
-                if cmd == "/help" or text == B_HELP:
-                    return self.bot.send(cid, self.member_help(mem), reply_markup=self.keyboard(uid))
+                if cmd == "/help" or btn == "help":
+                    return self.bot.send(cid, self.member_help(mem, L), reply_markup=self.keyboard(uid))
                 return self.paused(cid, uid, mem)
 
         # ----- features shared by owner and members (gated per service) -----
         if cmd == "/start":
             if role == "owner":
-                return self.bot.send(cid, self.help_text(role), reply_markup=self.keyboard(uid))
+                return self.bot.send(cid, self.help_text(role, L), reply_markup=self.keyboard(uid))
             return self.member_start(cid, uid)
-        if cmd == "/help" or text == B_HELP:
-            help_ = self.help_text(role) if role == "owner" else self.member_help(self.members.get(uid))
+        if cmd == "/help" or btn == "help":
+            help_ = self.help_text(role, L) if role == "owner" else self.member_help(self.members.get(uid), L)
             return self.bot.send(cid, help_, reply_markup=self.keyboard(uid))
-        if cmd == "/vpn" or text == B_VPN:
+        if cmd == "/vpn" or btn == "vpn":
             return self.cmd_vpn(cid, uid)
-        if cmd == "/matrix" or text == B_MX:
+        if cmd == "/matrix" or btn == "mx":
             return self.cmd_matrix(cid, uid)
-        if cmd == "/sub" or text == B_SUB:
+        if cmd == "/sub" or btn == "sub":
             return self.cmd_sub(cid, uid)
 
-        if cmd == "/yt" or text == B_YT or (URL_RE.search(text) and not cmd.startswith("/")):
+        if cmd == "/yt" or btn == "yt" or (URL_RE.search(text) and not cmd.startswith("/")):
             return self.cmd_download(cid, uid, role, cmd, arg, text)
-        tools = cmd in ("/health", "/links") or text in (B_HEALTH, B_LINKS)
+        tools = cmd in ("/health", "/links") or btn in ("health", "links")
         if tools and not self.tools_ok(uid, role):
-            return self.bot.send(cid, "⛔ Эта функция не входит в твою подписку.")
-        if cmd == "/health" or text == B_HEALTH:
+            return self.bot.send(cid, tr(L, "err.not_in_sub"))
+        if cmd == "/health" or btn == "health":
             return self.cmd_health(cid)
-        if cmd == "/links" or text == B_LINKS:
+        if cmd == "/links" or btn == "links":
             return self.cmd_links(cid)
         if role != "owner":
-            if cmd in OWNER_CMDS or text in (B_PASS, B_MEMBERS, B_CODE, B_SVC):
-                return self.bot.send(cid, "⛔ Эта функция доступна только владельцу.")
+            if cmd in OWNER_CMDS or btn in ("pass", "members", "code", "svc"):
+                return self.bot.send(cid, tr(L, "err.owner_only"))
             return self.member_start(cid, uid)
 
         # ----- owner only below -----
-        if cmd == "/pass" or text == B_PASS:
+        if cmd == "/pass" or btn == "pass":
             return self.cmd_pass(cid)
         if cmd == "/setpass":
             return self.cmd_setpass(cid, m["message_id"], arg)
         if cmd == "/delpass":
             return self.cmd_delpass(cid, arg.strip().lower())
-        if cmd in ("/members", "/users") or text == B_MEMBERS:
+        if cmd in ("/members", "/users") or btn == "members":
             return self.cmd_members(cid)
-        if cmd == "/services" or text == B_SVC:
+        if cmd == "/services" or btn == "svc":
             return self.cmd_services(cid)
         if cmd == "/code":
             return self.cmd_code(cid, arg)
-        if text == B_CODE:
+        if btn == "code":
             return self.cmd_code_wizard(cid)
         if cmd in ("/allow", "/deny"):
             return self.cmd_allow(cid, cmd, arg)
-        return self.bot.send(cid, self.help_text(role), reply_markup=self.keyboard(uid))
+        return self.bot.send(cid, self.help_text(role, L), reply_markup=self.keyboard(uid))
+
+    # --------------------------------------------------------------- language --
+    def cmd_lang(self, cid, uid):
+        L = self.lang(uid)
+        self.bot.send(cid, tr(L, "lang.picker"), reply_markup={"inline_keyboard": [
+            [{"text": tr(L, "lang.ru"), "callback_data": "lang:ru"},
+             {"text": tr(L, "lang.en"), "callback_data": "lang:en"}],
+            [{"text": tr(L, "lang.auto"), "callback_data": "lang:auto"}]]})
+
+    def cb_lang(self, q, frm, cid, rest):
+        """lang:ru|en|auto -> save, confirm in the new language and re-send the reply keyboard."""
+        uid = frm.get("id")
+        if rest not in i18n.PREFS or uid is None:
+            return self.bot.answer(q["id"], tr(self.lang(uid, frm), "cb.bad_data"), alert=True)
+        i18n.set_pref(self.store, uid, rest)
+        L = self.lang(uid, frm)
+        text = tr(L, "lang.set." + rest)
+        self.bot.answer(q["id"], text)
+        self.bot.send(cid, text, reply_markup=self.keyboard(uid))
+        self.core.pool.submit(self.refresh_commands, uid)
 
     # ------------------------------------------------------------------ texts --
-    def help_text(self, role):
-        t = ["🐱 <b>MeowHub помощник</b>", "",
-             f"{B_HEALTH} — состояние сервера: диски, контейнеры, сайты, сертификаты, DNS",
-             f"{B_LINKS} — хаб и все сервисы",
-             f"{B_YT} — пришли ссылку на видео, и я его скачаю"]
+    def help_text(self, role, lang="ru"):
+        L = lang
+        lb = {k: tr(L, "btn." + k) for k in ("health", "links", "yt", "pass", "members", "code", "svc", "app", "lang")}
+        t = tr(L, "help.common", **{k: lb[k] for k in ("health", "links", "yt")})
         if role == "owner":
-            t += [f"{B_PASS} — логины к сервисам (только тебе, сообщение исчезает через {PASS_TTL} с)",
-                  f"{B_MEMBERS} / <code>/members</code> — участники: продлить, приостановить, сервисы",
-                  f"{B_CODE} — мастер кода приглашения",
-                  f"{B_SVC} / <code>/services</code> — включать и выключать сервисы для участников",
-                  "", "<b>Участники</b>",
-                  "<code>/code [дней] [vpn,matrix,tools]</code> — код приглашения (по умолчанию 30 дней, VPN + Мессенджер)",
-                  "Участник присылает код боту (или открывает ссылку-приглашение) — и получает доступ. "
-                  "Когда срок кончается, сервисы встают на паузу, аккаунты остаются.",
-                  "<code>/allow ID [дней]</code> — выдать доступ без кода, <code>/deny ID</code> — приостановить",
-                  f"{B_APP} — Mini App: ссылки, VPN, мессенджер и админка",
-                  "", "<b>Пароли</b>",
-                  "<code>/setpass сервис логин пароль</code> — сохранить логин",
-                  "<code>/delpass сервис</code> — удалить",
-                  "", "Проблемы с сервером я присылаю сам, сразу как замечу."]
-        return "\n".join(t)
+            t += "\n" + tr(L, "help.owner", ttl=PASS_TTL, app=lb["app"],
+                           **{"pass": lb["pass"], "members": lb["members"], "code": lb["code"], "svc": lb["svc"]})
+        return t + "\n" + tr(L, "help.lang_line", lang=lb["lang"])
 
-    def status_line(self, m):
+    def status_line(self, m, lang=None):
+        L = lang or self.lang(m["id"])
         st = self.members.status(m)
         exp = m.get("expires_ts")
         if st == "suspended":
-            return "⏸ приостановлена владельцем"
+            return tr(L, "st.suspended")
         if st == "expired":
-            return f"⚪ закончилась {ru_date(exp)}"
+            return tr(L, "st.expired", date=i18n.fmt_date(L, exp))
         if exp is None:
-            return "🟢 активна, без срока"
-        return f"🟢 активна до {ru_date(exp)} (осталось {days_left(m)} д)"
+            return tr(L, "st.open")
+        return tr(L, "st.active", date=i18n.fmt_date(L, exp), n=days_left(m))
 
-    def member_help(self, m):
+    def member_help(self, m, lang=None):
+        L = lang or (self.lang(m["id"]) if m else "ru")
         have = self.members.effective_services(m) if m else []
-        t = ["🐱 <b>MeowHub</b> — закрытый сервис по приглашениям.", ""]
-        t += [f"• <b>{esc(SERVICES[s]['name_ru'])}</b> — {esc(SERVICES[s]['desc_ru'])}" for s in have]
-        t += ["", "Когда подписка заканчивается, сервисы приостанавливаются, а аккаунты и настройки "
-                  "сохраняются. Чтобы продолжить, пришли новый код сюда.",
-              f"Вопросы: {esc(self.contact())}" if self.contact() else "Вопросы — к владельцу."]
+        t = [tr(L, "help.member_head"), ""]
+        t += [f"• <b>{esc(SERVICES[s]['name_' + L])}</b> — {esc(SERVICES[s]['desc_' + L])}" for s in have]
+        t += ["", tr(L, "help.member_tail"), tr(L, "help.member_q", c=esc(self.contact())),
+              tr(L, "help.lang_line", lang=tr(L, "btn.lang"))]
         return "\n".join(t)
 
     def member_start(self, cid, uid):
         m = self.members.get(uid)
-        t = [f"🐱 <b>MeowHub</b> — привет, {esc(person(m))}!", "",
-             f"Подписка: {self.status_line(m)}",
-             f"Сервисы: {esc(svc_names(self.members.effective_services(m)) or '—')}", "",
-             "Меню — кнопками внизу."]
-        self.send_menu(cid, uid, "\n".join(t))
+        L = self.lang(uid)
+        self.send_menu(cid, uid, tr(L, "member.start", name=esc(person(m)), status=self.status_line(m, L),
+                                    svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—")))
 
     def paused(self, cid, uid, m):
+        L = self.lang(uid)
         st = self.members.status(m)
-        why = ("владелец приостановил доступ" if st == "suspended"
-               else f"подписка закончилась {ru_date(m['expires_ts'])}")
-        self.bot.send(cid, f"⏸ <b>Доступ приостановлен</b>\nПричина: {why}.\n"
-                           f"Аккаунты и настройки сохранены. Пришли новый код или {ask_owner()}.",
+        why = (tr(L, "member.why_susp") if st == "suspended"
+               else tr(L, "member.why_exp", date=i18n.fmt_date(L, m["expires_ts"])))
+        self.bot.send(cid, tr(L, "member.paused", why=why, c=esc(self.contact())),
                       reply_markup=self.keyboard(uid))
 
     def welcome(self, m):
-        return (f"🎉 <b>Добро пожаловать в MeowHub, {esc(person(m))}!</b>\n\n"
-                f"Подписка: {self.status_line(m)}\n"
-                f"Сервисы: {esc(svc_names(self.members.effective_services(m)) or '—')}\n\n"
-                "Меню — кнопками внизу, а всё в одном месте — в приложении.")
+        L = self.lang(m["id"])
+        return tr(L, "member.welcome", name=esc(person(m)), status=self.status_line(m, L),
+                  svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—"))
 
     # ------------------------------------------------------------------ codes --
     def redeem_code(self, cid, uid, frm, text):
+        L = self.lang(uid, frm)
         if uid is not None and self.role(uid) is None:
             self.seen_from[uid] = frm
             if len(self.seen_from) > SEEN_MAX:
                 self.seen_from.pop(next(iter(self.seen_from)))
         res, mem = self.members.redeem(uid, frm, text)
-        c = self.contact()
-        msgs = {"invalid": "❌ Такого кода нет. Проверь, что он набран без ошибок.",
-                "used": "❌ Этот код уже использован.",
-                "expired_code": f"❌ Срок действия кода истёк. Попроси новый: {esc(c)}." if c else "❌ Срок действия кода истёк. Попроси новый у владельца.",
-                "revoked_code": "❌ Этот код отозван.",
-                "rate_limited": "⏳ Слишком много неверных попыток. Попробуй через час.",
-                "suspended": f"⏸ Доступ приостановлен владельцем — код не поможет. {ask_owner(True)}."}
+        c = esc(self.contact())
         if mem is None:
-            return self.bot.send(cid, msgs.get(res, "❌ Не удалось применить код."))
+            key = "code." + res
+            msg = tr(L, key, c=c) if i18n.has(key) else tr(L, "code.fail")
+            return self.bot.send(cid, msg)
         if res == "new":
             self.send_menu(cid, uid, self.welcome(mem))
         else:
-            until = ru_date(mem["expires_ts"]) if mem["expires_ts"] is not None else "без срока"
-            self.bot.send(cid, f"✅ Подписка продлена до {until}.", reply_markup=self.keyboard(uid))
+            until = i18n.fmt_date(L, mem["expires_ts"]) if mem["expires_ts"] is not None \
+                else tr(L, "common.no_expiry")
+            self.bot.send(cid, tr(L, "code.extended", until=until), reply_markup=self.keyboard(uid))
         if uid != self.owner_id():
+            OL = self.olang()
             norm = norm_code(text)
             extra = ""
             for k in self.members.codes(include_dead=True):
                 if norm_code(k["code"]) == norm:
-                    extra = f": +{k['days']} д, {esc(svc_names(k['services'], ' + '))}"
+                    extra = tr(OL, "code.owner_extra", days=k["days"], svcs=esc(svc_names(k["services"], " + ", OL)))
                     break
-            self.notify_owner(f"🎉 {ident(mem)} активировал(а) код <code>{esc(code_fmt(norm))}</code>{extra}")
+            self.notify_owner(tr(OL, "code.owner_note", who=ident(mem), code=esc(code_fmt(norm)), extra=extra))
 
-    def redirect_to_member_bot(self, cid, text):
+    def redirect_to_member_bot(self, cid, text, lang=None):
         """The ops bot is for the owner only: point everyone else at the member bot,
         with a one-tap activation when they sent (or deep-linked) an access code."""
+        L = lang or self.lang(cid)
         u = self.core.member_bot_username
-        rows = [[{"text": f"Открыть @{u}", "url": f"https://t.me/{u}"}]]
+        rows = [[{"text": tr(L, "redirect.open", u=u), "url": f"https://t.me/{u}"}]]
         if CODE_RE.match(text):
             code = code_fmt(norm_code(text))
-            rows.append([{"text": f"Активировать в @{u}", "url": f"https://t.me/{u}?start={code}"}])
-        self.bot.send(cid, f"🔒 Это служебный бот. MeowHub — в @{esc(u)}.",
+            rows.append([{"text": tr(L, "redirect.activate", u=u), "url": f"https://t.me/{u}?start={code}"}])
+        self.bot.send(cid, tr(L, "redirect.text", u=esc(u)),
                       reply_markup={"inline_keyboard": rows})
 
     def stranger(self, frm, cid):
         uid = frm.get("id")
+        L = self.lang(uid, frm)
         name = from_name(frm)
         self.seen_from[uid] = frm
         if len(self.seen_from) > SEEN_MAX:
             self.seen_from.pop(next(iter(self.seen_from)))
-        self.bot.send(cid, "🔒 MeowHub — закрытый сервис.\n"
-                           "Если у тебя есть код приглашения — просто пришли его сюда.\n"
-                           f"Нет кода? {ask_owner(True)}.",
-                      reply_markup=self.app_markup("📱 Открыть MeowHub"))
+        self.bot.send(cid, tr(L, "stranger.text", c=esc(self.contact())),
+                      reply_markup=self.app_markup(tr(L, "menu.open_app")))
         if uid not in self.nagged and uid != self.owner_id():
             self.nagged.add(uid)
+            OL = self.olang()
             un = f" @{frm['username']}" if frm.get("username") else ""
-            self.notify_owner(f"👤 Боту пишет {esc(name)}{esc(un)} (ID <code>{uid}</code>).",
+            self.notify_owner(tr(OL, "stranger.owner", name=esc(name), un=esc(un), uid=uid),
                               {"inline_keyboard": [[
-                                  {"text": "✅ Дать доступ на 30 дней", "callback_data": f"g:{uid}:30"},
-                                  {"text": "Игнор", "callback_data": f"g:{uid}:x"}]]})
+                                  {"text": tr(OL, "btn.give30"), "callback_data": f"g:{uid}:30"},
+                                  {"text": tr(OL, "btn.ignore"), "callback_data": f"g:{uid}:x"}]]})
 
     # --------------------------------------------------------- member features --
     def cmd_vpn(self, cid, uid):
+        L = self.lang(uid)
+        c = esc(self.contact())
         m = self.members.get(uid)
         if not m:
-            return self.bot.send(cid, "У владельца нет подписки — конфиги в панели 3x-ui.")
+            return self.bot.send(cid, tr(L, "vpn.owner_none"))
         if not self.members.has(uid, "vpn"):
-            return self.bot.send(cid, "🔐 VPN не входит в твою подписку или она не активна. "
-                                      f"{ask_owner(True)}.")
+            return self.bot.send(cid, tr(L, "vpn.no_access", c=c))
         wait = None
         if not m["vpn_sub_id"]:
             if self.xui is None:
-                return self.bot.send(cid, "🔐 VPN пока не настроен на сервере. Попробуй позже.")
-            wait = self.bot.send(cid, "⏳ Готовлю конфиги…")
+                return self.bot.send(cid, tr(L, "vpn.not_ready"))
+            wait = self.bot.send(cid, tr(L, "vpn.preparing"))
             try:
                 self.rec.sync_member(uid)               # already on a pool thread
             except Exception as e:                      # noqa: BLE001
                 log.warning("sync_member %s: %s", uid, e)
             m = self.members.get(uid) or m
             if not m["vpn_sub_id"]:
-                return self.bot.edit(cid, wait["message_id"], "❌ Не получилось подготовить конфиги. "
-                                     f"Попробуй позже или {ask_owner()}.")
+                return self.bot.edit(cid, wait["message_id"], tr(L, "vpn.prep_fail", c=c))
         base = os.environ.get("VPN_SUB_BASE", "").strip() or f"https://{hub.base_domain()}:2096/sub/"
         url = base + m["vpn_sub_id"]
         if wait:
             self.bot.delete(cid, wait["message_id"])
-        self.bot.send(cid, "🔐 <b>Твой VPN</b>\n\nСсылка-подписка:\n"
-                           f"<code>{esc(url)}</code>\n\n"
-                           "1. Установи Happ, v2RayTun или Hiddify.\n"
-                           "2. Добавь эту ссылку в приложении как подписку.\n"
-                           "3. Конфиги обновляются сами, новые серверы появятся автоматически. "
-                           "Никому не передавай ссылку.",
-                      reply_markup=self.app_markup("📱 Открыть в MeowHub", "vpn"), protect_content=True)
+        self.bot.send(cid, tr(L, "vpn.card", url=esc(url)),
+                      reply_markup=self.app_markup(tr(L, "menu.open_app_in"), "vpn"), protect_content=True)
 
     def cmd_matrix(self, cid, uid):
+        L = self.lang(uid)
         m = self.members.get(uid)
         if not m:
-            return self.bot.send(cid, "У владельца нет подписки.")
+            return self.bot.send(cid, tr(L, "common.owner_nosub"))
         if not self.members.has(uid, "matrix"):
-            return self.bot.send(cid, "💬 Мессенджер не входит в твою подписку или она не активна. "
-                                      f"{ask_owner(True)}.")
+            return self.bot.send(cid, tr(L, "matrix.no_access", c=esc(self.contact())))
         server = os.environ.get("MATRIX_SERVER_NAME", "").strip() or hub.base_domain()
         accs = self.members.matrix_accounts(uid)
-        t = ["💬 <b>Мессенджер</b>", ""]
-        t += ["Твои аккаунты:"] + [f"• <code>{esc(a['mxid'])}</code>" for a in accs] if accs \
-            else ["Аккаунтов пока нет."]
-        t += ["", f"Вход: приложение Element X → сервер <code>{esc(server)}</code> → логин и пароль.",
-              "Аккаунт создаётся в приложении MeowHub — так пароль не остаётся в чате."]
-        self.bot.send(cid, "\n".join(t), reply_markup=self.app_markup("➕ Создать аккаунт", "matrix"))
+        t = [tr(L, "matrix.head"), ""]
+        t += [tr(L, "matrix.accounts")] + [f"• <code>{esc(a['mxid'])}</code>" for a in accs] if accs \
+            else [tr(L, "matrix.none")]
+        t += ["", tr(L, "matrix.login", server=esc(server)), tr(L, "matrix.note")]
+        self.bot.send(cid, "\n".join(t), reply_markup=self.app_markup(tr(L, "btn.create_account"), "matrix"))
 
     def cmd_sub(self, cid, uid):
+        L = self.lang(uid)
         m = self.members.get(uid)
         if not m:
-            return self.bot.send(cid, "У владельца нет подписки.")
-        self.bot.send(cid, "🗓 <b>Подписка</b>\n\n"
-                           f"Статус: {self.status_line(m)}\n"
-                           f"Сервисы: {esc(svc_names(self.members.effective_services(m)) or '—')}\n\n"
-                           "Чтобы продлить — пришли новый код.")
+            return self.bot.send(cid, tr(L, "common.owner_nosub"))
+        self.bot.send(cid, tr(L, "member.sub", status=self.status_line(m, L),
+                              svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—")))
 
     # ---------------------------------------------------------- owner: services --
-    def services_view(self):
-        state = self.members.services_state()
-        t = ["⚙️ <b>Сервисы</b>", ""]
+    def services_view(self, lang="ru"):
+        L = lang
+        state = self.members.services_state(L)
+        t = [tr(L, "svc.head"), ""]
         kb = []
         for st in state:
-            who = "для всех участников" if st["mode"] == "all" else "по выдаче"
+            who = tr(L, "svc.all") if st["mode"] == "all" else tr(L, "svc.grant")
             mark = "✅" if st["enabled"] else "⬜"
-            t.append(f"{mark} <b>{esc(st['name'])}</b> — доступ у {st['members_with_access']}")
+            t.append(tr(L, "svc.line", mark=mark, name=esc(st["name"]), n=st["members_with_access"]))
             kb.append([{"text": f"{mark} {st['name']} — {who}", "callback_data": f"svc:t:{st['id']}"}])
-        t += ["", "Вкл = доступно всем активным участникам (для сервисов «для всех участников»).",
-              "Главный выключатель: выключишь — пропадёт у всех (VPN-клиенты отключатся, "
-              "Matrix-аккаунты заблокируются)."]
+        t += ["", tr(L, "svc.foot1"), tr(L, "svc.foot2")]
         return "\n".join(t), {"inline_keyboard": kb}
 
     def cmd_services(self, cid):
-        text, kb = self.services_view()
+        text, kb = self.services_view(self.lang(cid))
         self.bot.send(cid, text, reply_markup=kb)
 
     def cb_services(self, cid, mid, rest):
+        L = self.lang(cid)
         act, _, svc = rest.partition(":")
         if act != "t" or svc not in SERVICES:
             return None
         on = not self.members.service_enabled(svc)
         self.members.set_service_enabled(svc, on)
-        self._edit(cid, mid, *self.services_view())
-        return f"{SERVICES[svc]['name_ru']}: {'включено' if on else 'выключено'}"
+        self._edit(cid, mid, *self.services_view(L))
+        return tr(L, "svc.toast", name=SERVICES[svc]["name_" + L], state=tr(L, "svc.on" if on else "svc.off"))
 
     # ------------------------------------------------------------ owner: codes --
-    def code_card(self, code, days, svcs):
-        t = [f"🎟 Код: <code>{esc(code)}</code>"]
+    def code_card(self, code, days, svcs, lang="ru"):
+        L = lang
+        t = [tr(L, "card.code", code=esc(code))]
         rows = []
         if self.share_username():
             link = f"https://t.me/{self.share_username()}?start={code}"
-            t.append(f"Ссылка: {esc(link)}")
-            rows.append([{"text": "📤 Поделиться", "url": "https://t.me/share/url?url=" + quote(link, safe="")
-                          + "&text=" + quote("Приглашение в MeowHub", safe="")}])
-        t.append(f"Даёт {days} д: {esc(svc_names(svcs))}. Действует 30 дней, одноразовый.")
-        rows.append([{"text": "🚫 Отозвать", "callback_data": f"c:rv:{code}"}])
+            t.append(tr(L, "card.link", link=esc(link)))
+            rows.append([{"text": tr(L, "btn.share"), "url": "https://t.me/share/url?url=" + quote(link, safe="")
+                          + "&text=" + quote(tr(L, "card.share_text"), safe="")}])
+        t.append(tr(L, "card.gives", days=days, svcs=esc(svc_names(svcs, lang=L))))
+        rows.append([{"text": tr(L, "btn.revoke"), "callback_data": f"c:rv:{code}"}])
         return "\n".join(t), {"inline_keyboard": rows}
 
     def cmd_code(self, cid, arg):
+        L = self.lang(cid)
         days, svcs = 30, []
         for tok in arg.replace(";", " ").split():
             if tok.isdigit():
@@ -711,62 +779,62 @@ class Helper:
                 continue
             svcs += [p for p in re.split(r"[,+\s]+", tok.lower()) if p]
         if not 1 <= days <= 3650 or any(s not in GRANTABLE for s in svcs):
-            return self.bot.send(cid, "Формат: <code>/code [дней] [vpn,matrix,tools]</code>\n"
-                                      "Например: <code>/code 90 vpn</code>")
+            return self.bot.send(cid, tr(L, "code.usage"))
         svcs = [s for s in GRANTABLE if s in svcs] or list(DEFAULT_SERVICES)
         code = self.members.new_code(days, svcs)
-        text, kb = self.code_card(code, days, svcs)
+        text, kb = self.code_card(code, days, svcs, L)
         self.bot.send(cid, text, reply_markup=kb)
 
     def wiz_gc(self):
         now = time.time()
         self.wiz = {k: v for k, v in self.wiz.items() if now - v["ts"] < WIZ_TTL}
 
-    def wiz_view(self, st):
-        row1 = [{"text": ("✅ " if s in st["svcs"] else "⬜ ") + SHORT[s], "callback_data": f"c:t:{s}"}
+    def wiz_view(self, st, lang="ru"):
+        L = lang
+        row1 = [{"text": ("✅ " if s in st["svcs"] else "⬜ ") + short(s, L), "callback_data": f"c:t:{s}"}
                 for s in GRANTABLE]
-        row2 = [{"text": ("✅ " if d == st["days"] else "") + f"{d} д", "callback_data": f"c:d:{d}"}
+        row2 = [{"text": ("✅ " if d == st["days"] else "") + tr(L, "common.days", n=d), "callback_data": f"c:d:{d}"}
                 for d in WIZ_DAYS]
-        text = ("🎟 <b>Новый код</b>\n\nВыбери сервисы и срок подписки, потом «Создать».\n"
-                f"Сейчас: {esc(svc_names(st['svcs']) or 'ничего')} · {st['days']} д")
-        return text, {"inline_keyboard": [row1, row2, [{"text": "🎟 Создать", "callback_data": "c:mk"}]]}
+        text = tr(L, "wiz.view", svcs=esc(svc_names(st["svcs"], lang=L) or tr(L, "wiz.nothing")), days=st["days"])
+        return text, {"inline_keyboard": [row1, row2, [{"text": tr(L, "btn.create"), "callback_data": "c:mk"}]]}
 
     def cmd_code_wizard(self, cid):
         self.wiz_gc()
         st = {"svcs": set(DEFAULT_SERVICES), "days": 30, "ts": time.time()}
-        text, kb = self.wiz_view(st)
+        text, kb = self.wiz_view(st, self.lang(cid))
         msg = self.bot.send(cid, text, reply_markup=kb)
         if msg:
             self.wiz[msg["message_id"]] = st
 
     def cb_code(self, cid, mid, rest):
+        L = self.lang(cid)
         act, _, arg = rest.partition(":")
         if act == "rv":
             ok = self.members.revoke_code(arg)
-            self._edit(cid, mid, f"🚫 Код <code>{esc(arg)}</code> отозван." if ok else "Код не найден.")
-            return ("Отозван" if ok else "Не найден"), not ok
+            self._edit(cid, mid, tr(L, "wiz.revoked", c=esc(arg)) if ok else tr(L, "wiz.not_found"))
+            return (tr(L, "wiz.t_revoked") if ok else tr(L, "common.t_not_found")), not ok
         self.wiz_gc()
         st = self.wiz.get(mid)
         if st is None:
-            self._edit(cid, mid, "Мастер устарел — нажми 🎟 Код ещё раз.")
-            return "Мастер устарел", True
+            self._edit(cid, mid, tr(L, "wiz.stale"))
+            return tr(L, "wiz.t_stale"), True
         if act == "t" and arg in GRANTABLE:
             st["svcs"] ^= {arg}
         elif act == "d" and arg.isdigit() and int(arg) in WIZ_DAYS:
             st["days"] = int(arg)
         elif act == "mk":
             if not st["svcs"]:
-                return "Выбери хотя бы один сервис", True
+                return tr(L, "wiz.pick_one"), True
             svcs = [s for s in GRANTABLE if s in st["svcs"]]
             code = self.members.new_code(st["days"], svcs)
             self.wiz.pop(mid, None)
-            text, kb = self.code_card(code, st["days"], svcs)
+            text, kb = self.code_card(code, st["days"], svcs, L)
             self._edit(cid, mid, text, kb)
-            return "Код создан", False
+            return tr(L, "wiz.created"), False
         else:
             return None
         st["ts"] = time.time()
-        self._edit(cid, mid, *self.wiz_view(st))
+        self._edit(cid, mid, *self.wiz_view(st, L))
         return None
 
     # --------------------------------------------------------- owner: members --
@@ -780,20 +848,21 @@ class Helper:
         left = days_left(m)
         return "🟡" if left is not None and left <= 3 else "🟢"
 
-    def members_view(self, page=0):
+    def members_view(self, page=0, lang="ru"):
+        L = lang
         rows = self.members.list()
         pages = max(1, math.ceil(len(rows) / PAGE))
         page = min(max(page, 0), pages - 1)
         c = self.members.counts()
-        head = (f"👥 <b>Участники</b>: {c['members']} · 🟢 {c['active']} активных · "
-                f"⚪ {c['expired']} истекло · ⏸ {c['suspended']} на паузе · ⏳ {c['expiring_7d']} истекают за 7 дн")
+        head = tr(L, "mem.head", members=c["members"], active=c["active"], expired=c["expired"],
+                  suspended=c["suspended"], exp7=c["expiring_7d"])
         if not rows:
-            head += "\n\nПока никого нет. 🎟 Код — создать приглашение."
+            head += "\n\n" + tr(L, "mem.empty")
         kb = []
         for m in rows[page * PAGE:(page + 1) * PAGE]:
             left = days_left(m)
             kb.append([{"text": f"{self.dot(self.members, m)} {person(m)[:24]} · "
-                                f"{'∞' if left is None else f'{left} д'}",
+                                f"{'∞' if left is None else tr(L, 'common.days', n=left)}",
                         "callback_data": f"m:open:{m['id']}"}])
         if pages > 1:
             kb.append([{"text": "‹", "callback_data": f"m:pg:{max(page - 1, 0)}"},
@@ -802,105 +871,108 @@ class Helper:
         return head, {"inline_keyboard": kb}
 
     def cmd_members(self, cid):
-        text, kb = self.members_view(0)
+        text, kb = self.members_view(0, self.lang(cid))
         self.bot.send(cid, text, reply_markup=kb)
 
-    def member_card(self, uid):
+    def member_card(self, uid, lang="ru"):
+        L = lang
+        back = {"inline_keyboard": [[{"text": tr(L, "common.back"), "callback_data": "m:pg:0"}]]}
         m = self.members.get(uid)
         if not m:
-            return "Участник не найден.", {"inline_keyboard": [[{"text": "« Назад", "callback_data": "m:pg:0"}]]}
+            return tr(L, "mem.not_found"), back
         v = self.members.view(m)
         st = self.members.status(m)
         exp = m["expires_ts"]
         t = [f"👤 <b>{esc(person(m))}</b>" + (f" @{esc(m['username'])}" if m["username"] else ""),
              f"ID: <code>{uid}</code>",
-             f"Статус: {self.dot(self.members, m)} " + {"active": "активен", "expired": "истёк",
-                                                         "suspended": "на паузе"}[st],
-             "До: " + ("без срока" if exp is None else f"{ru_date(exp)} ({days_left(m)} д)"),
-             f"Сервисы: {esc(svc_names(m['services']) or '—')}",
+             tr(L, "card.status", dot=self.dot(self.members, m), word=tr(L, "st.word." + st)),
+             tr(L, "card.until", v=tr(L, "common.no_expiry") if exp is None
+                else tr(L, "card.until_val", date=i18n.fmt_date(L, exp), n=days_left(m))),
+             tr(L, "card.services", v=esc(svc_names(m["services"], lang=L) or "—")),
              "Matrix: " + (", ".join(f"<code>{esc(x)}</code>" for x in v["matrix"]) or "—"),
-             f"VPN-клиент: {'да' if v['has_vpn_client'] else 'нет'}",
-             "Был: " + (datetime.fromtimestamp(m["last_seen_ts"]).strftime("%d.%m %H:%M")
-                        if m["last_seen_ts"] else "—")]
+             tr(L, "card.vpn", v=tr(L, "common.yes" if v["has_vpn_client"] else "common.no")),
+             tr(L, "card.seen", v=datetime.fromtimestamp(m["last_seen_ts"]).strftime("%d.%m %H:%M")
+                if m["last_seen_ts"] else "—")]
         if m["note"]:
-            t.append(f"Заметка: {esc(m['note'])}")
-        kb = [[{"text": "➕ 30 д", "callback_data": f"m:ext:{uid}:30"},
-               {"text": "➕ 90 д", "callback_data": f"m:ext:{uid}:90"}],
-              [{"text": "▶️ Возобновить", "callback_data": f"m:res:{uid}"} if st == "suspended"
-               else {"text": "⏸ Приостановить", "callback_data": f"m:sus:{uid}"}],
-              [{"text": ("✅ " if s in m["services"] else "⬜ ") + SHORT[s], "callback_data": f"m:svc:{uid}:{s}"}
+            t.append(tr(L, "card.note", v=esc(m["note"])))
+        kb = [[{"text": tr(L, "btn.ext30"), "callback_data": f"m:ext:{uid}:30"},
+               {"text": tr(L, "btn.ext90"), "callback_data": f"m:ext:{uid}:90"}],
+              [{"text": tr(L, "btn.resume"), "callback_data": f"m:res:{uid}"} if st == "suspended"
+               else {"text": tr(L, "btn.suspend"), "callback_data": f"m:sus:{uid}"}],
+              [{"text": ("✅ " if s in m["services"] else "⬜ ") + short(s, L), "callback_data": f"m:svc:{uid}:{s}"}
                for s in GRANTABLE]]
-        last = [{"text": "🗑 Удалить", "callback_data": f"m:del:{uid}"}]
+        last = [{"text": tr(L, "btn.delete"), "callback_data": f"m:del:{uid}"}]
         if self.webapp_url:
-            last.insert(0, {"text": "📱 В приложении", "web_app": {"url": self.app_url("admin")}})
-        kb += [last, [{"text": "« Назад", "callback_data": "m:pg:0"}]]
+            last.insert(0, {"text": tr(L, "btn.inapp"), "web_app": {"url": self.app_url("admin")}})
+        kb += [last, back["inline_keyboard"][0]]
         return "\n".join(t), {"inline_keyboard": kb}
 
     def cb_member(self, cid, mid, rest):
+        L = self.lang(cid)
+        back = {"inline_keyboard": [[{"text": tr(L, "common.back"), "callback_data": "m:pg:0"}]]}
         act, _, arg = rest.partition(":")
         if act == "pg":
-            self._edit(cid, mid, *self.members_view(int(arg) if arg.isdigit() else 0))
+            self._edit(cid, mid, *self.members_view(int(arg) if arg.isdigit() else 0, L))
             return None
         suid, _, extra = arg.partition(":")
         if not suid.isdigit():
-            return "Неверные данные", True
+            return tr(L, "cb.bad_data"), True
         uid = int(suid)
         m = self.members.get(uid)
         if not m:
-            self._edit(cid, mid, "Участник не найден.",
-                       {"inline_keyboard": [[{"text": "« Назад", "callback_data": "m:pg:0"}]]})
-            return "Не найден", True
+            self._edit(cid, mid, tr(L, "mem.not_found"), back)
+            return tr(L, "common.t_not_found"), True
         toast = None
         if act == "open":
             pass
         elif act == "ext" and extra in ("30", "90"):
             m = self.members.extend(uid, int(extra))
-            self.notify(uid, f"✅ Подписка продлена до {ru_date(m['expires_ts'])}.")
-            toast = f"Продлено на {extra} д"
+            UL = self.lang(uid)
+            self.notify(uid, tr(UL, "n.extended", date=i18n.fmt_date(UL, m["expires_ts"])))
+            toast = tr(L, "mem.toast_ext", n=extra)
         elif act == "sus":
             self.members.suspend(uid)
-            self.notify(uid, "⏸ Доступ к MeowHub приостановлен владельцем. "
-                             f"{ask_owner(True)}.")
-            toast = "Приостановлен"
+            self.notify(uid, tr(self.lang(uid), "n.suspended_bot", c=esc(self.contact())))
+            toast = tr(L, "mem.toast_susp")
         elif act == "res":
             self.members.resume(uid)
-            self.notify(uid, "▶️ Доступ к MeowHub восстановлен.")
-            toast = "Возобновлён"
+            self.notify(uid, tr(self.lang(uid), "n.resumed_bot"))
+            toast = tr(L, "mem.toast_res")
         elif act == "svc" and extra in GRANTABLE:
             self.members.set_services(uid, [s for s in GRANTABLE if (s in m["services"]) != (s == extra)])
-            toast = "Сервисы обновлены"
+            toast = tr(L, "mem.toast_svc")
         elif act == "del":
-            self._edit(cid, mid, f"🗑 Удалить {esc(person(m))} (<code>{uid}</code>)? VPN-клиент будет удалён, "
-                                 "Matrix-аккаунты останутся заблокированными.",
-                       {"inline_keyboard": [[{"text": "🗑 Да, удалить", "callback_data": f"m:delok:{uid}"},
-                                             {"text": "Отмена", "callback_data": f"m:open:{uid}"}]]})
+            self._edit(cid, mid, tr(L, "mem.del_confirm", name=esc(person(m)), uid=uid),
+                       {"inline_keyboard": [[{"text": tr(L, "btn.del_yes"), "callback_data": f"m:delok:{uid}"},
+                                             {"text": tr(L, "common.cancel"), "callback_data": f"m:open:{uid}"}]]})
             return None
         elif act == "delok":
             self.members.delete(uid)
-            self._edit(cid, mid, f"🗑 {esc(person(m))} удалён.",
-                       {"inline_keyboard": [[{"text": "« Назад", "callback_data": "m:pg:0"}]]})
-            return "Удалён"
+            self._edit(cid, mid, tr(L, "mem.deleted", name=esc(person(m))), back)
+            return tr(L, "mem.toast_del")
         else:
             return None
-        self._edit(cid, mid, *self.member_card(uid))
+        self._edit(cid, mid, *self.member_card(uid, L))
         return toast
 
     def cmd_allow(self, cid, cmd, arg):
+        L = self.lang(cid)
         parts = arg.split()
         if not parts or not parts[0].lstrip("-").isdigit() or (len(parts) > 1 and not parts[1].isdigit()):
-            return self.bot.send(cid, f"Формат: <code>{cmd} 123456789{' [дней]' if cmd == '/allow' else ''}</code>")
+            return self.bot.send(cid, tr(L, "allow.usage", cmd=cmd,
+                                         days=tr(L, "allow.days_opt") if cmd == "/allow" else ""))
         uid = int(parts[0])
         if cmd == "/deny":
             if not self.members.get(uid):
-                return self.bot.send(cid, "Такого участника нет.")
+                return self.bot.send(cid, tr(L, "allow.no_member"))
             self.members.suspend(uid)
-            self.notify(uid, f"⏸ Доступ к MeowHub приостановлен владельцем. {ask_owner(True)}.")
-            return self.bot.send(cid, f"⏸ {uid} приостановлен. Вернуть: 👥 Участники.")
+            self.notify(uid, tr(self.lang(uid), "n.suspended_bot", c=esc(self.contact())))
+            return self.bot.send(cid, tr(L, "allow.denied", uid=uid))
         days = int(parts[1]) if len(parts) > 1 else 30
         mem = self.members.grant(uid, self.seen_from.get(uid), days)
         self.notify_welcome(mem)
-        self.bot.send(cid, f"✅ {ident(mem)} — доступ на {days} д, до "
-                           f"{ru_date(mem['expires_ts'])}.")
+        self.bot.send(cid, tr(L, "allow.ok", ident=ident(mem), days=days,
+                              date=i18n.fmt_date(L, mem["expires_ts"])))
 
     def notify_welcome(self, mem):
         """Welcome a freshly granted member (never raises), from the bot they use."""
@@ -911,76 +983,78 @@ class Helper:
 
     # ----------------------------------------------------- owner: access notices --
     def cb_grant(self, cid, mid, rest):
+        L = self.lang(cid)
         suid, _, act = rest.partition(":")
         if not suid.lstrip("-").isdigit():
-            return "Неверные данные", True
+            return tr(L, "cb.bad_data"), True
         uid = int(suid)
         if act != "30":
-            self._edit(cid, mid, f"Игнор: <code>{uid}</code>.")
-            return "Ок"
+            self._edit(cid, mid, tr(L, "grant.ignored", uid=uid))
+            return tr(L, "grant.ok_toast")
         frm = self.seen_from.get(uid)
         mem = self.members.grant(uid, frm, 30)
         name = person(mem) if frm is None else from_name(frm)
-        self._edit(cid, mid, f"✅ Доступ выдан {esc(name)} (<code>{uid}</code>) на 30 дней, "
-                             f"до {ru_date(mem['expires_ts'])}.")
+        self._edit(cid, mid, tr(L, "grant.done", name=esc(name), uid=uid, date=i18n.fmt_date(L, mem["expires_ts"])))
         self.notify_welcome(mem)
-        return "Доступ выдан"
+        return tr(L, "grant.t_done")
 
     def cb_inbound(self, cid, mid, rest):
+        L = self.lang(cid)
         act, _, arg = rest.partition(":")
         if not arg.lstrip("-").isdigit():
-            return "Неверные данные", True
+            return tr(L, "cb.bad_data"), True
         iid = int(arg)
         if act == "skip":
-            self._edit(cid, mid, "Пропущено.")
-            return "Пропущено"
+            self._edit(cid, mid, tr(L, "inb.skipped"))
+            return tr(L, "inb.t_skipped")
         if act != "add":
             return None
         if self.xui is None:
-            self._edit(cid, mid, "⛔ 3x-ui не настроен.")
-            return "3x-ui не настроен", True
+            self._edit(cid, mid, tr(L, "inb.no_xui"))
+            return tr(L, "inb.t_no_xui"), True
         by_id = {i["id"]: i for i in self.xui.inbounds()}
         cur = self.members.member_inbounds()
         if iid not in by_id:
-            self._edit(cid, mid, "⛔ Такого инбаунда уже нет.")
-            return "Не найден", True
+            self._edit(cid, mid, tr(L, "inb.gone"))
+            return tr(L, "common.t_not_found"), True
         if cur is None:
-            self._edit(cid, mid, "⏳ Список инбаундов ещё не инициализирован — повтори через минуту.")
-            return "Повтори позже", True
+            self._edit(cid, mid, tr(L, "inb.not_init"))
+            return tr(L, "inb.t_later"), True
         if iid in cur:
-            self._edit(cid, mid, f"Инбаунд <b>{esc(by_id[iid].get('remark', iid))}</b> уже выдан.")
-            return "Уже выдан"
+            self._edit(cid, mid, tr(L, "inb.already", r=esc(by_id[iid].get("remark", iid))))
+            return tr(L, "inb.t_already")
         proto = str(by_id[iid].get("protocol", "")).lower()
         if proto in AWG_PROTOCOLS and any(str((by_id.get(i) or {}).get("protocol", "")).lower() in AWG_PROTOCOLS
                                           for i in cur):
-            self._edit(cid, mid, "⛔ Нельзя: у участников уже есть один wireguard/amneziawg инбаунд — "
-                                 "на двух клиент получает неверный адрес.")
-            return "Второй WireGuard/AWG нельзя", True
+            self._edit(cid, mid, tr(L, "inb.two_awg"))
+            return tr(L, "inb.t_two_awg"), True
         self.members.set_member_inbounds(cur + [iid])
         self.members.set_known_inbounds(set(self.members.known_inbounds()) | {iid})
-        self._edit(cid, mid, f"✅ Инбаунд <b>{esc(by_id[iid].get('remark', iid))}</b> выдан участникам.")
-        return "Выдан"
+        self._edit(cid, mid, tr(L, "inb.shared", r=esc(by_id[iid].get("remark", iid))))
+        return tr(L, "inb.t_shared")
 
     # -------------------------------------------------------------- features --
     def cmd_health(self, cid):
-        msg = self.bot.send(cid, "🩺 Проверяю…")
+        L = self.lang(cid)
+        msg = self.bot.send(cid, tr(L, "health.checking"))
         f, i = health.full(self.store)
-        self.bot.edit(cid, msg["message_id"], health.render(f, i))
+        self.bot.edit(cid, msg["message_id"], health.render(f, i, L))
 
     def cmd_links(self, cid):
+        L = self.lang(cid)
         svcs = hub.services()
         lines = []
         h = hub.hub_url()
         if h:
-            lines.append(f"🏠 <b><a href=\"{esc(h)}\">Хаб</a></b>\n{esc(h)}\n")
+            lines.append(f"🏠 <b><a href=\"{esc(h)}\">{tr(L, 'links.hub')}</a></b>\n{esc(h)}\n")
         for s in svcs:
             if s.get("status", "live") != "live":
                 continue
             lines.append(f"• <a href=\"{esc(s['url'])}\">{esc(s.get('name', s['id']))}</a> — "
                          f"{esc(s.get('description', ''))}")
         if not svcs:
-            lines.append("Список сервисов недоступен — пересобери dashboard (npm run build).")
-        buttons = ([[{"text": "🏠 Открыть хаб", "url": h}]] if h else []) + [
+            lines.append(tr(L, "links.none"))
+        buttons = ([[{"text": tr(L, "btn.open_hub"), "url": h}]] if h else []) + [
             [{"text": s.get("name", s["id"]), "url": s["url"]} for s in svcs[i:i + 2]]
             for i in range(0, len(svcs), 2)]
         self.bot.send(cid, "\n".join(lines), reply_markup={"inline_keyboard": buttons} if buttons else None)
@@ -991,80 +1065,83 @@ class Helper:
         return role == "owner" or (role == "member" and self.members.has(uid, "youtube"))
 
     def cmd_download(self, cid, uid, role, cmd, arg, text):
+        L = self.lang(uid)
         if not self.yt_ok(uid, role):
             now = time.time()
             if now - self.yt_nag.get(uid, 0) >= YT_NAG_EVERY:
                 self.yt_nag[uid] = now
-                self.bot.send(cid, "Скачивание видео сейчас выключено.")
+                self.bot.send(cid, tr(L, "dl.off"))
             return None
-        if text == B_YT:
-            return self.bot.send(cid, "Пришли ссылку — открою загрузчик (YouTube, RuTube, VK Видео).")
+        if btn_key(text) == "yt":
+            return self.bot.send(cid, tr(L, "dl.paste"))
         url = URL_RE.search(arg if cmd == "/yt" else text)
         if not url:
-            return self.bot.send(cid, "Формат: <code>/yt https://youtu.be/…</code>")
+            return self.bot.send(cid, tr(L, "dl.usage"))
         return self.offer_download(cid, uid, url.group(0))
 
     def offer_download(self, cid, uid, url):
         """The downloader lives in the Mini App: hand the (canonical) link over, nothing else."""
+        L = self.lang(uid)
         if not self.webapp_url:
-            return self.bot.send(cid, "🎬 Загрузчик теперь работает в мини-приложении MeowHub — "
-                                      "открой приложение и вставь ссылку на странице «Скачать».")
+            return self.bot.send(cid, tr(L, "dl.moved"))
         link = self.webapp_url + "?p=downloads&url=" + quote(downloads.canonical_url(url, keep_list=True), safe="")
-        self.bot.send(cid, "🎬 Скачать можно в MeowHub — ссылка уже подставлена.",
-                      reply_markup={"inline_keyboard": [[{"text": "Открыть загрузчик", "web_app": {"url": link}}]]})
+        self.bot.send(cid, tr(L, "dl.offer"),
+                      reply_markup={"inline_keyboard": [[{"text": tr(L, "btn.open_dl"), "web_app": {"url": link}}]]})
 
     # ------------------------------------------------------------ passwords --
     def cmd_pass(self, cid):
+        L = self.lang(cid)
         v = hub.vault(self.store)
         if not v:
-            return self.bot.send(cid, "Сохранённых логинов нет.\n<code>/setpass сервис логин пароль</code>")
+            return self.bot.send(cid, tr(L, "pass.none"))
         ids = sorted(v, key=lambda k: hub.service_name(k).lower())
         kb = [[{"text": f"🔑 {hub.service_name(k)}", "callback_data": f"pw:{k}"} for k in ids[i:i + 2]]
               for i in range(0, len(ids), 2)]
         known = {s["id"] for s in hub.services()}
         missing = [s.get("name", s["id"]) for s in hub.services() if s["id"] not in v]
-        t = "Выбери сервис:"
+        t = tr(L, "pass.pick")
         if missing:
-            t += "\n<i>Без сохранённого логина: " + esc(", ".join(missing)) + "</i>"
+            t += "\n<i>" + tr(L, "pass.missing", v=esc(", ".join(missing))) + "</i>"
         if known:
-            t += "\n<i>ID для /setpass: " + esc(", ".join(sorted(known))) + "</i>"
+            t += "\n<i>" + tr(L, "pass.ids", v=esc(", ".join(sorted(known)))) + "</i>"
         self.bot.send(cid, t, reply_markup={"inline_keyboard": kb})
 
     def show_password(self, cid, vid):
+        L = self.lang(cid)
         e = hub.vault(self.store).get(vid)
         if not e:
-            return self.bot.send(cid, "Нет такого логина.")
+            return self.bot.send(cid, tr(L, "pass.nologin"))
         url = hub.service_url(vid)
         t = [f"🔑 <b>{esc(hub.service_name(vid))}</b>",
-             f"Логин: <code>{esc(e['login'])}</code>",
-             f"Пароль: <tg-spoiler><code>{esc(e['password'])}</code></tg-spoiler>"]
+             tr(L, "pass.login", v=esc(e["login"])),
+             tr(L, "pass.password", v=esc(e["password"]))]
         if url:
             t.append(esc(url))
         if e.get("note"):
             t.append(f"<i>{esc(e['note'])}</i>")
-        t.append(f"<i>Сообщение удалится через {PASS_TTL} с.</i>")
+        t.append(tr(L, "pass.ttl", ttl=PASS_TTL))
         log.info("password shown for %s", vid)
         msg = self.bot.send(cid, "\n".join(t), protect_content=True)
         threading.Timer(PASS_TTL, self.bot.delete, args=(cid, msg["message_id"])).start()
 
     def cmd_setpass(self, cid, mid, arg):
+        L = self.lang(cid)
         # The command itself contains the password: delete it right away.
         self.bot.delete(cid, mid)
         parts = arg.split(maxsplit=2)
         if len(parts) < 3 or not SERVICE_ID.match(parts[0].lower()):
-            return self.bot.send(cid, "Формат: <code>/setpass сервис логин пароль</code>\n"
-                                      "Сообщение с паролем я удалил.")
+            return self.bot.send(cid, tr(L, "setpass.usage"))
         vid, login, pw = parts[0].lower(), parts[1], parts[2].strip()
         self.store.vault_set(vid, login, pw)
-        self.bot.send(cid, f"✅ Сохранил логин для <b>{esc(hub.service_name(vid))}</b>. "
-                           "Твоё сообщение с паролем удалено.")
+        self.bot.send(cid, tr(L, "setpass.ok", name=esc(hub.service_name(vid))))
 
     def cmd_delpass(self, cid, vid):
+        L = self.lang(cid)
         if self.store.vault_del(vid):
-            return self.bot.send(cid, f"🗑 Удалил {esc(vid)}.")
+            return self.bot.send(cid, tr(L, "delpass.ok", vid=esc(vid)))
         if vid in hub.vault(self.store):
-            return self.bot.send(cid, "Этот логин приходит из .env — удалить можно только там.")
-        self.bot.send(cid, "Нет такого логина.")
+            return self.bot.send(cid, tr(L, "delpass.env"))
+        self.bot.send(cid, tr(L, "pass.nologin"))
 
 
     # ------------------------------------------------------------- callbacks --
@@ -1074,31 +1151,34 @@ class Helper:
         data = q.get("data") or ""
         m = q.get("message") or {}
         cid, mid = (m.get("chat") or {}).get("id"), m.get("message_id")
+        L = self.lang(uid, frm)
+        kind, _, rest = data.partition(":")
+        if kind == "lang":                                  # everybody may pick a language
+            return self.cb_lang(q, frm, cid, rest)
         role = self.role(uid)
         if role is None:
-            return self.bot.answer(q["id"], "Нет доступа", alert=True)
+            return self.bot.answer(q["id"], tr(L, "cb.no_access"), alert=True)
         if role == "member":
             self.members.touch(uid, frm, "callback")
-        kind, _, rest = data.partition(":")
 
         # ----- owner only below: checked again here, per press, because a
         # callback carries the presser's id, not the original recipient's.
         if role != "owner":
-            return self.bot.answer(q["id"], "Только для владельца", alert=True)
+            return self.bot.answer(q["id"], tr(L, "cb.owner_only"), alert=True)
         if kind == "pw":
             if (m.get("chat") or {}).get("type") != "private":
-                return self.bot.answer(q["id"], "Только в личном чате", alert=True)
+                return self.bot.answer(q["id"], tr(L, "cb.private_only"), alert=True)
             self.bot.answer(q["id"])
             return self.show_password(cid, rest)
         handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound,
                    "svc": self.cb_services}.get(kind)
         if handler is None:
-            return self.bot.answer(q["id"], "Кнопка устарела", alert=True)
+            return self.bot.answer(q["id"], tr(L, "cb.stale"), alert=True)
         try:
             res = handler(cid, mid, rest)
         except Exception:                                   # noqa: BLE001
             log.exception("callback %s failed", kind)
-            return self.bot.answer(q["id"], "Ошибка", alert=True)
+            return self.bot.answer(q["id"], tr(L, "cb.error"), alert=True)
         text, alert = res if isinstance(res, tuple) else (res, False)
         self.bot.answer(q["id"], text, alert=alert)
 
@@ -1144,11 +1224,12 @@ class Monitor:
         self.last = {"fast": 0, "slow": 0, "certs": 0}
 
     def notify(self, text):
+        """`text` is a string, or a callable building it in the owner's language."""
         oid = self.h.owner_id()
         if not oid:
             return
         try:
-            self.h.bot.send(oid, text)
+            self.h.bot.send(oid, text(self.h.lang(oid)) if callable(text) else text)
         except TelegramError as e:
             log.warning("notify: %s", e)
 
@@ -1158,19 +1239,19 @@ class Monitor:
         seen = set()
         for f in findings:
             if f.level == "event":
-                self.notify(f"⚠️ {esc(f.text)}")
+                self.notify(lambda L, f=f: f"⚠️ {esc(f.t(L))}")
                 continue
             seen.add(f.key)
             if f.level in ("warn", "crit"):
                 self.bad[f.key] = self.bad.get(f.key, 0) + 1
                 if self.bad[f.key] >= 2 and self.alerted.get(f.key) != f.level:
                     self.alerted[f.key] = f.level
-                    self.notify(f"{'🔴' if f.level == 'crit' else '⚠️'} {esc(f.text)}")
+                    self.notify(lambda L, f=f: f"{'🔴' if f.level == 'crit' else '⚠️'} {esc(f.t(L))}")
             else:
                 self.bad.pop(f.key, None)
                 if f.key in self.alerted:
                     self.alerted.pop(f.key)
-                    self.notify(f"✅ Решено: {esc(f.text)}")
+                    self.notify(lambda L, f=f: tr(L, "mon.resolved", text=esc(f.t(L))))
         # A key that stopped being reported at all (a container removed on
         # purpose) is dropped quietly.
         for k in [k for k in list(self.bad) + list(self.alerted)
@@ -1207,7 +1288,7 @@ class Monitor:
                         last_report = today
                         self.h.store.set("last_report", today)
                         f, i = health.full(self.h.store)
-                        self.notify("☀️ <b>Утренний отчёт</b>\n\n" + health.render(f, i))
+                        self.notify(lambda L: tr(L, "mon.report") + "\n\n" + health.render(f, i, L))
             except Exception:                                  # noqa: BLE001
                 log.exception("monitor pass failed")
             time.sleep(10)

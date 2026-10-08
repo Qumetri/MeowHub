@@ -410,10 +410,12 @@ class BotTest(unittest.TestCase):
     # ------------------------------------------------------------------ run --
     def test_commands_and_menu_button(self):
         self.h._commands()
-        scopes = [e for e in self.b.log if e[0] == "setMyCommands"]
+        # default scope (English) + one Russian list per Russian-speaking language code + the owner's chat
+        scopes = [e for e in self.b.log if e[0] == "setMyCommands"
+                  and "language_code" not in e[3]]
         self.assertEqual(len(scopes), 2)
         owner_cmds = {c["command"] for c in scopes[1][3]["commands"]}
-        self.assertTrue({"code", "members", "pass", "setpass", "delpass", "vpn"} <= owner_cmds)
+        self.assertTrue({"code", "members", "pass", "setpass", "delpass", "vpn", "lang"} <= owner_cmds)
         self.assertNotIn("code", {c["command"] for c in scopes[0][3]["commands"]})
         self.h._menu_button()
         mb = [e for e in self.b.log if e[0] == "setChatMenuButton"][0][3]["menu_button"]

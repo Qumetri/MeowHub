@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Icon from '../icons.jsx'
-import { Button, Cell } from '../ui.jsx'
+import { Button, Cell, Section, Segmented } from '../ui.jsx'
 import { t } from '../i18n.js'
 import { haptic, isTg, openTelegramLink } from '../tg.js'
 import { useApp } from '../ctx.js'
@@ -47,6 +47,17 @@ const REDEEM_ERR = ['invalid', 'used', 'expired_code', 'revoked_code', 'rate_lim
 export function redeemMessage(result, me, message) {
   if (REDEEM_ERR.includes(result)) return t('redeem.' + result, contactVars(me))
   return message || t('err.generic')
+}
+
+// "Язык / Language": Auto · Русский · English. Writes the server-side preference (App.changeLang).
+export function LangSection() {
+  const { langPref, setLangPref } = useApp()
+  const items = ['auto', 'ru', 'en'].map((id) => ({ id, label: t('lang.' + id) }))
+  return (
+    <Section title={t('lang.title')} footer={t('lang.hint')}>
+      <div className="langrow"><Segmented items={items} value={langPref} onChange={setLangPref} /></div>
+    </Section>
+  )
 }
 
 export function useShow() {

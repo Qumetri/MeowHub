@@ -33,6 +33,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
+import i18n
 import links
 
 log = logging.getLogger("downloads")
@@ -67,18 +68,32 @@ def limits():
             "per_day": _int_env("DL_PER_DAY", 30), "ttl_min": _int_env("METUBE_TTL_MIN", 30)}
 
 
-def presets_payload():
+def presets_payload(lang="ru"):
     """GET /api/dl/presets, and what the bots build their buttons from."""
-    return {"video": [{"id": i, "label": lb} for i, lb, _q in VIDEO],
+    best = i18n.tr(lang, "dl.preset.best")
+    return {"video": [{"id": i, "label": best if i == "vbest" else lb} for i, lb, _q in VIDEO],
             "audio": [{"id": i, "label": lb} for i, lb, _f, _q in AUDIO],
             "extras": {"subs": list(SUBS), "clip": True, "playlist_max": PLAYLIST_MAX},
-            "limits": limits(), "sites": list(SITES)}
+            "limits": limits(),
+            "sites": [i18n.tr(lang, "dl.site.vk") if x == "VK Видео" else x for x in SITES]}
 
 
 class DlError(Exception):
-    def __init__(self, status, code, message=None):
+    """`message` is an i18n catalog key (or plain text); `.message` is its Russian
+    rendering, `render(lang)` any language."""
+
+    def __init__(self, status, code, message=None, **vars):
         super().__init__(code)
-        self.status, self.code, self.message = status, code, message or code
+        self.status, self.code, self.key, self.vars = status, code, message, vars
+
+    def render(self, lang="ru"):
+        if not self.key:
+            return self.code
+        return i18n.tr(lang, self.key, **self.vars) if i18n.has(self.key) else self.key
+
+    @property
+    def message(self):
+        return self.render("ru")
 
 
 class MeTubeError(Exception):
@@ -116,7 +131,7 @@ class MeTube:
             log.error("MeTube said 'Already in queue' for %s -- serialization bug", body.get("url"))
             raise MeTubeError("queue_conflict")
         if r.get("status") == "error":
-            raise MeTubeError(msg or "MeTube отклонил ссылку")
+            raise MeTubeError(msg or i18n.tr("ru", "dl.job.rejected"))
         return r
 
     def delete(self, ids, where):
@@ -204,7 +219,7 @@ def canonical_url(u, keep_list=False):
 
 def _secs(v, field):
     if isinstance(v, bool):
-        raise DlError(400, "bad_request", f"Фрагмент: поле {field} некорректно.")
+        raise DlError(400, "bad_request", "dl.err.bad_field", field=field)
     if isinstance(v, (int, float)):
         out = float(v)
     elif isinstance(v, str) and re.fullmatch(r"\d+(:\d{1,2}){0,2}", v.strip()):
@@ -212,9 +227,9 @@ def _secs(v, field):
         for part in v.strip().split(":"):
             out = out * 60 + int(part)
     else:
-        raise DlError(400, "bad_request", f"Фрагмент: поле {field} некорректно.")
+        raise DlError(400, "bad_request", "dl.err.bad_field", field=field)
     if out < 0 or out > DAY:
-        raise DlError(400, "bad_request", f"Фрагмент: поле {field} вне диапазона.")
+        raise DlError(400, "bad_request", "dl.err.range", field=field)
     return int(out)
 
 
@@ -222,17 +237,17 @@ def norm_opts(raw):
     raw = raw or {}
     subs = raw.get("subs") or None
     if subs not in (None,) + SUBS:
-        raise DlError(400, "bad_request", "Субтитры: ru или en.")
+        raise DlError(400, "bad_request", "dl.err.subs")
     clip = raw.get("clip") or None
     if clip is not None:
         if not isinstance(clip, dict):
-            raise DlError(400, "bad_request", "Фрагмент: ожидается {start, end}.")
+            raise DlError(400, "bad_request", "dl.err.clip_obj")
         start, end = _secs(clip.get("start", 0), "start"), _secs(clip.get("end"), "end")
         if end <= start:
-            raise DlError(400, "bad_request", "Фрагмент: конец должен быть позже начала.")
+            raise DlError(400, "bad_request", "dl.err.clip_order")
         clip = {"start": start, "end": end}
     if raw.get("playlist") is not None and not isinstance(raw["playlist"], bool):
-        raise DlError(400, "bad_request", "Поле playlist: ожидается true или false.")
+        raise DlError(400, "bad_request", "dl.err.playlist_bool")
     return {"subs": subs, "clip": clip, "playlist": bool(raw.get("playlist"))}
 
 
@@ -246,7 +261,7 @@ def clean_error(msg):
     path = os.environ.get("METUBE_PATH", "").strip("/")
     if path:
         msg = msg.replace(path, "…")
-    return msg[:300] or "ошибка загрузки"
+    return msg[:300] or i18n.tr("ru", "dl.job.default")
 
 
 def _row(r):
@@ -309,19 +324,19 @@ class Downloads:
             log.warning("disk_usage(%s): %s", self.root, e)
             return float("inf")
 
-    def submit(self, uid, url, preset, raw_opts=None, origin="app", chat_id=None, chat_msg_id=None):
+    def submit(self, uid, url, preset, raw_opts=None, origin="app", chat_id=None, chat_msg_id=None, lang="ru"):
         """-> job JSON. Raises DlError (400 bad input, 429 limit, 503 disk_full)."""
         url = url.strip() if isinstance(url, str) else url
         if not valid_url(url):
-            raise DlError(400, "bad_url", "Нужна ссылка http:// или https://.")
+            raise DlError(400, "bad_url", "dl.err.bad_url")
         if preset not in PRESETS:
-            raise DlError(400, "bad_preset", "Неизвестный пресет.")
+            raise DlError(400, "bad_preset", "dl.err.bad_preset")
         opts = norm_opts(raw_opts)
         url = canonical_url(url, keep_list=opts["playlist"])
         if is_playlist(url) and not opts["playlist"]:
-            raise DlError(400, "playlist", "Это плейлист — включи «Плейлист (до 10)»")
+            raise DlError(400, "playlist", "dl.err.playlist")
         if self.free_gb() < self.min_free_gb:
-            raise DlError(503, "disk_full", "На сервере мало места — попробуй позже.")
+            raise DlError(503, "disk_full", "dl.err.disk")
         now = int(self.clock())
         with self.sublock:
             if uid != self.owner_id():
@@ -333,19 +348,19 @@ class Downloads:
                     (int(uid), url, preset, json.dumps(opts), origin, chat_id, chat_msg_id, now))
                 jid = cur.lastrowid
         self.wake.set()
-        return self.job_json(self._get(jid))
+        return self.job_json(self._get(jid), lang=lang)
 
     def _check_limits(self, uid, now):
         lim = limits()
         n = lambda sql, *a: self.s.q(sql, *a)[0][0]                       # noqa: E731
         if n("SELECT COUNT(*) FROM downloads WHERE uid=? AND status IN ('queued','running')", uid) >= lim["active"]:
-            raise DlError(429, "limit", f"Одновременно можно качать не больше {lim['active']} — дождись завершения.")
+            raise DlError(429, "limit", "dl.err.limit_active", n=lim["active"])
         if n("SELECT COUNT(*) FROM downloads WHERE uid=? AND created_ts>=? AND status!='canceled'",
              uid, now - 3600) >= lim["per_hour"]:
-            raise DlError(429, "limit", f"Лимит: не больше {lim['per_hour']} загрузок в час. Попробуй позже.")
+            raise DlError(429, "limit", "dl.err.limit_hour", n=lim["per_hour"])
         if n("SELECT COUNT(*) FROM downloads WHERE uid=? AND created_ts>=? AND status!='canceled'",
              uid, now - DAY) >= lim["per_day"]:
-            raise DlError(429, "limit", f"Лимит: не больше {lim['per_day']} загрузок в сутки.")
+            raise DlError(429, "limit", "dl.err.limit_day", n=lim["per_day"])
 
     # ------------------------------------------------------------- MeTube body --
     def _add_body(self, j, phase):
@@ -444,9 +459,9 @@ class Downloads:
         items = self._match(lead, hist)
         if not items:
             if jid not in self._mine:
-                return self._fail(lead, "прервано перезапуском")
+                return self._fail(lead, i18n.tr("ru", "dl.job.restart"))
             if now - (lead["started_ts"] or now) > STALE_START_S:
-                return self._fail(lead, "MeTube не начал загрузку — ссылка не распознана?")
+                return self._fail(lead, i18n.tr("ru", "dl.job.nostart"))
             return None
         n = len(items)
         pcts = [100.0 if i.get("status") == "finished" else float(i.get("percent") or 0) for i in items]
@@ -511,7 +526,7 @@ class Downloads:
         try:
             self.mt.add(self._add_body(lead, "main"))
         except MeTubeError as e:
-            return self._fail(lead, "ошибка очереди, повтори" if str(e) == "queue_conflict" else clean_error(e))
+            return self._fail(lead, i18n.tr("ru", "dl.job.queue") if str(e) == "queue_conflict" else clean_error(e))
         self._upd_group(lead["id"], phase="main", submit_ns=ns - 10**9, files=files)
 
     def _finish(self, lead, fin):
@@ -531,7 +546,7 @@ class Downloads:
                     seen.add(rel)
                     files.append(e)
         if not any(f["kind"] != "subs" for f in files):
-            return self._fail(lead, "файл не найден на диске")
+            return self._fail(lead, i18n.tr("ru", "dl.job.nofile"))
         total = sum(f["size"] for f in files if f["kind"] != "subs")
         self._upd_group(lead["id"], status="done", files=files, size=total, percent=100.0, eta=None,
                         error="", finished_ts=int(self.clock()))
@@ -568,8 +583,8 @@ class Downloads:
             except MeTubeError as e:
                 if e.transient and now - j["created_ts"] < QUEUE_RETRY_S:
                     continue
-                msg = ("ошибка очереди, повтори" if str(e) == "queue_conflict"
-                       else "загрузчик недоступен, попробуй позже" if e.transient else clean_error(e))
+                msg = (i18n.tr("ru", "dl.job.queue") if str(e) == "queue_conflict"
+                       else i18n.tr("ru", "dl.job.unavail") if e.transient else clean_error(e))
                 self._upd(j["id"], status="error", error=msg, finished_ts=int(now))
                 continue
             self._upd(j["id"], lead=j["id"], status="running", started_ts=int(now), phase=phase,
@@ -604,7 +619,7 @@ class Downloads:
     def _own(self, uid, jid):
         j = self._get(jid)
         if j is None or j["uid"] != uid:
-            raise DlError(404, "not_found", "Загрузка не найдена.")
+            raise DlError(404, "not_found", "dl.err.not_found")
         return j
 
     def _promote(self, gone):
@@ -630,13 +645,13 @@ class Downloads:
                     log.warning("cancel in MeTube: %s", e)
         self._upd(j["id"], status="canceled", eta=None, finished_ts=int(self.clock()))
 
-    def cancel(self, uid, jid):
+    def cancel(self, uid, jid, lang="ru"):
         with self.tlock:
             j = self._own(uid, jid)
             if j["status"] not in ACTIVE:
-                raise DlError(409, "not_active", "Загрузка уже завершена.")
+                raise DlError(409, "not_active", "dl.err.not_active")
             self._cancel_row(j)
-            return self.job_json(self._get(jid))
+            return self.job_json(self._get(jid), lang=lang)
 
     def delete(self, uid, jid):
         with self.tlock:
@@ -686,16 +701,16 @@ class Downloads:
         if j["uid"] != uid:
             raise DlError(403, "forbidden")
         if uid != self.owner_id() and not self.members.has(uid, "youtube"):
-            raise DlError(403, "no_access", "Этот сервис недоступен: нет активной подписки.")
+            raise DlError(403, "no_access", "api.no_access")
         if j["status"] != "done" or not 0 <= idx < len(j["files"]):
             raise DlError(404, "not_found")
         path = self._safe_path(j["files"][idx]["rel"], j["folder"] or f"u{j['uid']}")
         if path is None:
-            raise DlError(404, "not_found", "Файл уже удалён.")
+            raise DlError(404, "not_found", "dl.err.file_gone")
         return path, j["files"][idx]["name"]
 
     # ------------------------------------------------------------------- views --
-    def job_json(self, j, urls=True):
+    def job_json(self, j, urls=True, lang="ru"):
         files = []
         for idx, f in enumerate(j["files"]):
             d = {"name": f["name"], "size": f["size"], "kind": f["kind"]}
@@ -706,21 +721,22 @@ class Downloads:
         return {"id": j["id"], "url": j["url"], "preset": j["preset"],
                 "preset_label": PRESETS[j["preset"]]["label"] if j["preset"] in PRESETS else j["preset"],
                 "title": j["title"], "status": j["status"], "percent": int(j["percent"] or 0),
-                "size": j["size"], "eta": j["eta"], "error": j["error"], "created_ts": j["created_ts"],
+                "size": j["size"], "eta": j["eta"], "error": i18n.localize_job_error(lang, j["error"]),
+                "created_ts": j["created_ts"],
                 "finished_ts": j["finished_ts"],
                 "expires_ts": (j["finished_ts"] or 0) + limits()["ttl_min"] * 60 if done else None,
                 "files": files, "origin": j["origin"]}
 
-    def jobs_for(self, uid):
+    def jobs_for(self, uid, lang="ru"):
         rows = self._rows("WHERE uid=? AND created_ts>=? ORDER BY id DESC", int(uid), int(self.clock()) - DAY)
-        return [self.job_json(j) for j in rows]
+        return [self.job_json(j, lang=lang) for j in rows]
 
-    def admin(self, name_of):
+    def admin(self, name_of, lang="ru"):
         now = int(self.clock())
         rows = self._rows("WHERE created_ts>=? ORDER BY id DESC", now - DAY)
         jobs = []
         for j in rows:
-            d = self.job_json(j, urls=False)
+            d = self.job_json(j, urls=False, lang=lang)
             d.update(uid=j["uid"], user=name_of(j["uid"]))
             jobs.append(d)
         free = self.free_gb()

@@ -840,13 +840,13 @@ class TestWiring(TwoBots):
     def test_commands(self):
         self.h._commands()
         self.front._commands()
-        helper_cmds = [e for e in self.hb.log if e[0] == "setMyCommands"]
+        helper_cmds = [e for e in self.hb.log if e[0] == "setMyCommands" and "language_code" not in e[3]]
         self.assertEqual([c["command"] for c in helper_cmds[0][3]["commands"]], ["start", "help"])
         self.assertTrue({"code", "members", "pass"} <= {c["command"] for c in helper_cmds[1][3]["commands"]})
-        member_cmds = [e for e in self.mb.log if e[0] == "setMyCommands"]
+        member_cmds = [e for e in self.mb.log if e[0] == "setMyCommands" and "language_code" not in e[3]]
         self.assertEqual(len(member_cmds), 1)
         self.assertEqual([c["command"] for c in member_cmds[0][3]["commands"]],
-                         ["start", "help", "vpn", "matrix", "sub"])
+                         ["start", "help", "vpn", "matrix", "sub", "lang"])
 
     def test_menu_buttons(self):
         self.h._menu_button()

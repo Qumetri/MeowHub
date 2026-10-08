@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS downloads (
     murls TEXT NOT NULL DEFAULT '[]', folder TEXT NOT NULL DEFAULT '', delivery TEXT NOT NULL DEFAULT '',
     created_ts INTEGER NOT NULL, started_ts INTEGER, finished_ts INTEGER, delivered_ts INTEGER);
 CREATE INDEX IF NOT EXISTS downloads_uid ON downloads(uid, created_ts);
+CREATE TABLE IF NOT EXISTS prefs (
+    uid INTEGER PRIMARY KEY, lang TEXT NOT NULL DEFAULT 'auto',
+    lc TEXT NOT NULL DEFAULT '', updated_ts INTEGER);
 """
 
 

@@ -28,7 +28,7 @@ export function installFakeTelegram(p) {
   root.style.setProperty('--tg-safe-area-inset-bottom', '0px')
 
   const mock = p.get('mock')
-  const user = { ...(MOCK_USERS[mock] || MOCK_USERS.member), language_code: p.get('lang') || 'ru' }
+  const user = { ...(MOCK_USERS[mock] || MOCK_USERS.member), language_code: p.get('lc') || (['ru', 'en'].includes(p.get('lang')) ? p.get('lang') : 'ru') }
   const user_json = JSON.stringify(user)
 
   // --- fake native chrome: header on top, bottom bar for the MainButton

@@ -1,5 +1,5 @@
 import { initData, isTg } from './tg.js'
-import { t } from './i18n.js'
+import { getLang, t } from './i18n.js'
 
 // Dev-only mock switch. In a production build import.meta.env.DEV is the
 // literal `false`, so this and the dynamic import below are dead code and the
@@ -27,7 +27,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     const m = await import('./mock.js')
     return m.handle(method, path, body)
   }
-  const headers = {}
+  const headers = { 'X-Lang': getLang() }
   if (isTg) headers['X-Tg-Init-Data'] = initData
   // The server's CSRF guard wants a JSON content type on every non-GET, even with an empty body.
   if (method !== 'GET') headers['Content-Type'] = 'application/json'
