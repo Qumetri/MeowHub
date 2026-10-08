@@ -146,8 +146,8 @@ class TestLocalizedHelpers(unittest.TestCase):
         self.assertEqual(ru[0]["title"], "Прокси для Telegram")
 
     def test_awg_link_names(self):
-        out = webapp.awg_links([{"name": "n", "url": "vpn://" + "A" * 8}], "./dl/x", "./dl/y", "en")
-        self.assertEqual([l["name"] for l in out][:1], ["Open in AmneziaVPN"])
+        out = webapp.awg_links([{"name": "n", "url": "vpn://" + "A" * 8}], "./dl/x", "en")
+        self.assertEqual([l["action"] for l in out][:2], ["copy", "download"])
         self.assertIn(".conf file", [l["name"] for l in out])
 
     def test_plural_inbounds(self):

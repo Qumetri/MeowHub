@@ -329,9 +329,8 @@ export async function handle(method, path, body) {
           hint: tr('Если обычные не работают. Скопируй → «+» → «Из буфера».', 'If the regular ones don’t work. Copy → “+” → “From clipboard”.'),
           links: [{ name: 'Hysteria2', url: 'hysteria2://k3x9a7fq2m@' + SERVER + ':4443?sni=' + SERVER + '#Hysteria2', action: 'copy' }] },
         { id: 'awg', title: 'AmneziaWG', apps: ['AmneziaWG', 'AmneziaVPN'],
-          hint: tr('AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).', 'AmneziaVPN: “Open in AmneziaVPN” → “Connect”. AmneziaWG: download the .conf → “+” → “Import from file” (or QR).'),
+          hint: tr('AmneziaVPN: кнопка выше, в «Добавить в приложение». AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).', 'AmneziaVPN: use its button above, in “Add to an app”. AmneziaWG: download the .conf → “+” → “Import from file” (or scan the QR).'),
           links: [
-            { name: tr('Открыть в AmneziaVPN', 'Open in AmneziaVPN'), url: 'https://' + SERVER + '/app/dl/b3Blbi1tb2Nr.mockSig', action: 'open' },
             { name: tr('Ключ для AmneziaVPN', 'Key for AmneziaVPN'), url: AWG_VPN_URL, action: 'copy' },
             { name: tr('Файл .conf', '.conf file'), url: 'https://' + SERVER + '/app/dl/Zm9vYmFyLm1vY2std2c.mockSig', action: 'download', file_name: 'meowhub-awg.conf' },
             { name: tr('QR для AmneziaWG', 'QR for AmneziaWG'), action: 'qr', text: AWG_CONF },
@@ -347,6 +346,7 @@ export async function handle(method, path, body) {
         { id: 'v2raytun', name: 'v2RayTun', platforms: ['iOS', 'Android'], go_url: go('v2raytun') },
         { id: 'streisand', name: 'Streisand', platforms: ['iOS'], go_url: go('streisand') },
         { id: 'v2rayng', name: 'v2rayNG', platforms: ['Android'], go_url: go('v2rayng') },
+        { id: 'amnezia', name: 'AmneziaVPN', platforms: tr('только AmneziaWG · Android, iOS, ПК', 'AmneziaWG only · Android, iOS, desktop'), go_url: 'https://' + SERVER + '/app/dl/b3Blbi1tb2Nr.mockSig' },
       ],
     }
   }

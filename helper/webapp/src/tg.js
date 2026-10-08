@@ -61,16 +61,32 @@ export function saveFile(url, fileName) {
   a.remove()
 }
 
-// Clipboard read: Telegram's own call (6.4+) first, then the web API.
+// Clipboard read. Telegram's readTextFromClipboard (6.4+) answers only Mini Apps
+// launched from the attachment menu -- ours (menu button / inline button) get null --
+// and the web API is allowed in some WebViews (iOS shows a "Paste" bubble) and denied
+// in others (most Android). So both start at once, inside the tap's user activation,
+// and the first non-empty text wins; null when neither gives anything (the caller
+// then focuses the field so the keyboard's own paste/clipboard chip can be used).
 export const canReadClipboard = () => !!(
-  (isTg && W().readTextFromClipboard && W().isVersionAtLeast?.('6.4')) || navigator.clipboard?.readText)
+  (isTg && W().readTextFromClipboard && W().isVersionAtLeast?.('6.4')) || navigator.clipboard?.readText || isTg)
 export function readClipboard() {
   return new Promise((resolve) => {
-    if (isTg && W().readTextFromClipboard && W().isVersionAtLeast?.('6.4')) {
-      try { W().readTextFromClipboard((txt) => resolve(txt || '')); return } catch { /* fall back */ }
+    let pending = 0, done = false
+    const finish = (txt) => {
+      if (done) return
+      if (txt && String(txt).trim()) { done = true; resolve(String(txt)); return }
+      if (--pending <= 0) { done = true; resolve(null) }
     }
-    if (navigator.clipboard?.readText) navigator.clipboard.readText().then((v) => resolve(v || ''), () => resolve(null))
-    else resolve(null)
+    if (navigator.clipboard?.readText) {
+      pending++
+      try { navigator.clipboard.readText().then(finish, () => finish(null)) } catch { finish(null) }
+    }
+    if (isTg && W().readTextFromClipboard && W().isVersionAtLeast?.('6.4')) {
+      pending++
+      try { W().readTextFromClipboard((txt) => finish(txt)) } catch { finish(null) }
+    }
+    if (!pending) { resolve(null); return }
+    setTimeout(() => { if (!done) { done = true; resolve(null) } }, 1500)   // a callback that never comes
   })
 }
 

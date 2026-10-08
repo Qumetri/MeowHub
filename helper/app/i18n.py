@@ -700,15 +700,14 @@ _("grp.udp.hint", "Если обычные не работают. Скопиру
   "Use it if the regular ones don't work. Copy it → “+” → “From clipboard”.")
 _("grp.awg.title", "AmneziaWG", "AmneziaWG")
 _("grp.awg.hint",
-  "AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться». "
+  "AmneziaVPN: кнопка выше, в «Добавить в приложение». "
   "AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR).",
-  "AmneziaVPN: “Open in AmneziaVPN” → “Connect”. "
+  "AmneziaVPN: use its button above, in “Add to an app”. "
   "AmneziaWG: download the .conf → “+” → “Import from file” (or scan the QR).")
 _("grp.tg.title", "Прокси для Telegram", "Telegram proxy")
 _("grp.tg.hint", "Нажми — Telegram сам предложит включить.", "Tap it — Telegram will offer to enable it.")
 _("link.mtproto", "MTProto-прокси", "MTProto proxy")
 _("link.config", "Конфиг {i}", "Config {i}")
-_("link.open_amnezia", "Открыть в AmneziaVPN", "Open in AmneziaVPN")
 _("link.conf", "Файл .conf", ".conf file")
 _("link.qr", "QR для AmneziaWG", "QR for AmneziaWG")
 
@@ -716,6 +715,7 @@ _("link.qr", "QR для AmneziaWG", "QR for AmneziaWG")
 _("go.title", "Открыть в {app}", "Open in {app}")
 _("go.hint", "Если приложение не открылось, установи {app} и нажми кнопку ещё раз.",
   "If the app didn't open, install {app} and tap the button again.")
+_("app.amnezia_sub", "только AmneziaWG · Android, iOS, ПК", "AmneziaWG only · Android, iOS, desktop")
 _("awg.open", "Открыть в AmneziaVPN", "Open in AmneziaVPN")
 _("awg.retry", "Не открылось? Попробовать ещё так", "Didn't open? Try this way")
 _("awg.how_android", "Откроется AmneziaVPN — нажми «Подключиться».", "AmneziaVPN will open — tap “Connect”.")

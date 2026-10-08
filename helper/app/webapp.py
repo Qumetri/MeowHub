@@ -380,13 +380,11 @@ AMNEZIA_APPSTORE = "https://apps.apple.com/app/id1600529900"
 AMNEZIA_SITE = "https://amnezia.org/downloads"
 
 
-def awg_links(items, conf_url, open_url=None, lang="ru"):
-    """The AmneziaWG group's links: (with `open_url`) a one-tap hand-off page for the
-    AmneziaVPN app, copy each vpn:// link, then (for the first) a signed .conf download
-    and a QR carrying the .conf text."""
-    out = [{"name": i18n.tr(lang, "link.open_amnezia"), "url": open_url, "action": "open"}] \
-        if open_url and items else []
-    out += [dict(l, action="copy") for l in items]
+def awg_links(items, conf_url, lang="ru"):
+    """The AmneziaWG group's links: copy each vpn:// link, then (for the first) a signed
+    .conf download and a QR carrying the .conf text. (The one-tap AmneziaVPN hand-off is
+    an entry in `apps`, next to Happ & co.)"""
+    out = [dict(l, action="copy") for l in items]
     conf = vpn_conf(items[0]["url"]) if items else None
     if conf_url:
         out.append({"name": i18n.tr(lang, "link.conf"), "url": conf_url, "action": "download", "file_name": AWG_FILE})
@@ -395,10 +393,9 @@ def awg_links(items, conf_url, open_url=None, lang="ru"):
     return out
 
 
-def build_links(urls, email, domain, conf_url=None, open_url=None, lang="ru"):
+def build_links(urls, email, domain, conf_url=None, lang="ru"):
     """-> (links, groups) for /api/vpn: host-fixed, named, grouped by app family.
-    `conf_url` is the (absolute) signed URL of the AmneziaWG .conf, `open_url` the signed
-    AmneziaVPN hand-off page, when there are such."""
+    `conf_url` is the (absolute) signed URL of the AmneziaWG .conf, when there is one."""
     links, by_group = [], {}
     for i, url in enumerate(urls or [], 1):
         if not isinstance(url, str) or not url.strip():
@@ -410,7 +407,7 @@ def build_links(urls, email, domain, conf_url=None, open_url=None, lang="ru"):
         links.append(item)
         by_group.setdefault(g, []).append(item)
     groups = [{"id": gid, "title": i18n.tr(lang, title), "apps": list(apps), "hint": i18n.tr(lang, hint),
-               "links": awg_links(by_group[gid], conf_url, open_url, lang) if gid == "awg"
+               "links": awg_links(by_group[gid], conf_url, lang) if gid == "awg"
                else [dict(l, action=action) for l in by_group[gid]]}
               for gid, title, apps, hint, action in LINK_GROUPS if by_group.get(gid)]
     return links, groups
@@ -753,10 +750,7 @@ class App:
         sub = sub_base() + (m["vpn_sub_id"] or client.get("subId"))
         conf_url = signed.absolute(signed.sign("awg_conf", "awg", uid, store=self.h.store),
                                    getattr(self.h, "webapp_url", ""))
-        open_url = signed.absolute(signed.sign("awg_open", "awg", uid, ttl=3600, store=self.h.store),
-                                   getattr(self.h, "webapp_url", ""))
-        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url, open_url,
-                                   ctx.lang)
+        links, groups = build_links(xui.client_links(email), email, env("BASE_DOMAIN"), conf_url, ctx.lang)
         tr = traffic_of(client)
         if tr is None:
             tr = next((traffic_of(c) for c in xui.clients() if c.get("email") == email), None)
@@ -766,6 +760,12 @@ class App:
             online = False
         apps = [{"id": a[0], "name": a[1], "platforms": a[2],
                  "go_url": f"./go/{a[0]}?u={urllib.parse.quote(sub, safe='')}"} for a in VPN_APPS]
+        if any(g["id"] == "awg" for g in groups):
+            # AmneziaVPN takes only the AmneziaWG config, not the subscription: its entry
+            # opens the signed hand-off page (intent: on Android, a .vpn file elsewhere).
+            apps.append({"id": "amnezia", "name": "AmneziaVPN", "platforms": i18n.tr(ctx.lang, "app.amnezia_sub"),
+                         "go_url": signed.absolute(signed.sign("awg_open", "awg", uid, ttl=3600, store=self.h.store),
+                                                   getattr(self.h, "webapp_url", ""))})
         return jr({"sub_url": sub, "links": links, "groups": groups,
                    "traffic": tr or {"up": 0, "down": 0}, "online": online, "apps": apps})
 

@@ -270,8 +270,7 @@ that points at `host.docker.internal`, that rewrite did not run.
 
 Put one AmneziaWG inbound in the member inbounds (at most one, see above) and each
 member gets one peer, which expires with the membership. The "AmneziaWG" group
-offers four things: **Открыть в AmneziaVPN** (one tap, below), **copy the `vpn://`
-link** (AmneziaVPN), **download `meowhub-awg.conf`** (AmneziaWG) and a **QR** that
+offers three things: **copy the `vpn://` link** (AmneziaVPN), **download `meowhub-awg.conf`** (AmneziaWG) and a **QR** that
 carries the `.conf` text (a long
 config falls back to error-correction level L, and past that the app says to
 download the file). The panel writes its own host (`localhost`) into the peer's
@@ -280,7 +279,9 @@ download the file). The panel writes its own host (`localhost`) into the peer's
 [signed link](#downloader) (kind `awg_conf`) that re-checks the member's `vpn`
 access at download time.
 
-**"Открыть в AmneziaVPN" (one tap).** The first link of the group is a signed link
+**AmneziaVPN in one tap.** It is an entry in **«Добавить в приложение»** next to
+Happ & co. (listed only when the member has an AWG link; its subtitle says "AmneziaWG
+only", because unlike the others it imports one config, not the subscription): a signed link
 (kind `awg_open`, 1 h) to an HTML hand-off page served by `/dl/<token>` (the app opens
 it with `openLink`, since Telegram will not open custom schemes). AmneziaVPN registers
 `vpn://` **only on Android**, where it shows the config for confirmation (not a silent
@@ -291,7 +292,7 @@ link plus a plain `vpn://` fallback; iOS and desktop get a signed `meowhub.vpn` 
 hands to the AmneziaWG app; never put "backup" in the name, iOS AmneziaVPN would treat
 it as a backup restore). Every variant also has "Скопировать ключ" and a store link;
 there is no auto-redirect (Chrome needs a tap). The key is sent without its `#name`.
-Hint shown in the group: "AmneziaVPN: «Открыть в AmneziaVPN» → «Подключиться».
+Hint shown in the group: "AmneziaVPN: кнопка выше, в «Добавить в приложение».
 AmneziaWG: скачай .conf → «+» → «Импорт из файла» (или QR)." See
 [the research note](research/amneziavpn-deeplink-2026-10.md).
 
@@ -495,6 +496,11 @@ Downloads happen in the Mini App page "Скачать" (`?p=downloads&url=…`).
   hourly that downloads are switched off.
 - **Admin**: the Bots page "Загрузки" section (disk free, today's jobs and bytes,
   recent jobs).
+- **Paste button**: Telegram's `readTextFromClipboard` only answers Mini Apps opened from the
+  attachment menu (ours get null), so the app races it against `navigator.clipboard.readText()`
+  inside the tap (iOS shows a "Paste" bubble; most Android WebViews deny it). If both come back
+  empty it focuses the URL field (keyboard clipboard chip / long-press → Paste) and says so.
+  Sharing the video to the bot (link prefilled) is the zero-friction path.
 
 ## Logins
 

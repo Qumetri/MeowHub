@@ -189,6 +189,7 @@ export default function Downloads() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const canPaste = useMemo(canReadClipboard, [])
+  const urlRef = useRef(null)
 
   // Default to 720p (or the first video preset) once presets are known.
   useEffect(() => {
@@ -216,8 +217,15 @@ export default function Downloads() {
   async function paste() {
     haptic.impact('light')
     const txt = await readClipboard()
-    if (!txt) { toast(t('dl.paste_fail'), 'bad'); return }
-    setUrl(txt.trim()); setErr('')
+    if (!txt) {
+      // No clipboard access in this WebView: open the keyboard on the field instead --
+      // its clipboard chip (Android) or long-press → Paste does the job in one tap.
+      urlRef.current?.focus()
+      toast(t('dl.paste_fail'))
+      return
+    }
+    const m = txt.match(/https?:\/\/\S+/i)                  // shared text often wraps the link
+    setUrl((m ? m[0] : txt).trim()); setErr('')
   }
 
   async function submit() {
@@ -263,7 +271,7 @@ export default function Downloads() {
         suffix={trimmed
           ? <button type="button" className="iconbtn iconbtn--in" aria-label={t('dl.clear')} onClick={() => { setUrl(''); setErr('') }}><Icon name="x" size={18} /></button>
           : canPaste ? <Button kind="tonal" size="s" icon="clipboard" onClick={paste}>{t('dl.paste')}</Button> : null}>
-        <input className="input" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+        <input ref={urlRef} className="input" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false}
           placeholder="https://…" value={url} enterKeyHint="go"
           onChange={(e) => { setUrl(e.target.value); setErr('') }}
           onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />

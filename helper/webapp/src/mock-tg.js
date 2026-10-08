@@ -55,7 +55,9 @@ export function installFakeTelegram(p) {
 
   const head = document.createElement('div')
   head.id = 'ftg-head'
-  head.innerHTML = '<button id="ftg-back">Закрыть</button>MeowHub<span>⋯</span>'
+  const ru = String(user.language_code || '').startsWith('ru')
+  const L = ru ? { close: 'Закрыть', back: '‹ Назад' } : { close: 'Close', back: '‹ Back' }
+  head.innerHTML = '<button id="ftg-back">' + L.close + '</button>MeowHub<span>⋯</span>'
   document.body.insertBefore(head, document.getElementById('root'))
   const mainBar = document.createElement('div')
   mainBar.id = 'ftg-main'
@@ -73,8 +75,8 @@ export function installFakeTelegram(p) {
   backBtn.onclick = () => { if (backVisible) backHandlers.forEach((f) => f()); else say('WebApp.close()') }
   const BackButton = {
     get isVisible() { return backVisible },
-    show() { backVisible = true; backBtn.textContent = '‹ Назад' },
-    hide() { backVisible = false; backBtn.textContent = 'Закрыть' },
+    show() { backVisible = true; backBtn.textContent = L.back },
+    hide() { backVisible = false; backBtn.textContent = L.close },
     onClick(f) { backHandlers.add(f) }, offClick(f) { backHandlers.delete(f) },
   }
 

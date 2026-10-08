@@ -97,13 +97,6 @@ function LinkCell({ l, i }) {
         right={<Button kind="tonal" size="s" onClick={(e) => { e.stopPropagation(); dl() }}>{t('vpn.download')}</Button>} />
     )
   }
-  if (l.action === 'open') {
-    const go = () => { haptic.impact('light'); openLink(new URL(l.url, location.href).href) }
-    return (
-      <Cell icon="external" title={l.name || `#${i + 1}`} onClick={go}
-        right={<Button kind="tonal" size="s" onClick={(e) => { e.stopPropagation(); go() }}>{t('vpn.open')}</Button>} />
-    )
-  }
   if (l.action === 'telegram') {
     const go = () => { haptic.impact('light'); openTelegramLink(l.url) }
     return (
