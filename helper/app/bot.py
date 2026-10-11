@@ -78,6 +78,7 @@ def short(s, lang="ru"):
     return tr(lang, "short." + s)
 WIZ_DAYS = (30, 90, 180, 365)
 SEEN_MAX = 500
+STRANGER_RENOTIFY = 6 * 3600     # a stranger writing again later is reported again
 YT_NAG_EVERY = 3600
 
 
@@ -126,9 +127,10 @@ class Helper:
         self.member_front = None          # MemberFront for member_bot
         self.helper_id = None             # numeric id of the helper bot (from getMe)
         self.pool = ThreadPoolExecutor(8)
+        self._beats = {}                  # poller kind -> last getUpdates attempt (healthcheck)
         self.lc = {}                      # uid -> last Telegram language_code seen
         self.yt_nag = {}                  # uid -> last "downloads are off" notice
-        self.nagged = set()               # strangers already reported to the owner
+        self.nagged = {}                  # stranger uid -> when the owner was last told
         self.seen_from = {}               # stranger uid -> Telegram `from` (for the grant welcome)
         self.wiz = {}                     # message id -> code wizard state
         self.members = Members(store)
@@ -175,7 +177,8 @@ class Helper:
 
     def tools_ok(self, uid, role=None):
         role = role or self.role(uid)
-        return role == "owner" or (role == "member" and self.members.has(uid, "tools"))
+        # the owner keeps the tools on the member bot too, where their role is "member"
+        return role == "owner" or uid == self.owner_id() or (role == "member" and self.members.has(uid, "tools"))
 
     @staticmethod
     def contact():
@@ -189,6 +192,12 @@ class Helper:
         if not self.webapp_url:
             return None
         return {"inline_keyboard": [[{"text": label, "web_app": {"url": self.app_url(page)}}]]}
+
+    def open_app(self, cid, L):
+        markup = self.app_markup(tr(L, "menu.open_app"))
+        if markup is None:
+            return self.bot.send(cid, tr(L, "err.no_app"))
+        return self.bot.send(cid, tr(L, "app.open_hint"), reply_markup=markup)
 
     def lang(self, uid, frm=None):
         """Effective language of `uid` (preference, else Telegram's language_code, else ru).
@@ -212,7 +221,9 @@ class Helper:
         role = self.role(uid)
         L = self.lang(uid)
         lb = lambda k: {"text": tr(L, "btn." + k)}               # noqa: E731
-        app = [[{"text": tr(L, "btn.app"), "web_app": {"url": self.app_url()}}]] if self.webapp_url else []
+        # A plain text button, answered with an inline web_app button (open_app): Telegram
+        # gives a Mini App opened from a *reply-keyboard* button no initData, so it can't log in.
+        app = [[lb("app")]] if self.webapp_url else []
         if role == "owner":
             rows = [[lb("health"), lb("links"), lb("pass")], [lb("yt")],
                     [lb("members"), lb("code"), lb("svc")]]
@@ -227,7 +238,7 @@ class Helper:
                 if svc:
                     rows.append(svc)
                 rows.append([lb("sub"), lb("help"), lb("lang")])
-                if self.members.has(uid, "tools"):
+                if self.tools_ok(uid, role):
                     rows.append([lb("health"), lb("links")])
                 if self.members.has(uid, "youtube"):
                     rows.append([lb("yt")])
@@ -362,12 +373,17 @@ class Helper:
         """Long-poll one bot; its updates are handled by `front` (Helper or MemberFront)."""
         offset = int(self.store.get(offset_key, "0") or 0)
         while True:
-            self._beat()
+            self._beat(front.kind)
             try:
                 ups = front.bot.call("getUpdates", _timeout=70, offset=offset or None,
                                      allowed_updates=["message", "callback_query"], timeout=50)
             except TelegramError as e:
                 log.warning("getUpdates (%s): %s", front.kind, e)
+                time.sleep(5)
+                continue
+            except Exception:                               # noqa: BLE001
+                # never let the thread die: a dead poller leaves that bot silently deaf
+                log.exception("getUpdates (%s) failed", front.kind)
                 time.sleep(5)
                 continue
             for u in ups:
@@ -376,10 +392,15 @@ class Helper:
             if ups:
                 self.store.set(offset_key, offset)
 
-    def _beat(self):
+    def _beat(self, kind=None):
+        """The healthcheck reads the OLDEST poller's beat, so one stuck bot turns the
+        container unhealthy instead of being masked by the other one."""
+        now = int(time.time())
+        if kind:
+            self._beats[kind] = now
         try:
             with open(HEARTBEAT, "w") as f:
-                f.write(str(int(time.time())))
+                f.write(str(min(self._beats.values(), default=now)))
         except OSError:
             pass
 
@@ -491,7 +512,9 @@ class Helper:
         if cmd == "/lang" or btn == "lang":
             return self.cmd_lang(cid, uid)
         if role is None:
-            return self.stranger(frm, cid)
+            return self.stranger(frm, cid, text)
+        if btn == "app":
+            return self.open_app(cid, L)
 
         if role == "member":
             mem = self.members.get(uid)
@@ -659,23 +682,29 @@ class Helper:
         self.bot.send(cid, tr(L, "redirect.text", u=esc(u)),
                       reply_markup={"inline_keyboard": rows})
 
-    def stranger(self, frm, cid):
+    def stranger(self, frm, cid, text=""):
         uid = frm.get("id")
         L = self.lang(uid, frm)
         name = from_name(frm)
         self.seen_from[uid] = frm
         if len(self.seen_from) > SEEN_MAX:
             self.seen_from.pop(next(iter(self.seen_from)))
-        self.bot.send(cid, tr(L, "stranger.text", c=esc(self.contact())),
+        first = text.split(" ")[0].split("@")[0].lower() == "/start" and uid != self.owner_id()
+        key = "stranger.welcome" if first else "stranger.text"
+        self.bot.send(cid, tr(L, key, name=esc(frm.get("first_name") or name), c=esc(self.contact())),
                       reply_markup=self.app_markup(tr(L, "menu.open_app")))
-        if uid not in self.nagged and uid != self.owner_id():
-            self.nagged.add(uid)
+        # tell the owner once per STRANGER_RENOTIFY, and only mark it once the notice got through
+        now = time.time()
+        if uid != self.owner_id() and now - self.nagged.get(uid, 0) >= STRANGER_RENOTIFY:
             OL = self.olang()
             un = f" @{frm['username']}" if frm.get("username") else ""
-            self.notify_owner(tr(OL, "stranger.owner", name=esc(name), un=esc(un), uid=uid),
-                              {"inline_keyboard": [[
-                                  {"text": tr(OL, "btn.give30"), "callback_data": f"g:{uid}:30"},
-                                  {"text": tr(OL, "btn.ignore"), "callback_data": f"g:{uid}:x"}]]})
+            said = tr(OL, "stranger.said_start") if first else \
+                tr(OL, "stranger.said", t=esc(text[:200] + ("…" if len(text) > 200 else ""))) if text else ""
+            if self.notify_owner(tr(OL, "stranger.owner", name=esc(name), un=esc(un), uid=uid) + said,
+                                 {"inline_keyboard": [[
+                                     {"text": tr(OL, "btn.give30"), "callback_data": f"g:{uid}:30"},
+                                     {"text": tr(OL, "btn.ignore"), "callback_data": f"g:{uid}:x"}]]}):
+                self.nagged[uid] = now
 
     # --------------------------------------------------------- member features --
     def cmd_vpn(self, cid, uid):

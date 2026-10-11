@@ -39,7 +39,7 @@ For a separate bot for members, see [Two bots](#two-bots) below.
 
 | | Owner | Member (active) | Stranger |
 |---|:-:|:-:|:-:|
-| 🩺 Health, 🔗 Links (`tools`) | ✅ | if the membership has `tools` | — |
+| 🩺 Health, 🔗 Links (`tools`) | ✅ (on the member bot too) | if the membership has `tools` | — |
 | 🎬 Downloader (`youtube`) | ✅ (always) | while the owner has switched `youtube` on | — |
 | VPN link (`vpn`), Matrix accounts (`matrix`) | ✅ | if the membership has the service | — |
 | Redeem an access code | ✅ | ✅ (extends) | ✅ (becomes a member) |
@@ -49,8 +49,10 @@ For a separate bot for members, see [Two bots](#two-bots) below.
 
 The bot is public on Telegram — anyone can find it and write to it. A stranger is
 told to send an access code or to contact `OWNER_CONTACT` (a Telegram `@handle`;
-leave it empty and the bot just says "contact the owner"), and the owner gets one
-notice about the new person. Members **never** get logins, whatever they send:
+leave it empty and the bot just says "contact the owner"); their first `/start` gets
+a fuller welcome explaining what the hub is. The owner gets a notice with what they
+wrote and Give 30 days / Ignore buttons — again at most every 6 h per person, and a
+notice that failed to send is retried on their next message. Members **never** get logins, whatever they send:
 the owner check runs again on every button press, because a callback carries the
 id of whoever pressed it. The bot also **never answers in groups**.
 
@@ -188,6 +190,15 @@ through the member bot, messages to you through the helper bot — one routing
 function decides by recipient. "A stranger wrote to the bot" notices, with their
 grant buttons, always come from the **helper** bot. Access-code share links
 (`https://t.me/<member_bot>?start=<CODE>`) use the member bot's username.
+
+The **📱 MeowHub button on the reply keyboard is plain text**; the bot answers it
+with an inline button that opens the app. Telegram passes no `initData` to a Mini
+App opened from a reply-keyboard `web_app` button, so it couldn't log anyone in.
+
+A poller thread never dies: every network error, including a read timeout in
+the middle of a long poll, is caught and retried. The container healthcheck
+reads the **oldest** poller's heartbeat, so one stuck bot turns the container
+unhealthy (and the monitor tells you) instead of being masked by the other.
 
 The Mini App accepts Telegram's signed `initData` from **either** bot and
 remembers which one it came from (`via`: `helper`, `member`, or `browser`

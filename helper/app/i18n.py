@@ -311,6 +311,16 @@ _("stranger.text",
 _("stranger.owner", "👤 Боту пишет {name}{un} (ID <code>{uid}</code>).",
   "👤 {name}{un} is writing to the bot (ID <code>{uid}</code>).")
 
+_("stranger.said_start", "\nНажал /start.", "\nPressed /start.")
+_("stranger.said", "\nПишет: <i>{t}</i>", "\nWrote: <i>{t}</i>")
+_("stranger.welcome",
+  "👋 Привет, {name}! Это MeowHub — частный VPN, мессенджер и загрузчик видео для своих.\n\n"
+  "🔑 Есть код приглашения (MEOW-XXXX-XXXX)? Пришли его сюда — доступ откроется сразу.\n"
+  "🙋 Нет кода? Владелец уже получил уведомление о тебе; можешь также написать {c}.",
+  "👋 Hi, {name}! This is MeowHub — a private VPN, messenger and video downloader for friends.\n\n"
+  "🔑 Have an invitation code (MEOW-XXXX-XXXX)? Send it here and access opens right away.\n"
+  "🙋 No code? The owner has already been notified about you; you can also message {c}.")
+
 # -- VPN / Matrix in chat ----------------------------------------------------------
 _("vpn.owner_none", "У владельца нет подписки — конфиги в панели 3x-ui.",
   "The owner has no subscription — the configs are in the 3x-ui panel.")
@@ -715,6 +725,9 @@ _("link.qr", "QR для AmneziaWG", "QR for AmneziaWG")
 _("go.title", "Открыть в {app}", "Open in {app}")
 _("go.hint", "Если приложение не открылось, установи {app} и нажми кнопку ещё раз.",
   "If the app didn't open, install {app} and tap the button again.")
+_("app.open_hint", "📱 MeowHub — открой кнопкой ниже (или синей кнопкой «MeowHub» слева от поля ввода).",
+  "📱 MeowHub — open it with the button below (or the blue “MeowHub” button left of the input field).")
+_("err.no_app", "Мини-приложение сейчас не настроено.", "The Mini App isn't configured right now.")
 _("app.amnezia_sub", "только AmneziaWG · Android, iOS, ПК", "AmneziaWG only · Android, iOS, desktop")
 _("awg.open", "Открыть в AmneziaVPN", "Open in AmneziaVPN")
 _("awg.retry", "Не открылось? Попробовать ещё так", "Didn't open? Try this way")

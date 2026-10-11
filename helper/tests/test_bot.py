@@ -112,6 +112,26 @@ class BotTest(unittest.TestCase):
         self.assertEqual(out[0][3]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"],
                          "https://example.org/app/")
 
+    def test_stranger_start_gets_welcome_and_owner_sees_what_they_wrote(self):
+        self.h.on_message(msg(78, "/start", first="Zed"))
+        out = self.b.sent(78)
+        self.assertIn("Привет, Zed", out[0][2])
+        self.assertIn("MEOW-XXXX-XXXX", out[0][2])
+        self.assertIn("/start", self.b.sent(OWNER)[0][2])
+
+    def test_stranger_is_reported_again_later_and_after_a_failed_notice(self):
+        with mock.patch.object(self.h, "notify_owner", return_value=None) as n:
+            self.h.on_message(msg(79, "hi"))
+            self.h.on_message(msg(79, "hello?"))
+        self.assertEqual(n.call_count, 2)                       # first notice failed -> retried
+        self.h.on_message(msg(79, "anyone"))
+        self.h.on_message(msg(79, "again"))
+        self.assertEqual(len(self.b.sent(OWNER)), 1)
+        self.assertIn("anyone", self.b.sent(OWNER)[0][2])
+        self.h.nagged[79] -= botmod.STRANGER_RENOTIFY
+        self.h.on_message(msg(79, "next day"))
+        self.assertEqual(len(self.b.sent(OWNER)), 2)
+
     def test_no_webapp_url_omits_buttons(self):
         self.h.webapp_url = ""
         self.h.on_message(msg(77, "hi"))
@@ -204,7 +224,16 @@ class BotTest(unittest.TestCase):
         self.assertIn(botmod.B_VPN, texts)
         self.assertNotIn(botmod.B_MX, texts)
         self.assertNotIn(botmod.B_HEALTH, texts)
-        self.assertEqual(self.h.keyboard(uid)["keyboard"][0][0]["web_app"]["url"], "https://example.org/app/")
+        first = self.h.keyboard(uid)["keyboard"][0][0]
+        self.assertEqual(first, {"text": botmod.B_APP})       # plain text: keyboard web_app gets no initData
+
+    def test_app_button_answers_with_inline_web_app(self):
+        uid = self.make_member(57)
+        self.h.on_message(msg(uid, botmod.B_APP))
+        e = self.b.sent(uid)[-1]
+        self.assertEqual(e[3]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"], "https://example.org/app/")
+        self.assertFalse(any("web_app" in b for r in self.h.keyboard(uid)["keyboard"] for b in r))
+
 
     def test_vpn_button_shows_sub_url(self):
         uid = self.make_member(55)

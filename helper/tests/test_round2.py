@@ -733,6 +733,13 @@ class TestMemberBot(TwoBots):
         self.assertEqual(self.front.role(OWNER_ID), None)
         self.assertIsNone(self.front.keyboard(OWNER_ID))
 
+    def test_owner_keeps_health_and_links_on_member_bot(self):
+        self.make_member(OWNER_ID, services=["vpn"])
+        self.assertTrue(self.front.tools_ok(OWNER_ID))
+        kb = [b["text"] for r in self.front.keyboard(OWNER_ID)["keyboard"] for b in r]
+        self.assertIn(botmod_B("B_HEALTH"), kb)
+        self.assertNotIn(botmod_B("B_PASS"), kb)                # still no owner ops here
+
     def test_owner_on_member_bot_with_membership_gets_member_menus_only(self):
         self.make_member(OWNER_ID)
         self.assertEqual(self.front.role(OWNER_ID), "member")
@@ -740,11 +747,11 @@ class TestMemberBot(TwoBots):
         texts = [b["text"] for e in self.mb.sent(OWNER_ID) if "keyboard" in str(e[3].get("reply_markup"))
                  for r in e[3]["reply_markup"].get("keyboard", []) for b in r]
         self.assertIn(botmod_B("B_VPN"), texts)
-        for owner_only in ("B_PASS", "B_MEMBERS", "B_CODE", "B_HEALTH"):
+        for owner_only in ("B_PASS", "B_MEMBERS", "B_CODE"):
             self.assertNotIn(botmod_B(owner_only), texts)
-        with mock.patch.object(self.h, "cmd_health") as health:
+        with mock.patch.object(self.h, "cmd_health") as health:      # read-only tools: yes (2026-10-11)
             self.front.on_message(msg(OWNER_ID, "/health"))
-            health.assert_not_called()
+            health.assert_called_once()
         self.front.on_message(msg(OWNER_ID, "/pass"))
         self.front.on_message(msg(OWNER_ID, "/code 30"))
         self.assertEqual(self.mm.codes(), [])

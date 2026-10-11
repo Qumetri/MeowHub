@@ -1,4 +1,5 @@
 """Telegram Bot API client. Stdlib only, like the rest of the hub."""
+import http.client
 import json
 import logging
 import mimetypes
@@ -31,6 +32,10 @@ class Bot:
                 raise TelegramError(f"HTTP {e.code}") from None
         except urllib.error.URLError as e:
             raise TelegramError(f"network: {e.reason}") from None
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            # read timeouts, resets mid-body, truncated/non-JSON replies: urlopen only
+            # wraps errors raised while connecting, not while reading the response.
+            raise TelegramError(f"network: {type(e).__name__}: {e}") from None
         if not payload.get("ok"):
             raise TelegramError(payload.get("description", "unknown error"))
         return payload["result"]
