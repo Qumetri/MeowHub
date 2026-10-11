@@ -525,7 +525,7 @@ Where the logins come from:
 
 | Source | What | Edit with |
 |---|---|---|
-| `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI, bots admin page — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
+| `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI, bots admin page, downloader (same login as the bots page) — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
 | the bot | accounts that store only a hash: 3x-ui, Immich, n8n, Matrix users… | `/setpass <id> <login> <password>` |
 
 `<id>` is the card id from `services.js` (`immich`, `3xui`, `n8n`, …); `/pass`
