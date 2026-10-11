@@ -182,6 +182,9 @@ services:
       VAULT_AMNEZIAWG_PASS_FILE: /secrets/awg-admin-password
       VAULT_BOTS_USER: ${BOT_ADMIN_USER:-botadmin}
       VAULT_BOTS_PASS_FILE: /secrets/bot-admin-password
+      # the downloader page (MeTube) shares the bot admin login; listed in 🔑 as its own entry
+      VAULT_METUBE_USER: ${BOT_ADMIN_USER:-botadmin}
+      VAULT_METUBE_PASS_FILE: /secrets/bot-admin-password
       # ---- memberships (docs/HELPER.md "Members") ----
       # Telegram @handle shown to strangers and members ("contact the owner").
       # Empty -> the bot just says "contact the owner".
