@@ -195,6 +195,11 @@ The **📱 MeowHub button on the reply keyboard is plain text**; the bot answers
 with an inline button that opens the app. Telegram passes no `initData` to a Mini
 App opened from a reply-keyboard `web_app` button, so it couldn't log anyone in.
 
+**Failed SSH logins** (optional, host-level): with `ssh-watch` installed, the
+monitor sends you one batched alert per new attacking address per day, with 🚫 for
+addresses fail2ban has banned. Mute with the 🔕 button or `/sshalerts off`. See
+[SSH-GUARD.md](SSH-GUARD.md).
+
 A poller thread never dies: every network error, including a read timeout in
 the middle of a long poll, is caught and retried. The container healthcheck
 reads the **oldest** poller's heartbeat, so one stuck bot turns the container

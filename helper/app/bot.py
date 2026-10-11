@@ -21,6 +21,7 @@ the member bot's handlers are the same methods run through a MemberFront.
 Long polling, not a webhook: nothing new listens on the internet for the bot
 itself. The Mini App web server (webapp.py) is started from here.
 """
+import json
 import logging
 import math
 import os
@@ -70,7 +71,8 @@ def btn_key(text):
 URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
-OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services")
+OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
+              "/sshalerts")
 SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
 
 
@@ -79,6 +81,11 @@ def short(s, lang="ru"):
 WIZ_DAYS = (30, 90, 180, 365)
 SEEN_MAX = 500
 STRANGER_RENOTIFY = 6 * 3600     # a stranger writing again later is reported again
+# Failed SSH logins, fed by scripts/ssh-watch.py on the host (ssh-guard.md).
+SSH_FEED = os.environ.get("SSH_FEED", "/data/ssh-events.jsonl")
+SSH_REPEAT = 24 * 3600           # one alert per address per day
+SSH_SILENT = 1800                # the watcher beats every 10 min; 30 min of silence = it is down
+SSH_LIST_MAX = 15
 YT_NAG_EVERY = 3600
 
 
@@ -428,7 +435,7 @@ class Helper:
         if not owner:
             return base
         return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"),
-                       d("pass"), d("setpass"), d("delpass")]
+                       d("pass"), d("setpass"), d("delpass"), d("sshalerts")]
 
     def _commands(self):
         """Default-scope commands: English text, plus Russian for the Russian-speaking
@@ -569,6 +576,8 @@ class Helper:
             return self.cmd_code_wizard(cid)
         if cmd in ("/allow", "/deny"):
             return self.cmd_allow(cid, cmd, arg)
+        if cmd == "/sshalerts":
+            return self.cmd_sshalerts(cid, arg.strip().lower())
         return self.bot.send(cid, self.help_text(role, L), reply_markup=self.keyboard(uid))
 
     # --------------------------------------------------------------- language --
@@ -1153,6 +1162,21 @@ class Helper:
         msg = self.bot.send(cid, "\n".join(t), protect_content=True)
         threading.Timer(PASS_TTL, self.bot.delete, args=(cid, msg["message_id"])).start()
 
+    # ------------------------------------------------------------ ssh alerts --
+    def ssh_alerts_on(self):
+        return self.store.get("ssh_alerts", "1") != "0"
+
+    def cmd_sshalerts(self, cid, arg):
+        L = self.lang(cid)
+        if arg in ("on", "off", "вкл", "выкл"):
+            self.store.set("ssh_alerts", "1" if arg in ("on", "вкл") else "0")
+        return self.bot.send(cid, tr(L, "ssh.state_on" if self.ssh_alerts_on() else "ssh.state_off"))
+
+    def cb_ssh(self, cid, mid, rest):
+        L = self.olang()
+        self.store.set("ssh_alerts", "0" if rest == "off" else "1")
+        return tr(L, "ssh.state_on" if rest != "off" else "ssh.state_off")
+
     def cmd_setpass(self, cid, mid, arg):
         L = self.lang(cid)
         # The command itself contains the password: delete it right away.
@@ -1200,7 +1224,7 @@ class Helper:
             self.bot.answer(q["id"])
             return self.show_password(cid, rest)
         handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound,
-                   "svc": self.cb_services}.get(kind)
+                   "svc": self.cb_services, "ssh": self.cb_ssh}.get(kind)
         if handler is None:
             return self.bot.answer(q["id"], tr(L, "cb.stale"), alert=True)
         try:
@@ -1251,6 +1275,7 @@ class Monitor:
         self.bad = {}          # key -> consecutive bad runs
         self.alerted = {}      # key -> text of the alert sent
         self.last = {"fast": 0, "slow": 0, "certs": 0}
+        self.ssh_seen = {}     # ip -> when it was last reported
 
     def notify(self, text):
         """`text` is a string, or a callable building it in the owner's language."""
@@ -1288,6 +1313,67 @@ class Monitor:
             self.bad.pop(k, None)
             self.alerted.pop(k, None)
 
+    def ssh_tick(self, now):
+        """New lines of the ssh-watch feed -> one batched alert listing every address not
+        reported in the last SSH_REPEAT; plus a warning when the watcher goes silent."""
+        try:
+            info = os.stat(SSH_FEED)
+        except OSError:
+            return                                      # watcher not installed
+        st = self.h.store
+        off, ino = int(st.get("ssh_off", "-1") or -1), st.get("ssh_ino", "")
+        if not ino:
+            off = info.st_size                          # first run: don't replay history
+        elif ino != str(info.st_ino) or off > info.st_size:
+            off = 0                                     # rotated by the watcher
+        with open(SSH_FEED, "rb") as f:
+            f.seek(off)
+            chunk = f.read(2_000_000)
+        chunk = chunk[:chunk.rfind(b"\n") + 1]
+        st.set("ssh_off", off + len(chunk))
+        st.set("ssh_ino", str(info.st_ino))
+        new = {}
+        for line in chunk.decode(errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            for e in rec.get("ips") or []:
+                ip = str(e.get("ip", ""))
+                if not ip or (ip in self.ssh_seen and now - self.ssh_seen[ip] < SSH_REPEAT):
+                    continue
+                cur = new.setdefault(ip, {"ip": ip, "n": 0, "users": [], "banned": False})
+                cur["n"] += int(e.get("n") or 0)
+                cur["users"] += [u for u in e.get("users") or [] if u not in cur["users"]]
+                cur["banned"] = bool(e.get("banned"))
+        self.ssh_seen = {ip: t for ip, t in self.ssh_seen.items() if now - t < SSH_REPEAT}
+        for ip in new:
+            self.ssh_seen[ip] = now
+        silent = now - info.st_mtime > SSH_SILENT
+        self.process([health.F("sshwatch", "warn" if silent else "ok", "ssh.watch_silent")], ("sshwatch",))
+        if new and self.h.ssh_alerts_on():
+            self.ssh_alert(sorted(new.values(), key=lambda e: -e["n"]))
+
+    def ssh_alert(self, items):
+        oid = self.h.owner_id()
+        if not oid:
+            return
+        L = self.h.lang(oid)
+        lines = [tr(L, "ssh.title")]
+        for e in items[:SSH_LIST_MAX]:
+            users = ", ".join(e["users"][:5]) + ("…" if len(e["users"]) > 5 else "")
+            lines.append(tr(L, "ssh.line", ip=esc(e["ip"]), n=e["n"],
+                            users=(" · " + esc(users)) if users else "",
+                            ban=tr(L, "ssh.banned") if e["banned"] else ""))
+        if len(items) > SSH_LIST_MAX:
+            lines.append(tr(L, "ssh.more", n=len(items) - SSH_LIST_MAX))
+        lines.append(tr(L, "ssh.foot"))
+        try:
+            self.h.bot.send(oid, "\n".join(lines), reply_markup={"inline_keyboard": [[
+                {"text": tr(L, "ssh.btn_off"), "callback_data": "ssh:off"}]]})
+        except TelegramError as e:
+            log.warning("ssh alert: %s", e)
+
     def run(self):
         time.sleep(20)
         last_report = self.h.store.get("last_report")
@@ -1302,6 +1388,7 @@ class Monitor:
                     self.process(f1, ("disk:", "ram", "cpu:", "gpu", "stats"))
                     self.process(f2, ("tcp",))
                     self.process(f3, ("ct:", "docker"))
+                    self.ssh_tick(now)
                 if now - self.last["slow"] >= self.SLOW:
                     self.last["slow"] = now
                     certs = now - self.last["certs"] >= self.CERTS

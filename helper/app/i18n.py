@@ -547,6 +547,7 @@ _("cmd.services", "Включить/выключить сервисы", "Turn se
 _("cmd.pass", "Пароли к сервисам", "Service passwords")
 _("cmd.setpass", "/setpass <сервис> <логин> <пароль>", "/setpass <service> <login> <password>")
 _("cmd.delpass", "/delpass <сервис>", "/delpass <service>")
+_("cmd.sshalerts", "Оповещения о входах по SSH: /sshalerts on|off", "SSH login alerts: /sshalerts on|off")
 
 # -- health findings (monitor + report) ---------------------------------------------------------------------------
 _("health.stats_down", "hub-stats не отвечает: {e}", "hub-stats isn't responding: {e}")
@@ -728,6 +729,20 @@ _("go.hint", "Если приложение не открылось, устан�
 _("app.open_hint", "📱 MeowHub — открой кнопкой ниже (или синей кнопкой «MeowHub» слева от поля ввода).",
   "📱 MeowHub — open it with the button below (or the blue “MeowHub” button left of the input field).")
 _("err.no_app", "Мини-приложение сейчас не настроено.", "The Mini App isn't configured right now.")
+# -- SSH guard (scripts/ssh-watch.py + fail2ban, ssh-guard.md) ----------------------
+_("ssh.title", "🚨 <b>SSH: неудачные попытки входа</b>", "🚨 <b>SSH: failed login attempts</b>")
+_("ssh.line", "• <code>{ip}</code> — {n} шт.{users}{ban}", "• <code>{ip}</code> — {n}×{users}{ban}")
+_("ssh.banned", " · 🚫 бан", " · 🚫 banned")
+_("ssh.more", "…и ещё адресов: {n}", "…and {n} more addresses")
+_("ssh.foot", "<i>Каждый адрес — не чаще раза в сутки. fail2ban банит после 5 ошибок за 10 мин.</i>",
+  "<i>Each address at most once a day. fail2ban bans after 5 failures in 10 min.</i>")
+_("ssh.btn_off", "🔕 Выключить оповещения", "🔕 Turn alerts off")
+_("ssh.state_on", "🔔 Оповещения о неудачных входах по SSH включены. Выключить: /sshalerts off",
+  "🔔 Failed SSH login alerts are on. Turn off: /sshalerts off")
+_("ssh.state_off", "🔕 Оповещения о неудачных входах по SSH выключены. Включить: /sshalerts on",
+  "🔕 Failed SSH login alerts are off. Turn on: /sshalerts on")
+_("ssh.watch_silent", "ssh-watch молчит больше 30 мин — оповещения о входах по SSH не работают",
+  "ssh-watch has been silent for 30+ min — SSH login alerts are not working")
 _("app.amnezia_sub", "только AmneziaWG · Android, iOS, ПК", "AmneziaWG only · Android, iOS, desktop")
 _("awg.open", "Открыть в AmneziaVPN", "Open in AmneziaVPN")
 _("awg.retry", "Не открылось? Попробовать ещё так", "Didn't open? Try this way")

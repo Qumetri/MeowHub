@@ -1,0 +1,15 @@
+# Installed as /etc/fail2ban/jail.d/sshd-meowhub.local (see docs/SSH-GUARD.md).
+# Public SSH with password auth gets thousands of guesses a day from scanners.
+[sshd]
+enabled = true
+# aggressive: also counts invalid users and pre-auth disconnects, not just bad passwords
+mode = aggressive
+maxretry = 5
+findtime = 10m
+# 1 h, doubling for every repeat ban of the same address, capped at a week
+bantime = 1h
+bantime.increment = true
+bantime.maxtime = 1w
+
+# your LAN + the docker bridges are never banned: adjust the LAN range to yours
+ignoreip = 127.0.0.1/8 ::1 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12

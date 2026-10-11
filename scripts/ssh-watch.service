@@ -1,0 +1,12 @@
+# Installed as /etc/systemd/system/ssh-watch.service (see docs/SSH-GUARD.md; replace __REPO__ with the repo path).
+[Unit]
+Description=Failed SSH login feed for the helper bot (docs/SSH-GUARD.md)
+After=fail2ban.service
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/sbin/ssh-watch __REPO__/helper/data/ssh-events.jsonl
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
