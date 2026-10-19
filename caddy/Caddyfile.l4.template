@@ -81,6 +81,8 @@
 
 # Root domain: hub page on a secret path, everything else to Nextcloud.
 {$BASE_DOMAIN} {
+	# HSTS: browsers keep using HTTPS; 1 year, no includeSubDomains / preload.
+	header Strict-Transport-Security "max-age=31536000"
 	redir /{$DASHBOARD_PATH} /{$DASHBOARD_PATH}/ 308
 
 	# Live-stats API for the hub page (prefix stripped -> backend sees /stats).
@@ -89,6 +91,7 @@
 	}
 
 	handle_path /{$DASHBOARD_PATH}/* {
+		encode zstd gzip
 		root * /srv/dashboard
 		file_server
 	}
@@ -288,6 +291,10 @@
 
 #IF:matrix
 {$MATRIX_HOST} {
+	# HSTS: browsers keep using HTTPS; 1 year, no includeSubDomains / preload.
+	header Strict-Transport-Security "max-age=31536000"
+	# Compress text responses (Caddy only picks text/JSON/JS/CSS/SVG types; media passes through).
+	encode zstd gzip
 	# MatrixRTC (Element Call) on a secret path: JWT auth + LiveKit websocket.
 	handle_path /{$MATRIXRTC_PATH}/jwt/* {
 		reverse_proxy matrix-livekit-jwt:8080
@@ -308,6 +315,8 @@
 #ENDIF
 #IF:nextcloud
 {$CLOUD_HOST} {
+	# HSTS: browsers keep using HTTPS; 1 year, no includeSubDomains / preload.
+	header Strict-Transport-Security "max-age=31536000"
 	# Required for CardDAV/CalDAV autodiscovery from desktop and phone clients.
 	redir /.well-known/carddav /remote.php/dav/ 301
 	redir /.well-known/caldav /remote.php/dav/ 301
@@ -316,6 +325,10 @@
 #ENDIF
 #IF:immich
 {$PHOTOS_HOST} {
+	# HSTS: browsers keep using HTTPS; 1 year, no includeSubDomains / preload.
+	header Strict-Transport-Security "max-age=31536000"
+	# Compress text responses (Caddy only picks text/JSON/JS/CSS/SVG types; media passes through).
+	encode zstd gzip
 	reverse_proxy immich-server:2283
 }
 #ENDIF

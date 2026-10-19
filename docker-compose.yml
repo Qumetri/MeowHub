@@ -364,7 +364,7 @@ services:
   # Runs as uid 1000 so ./matrix/synapse stays editable from the host.
   matrix-synapse:
     container_name: ${STACK_NAME:-meowstack}_synapse
-    image: ${SYNAPSE_IMAGE:-ghcr.io/element-hq/synapse:latest}
+    image: ${SYNAPSE_IMAGE:-ghcr.io/element-hq/synapse:v1.163.0}
     profiles: [matrix]
     <<: [*restart, *logging]
     user: '${PUID:-1000}:${PGID:-1000}'
@@ -397,7 +397,7 @@ services:
 
   matrix-element:
     container_name: ${STACK_NAME:-meowstack}_element
-    image: ${ELEMENT_IMAGE:-vectorim/element-web:latest}
+    image: ${ELEMENT_IMAGE:-vectorim/element-web:v1.12.32}
     profiles: [matrix]
     <<: [*restart, *logging]
     ports:
@@ -409,7 +409,7 @@ services:
   # LiveKit below instead. Host networking because TURN needs the real relay range.
   matrix-coturn:
     container_name: ${STACK_NAME:-meowstack}_coturn
-    image: ${COTURN_IMAGE:-coturn/coturn:latest}
+    image: ${COTURN_IMAGE:-coturn/coturn:4.18.0}
     profiles: [matrix]
     <<: [*restart, *logging]
     network_mode: host
@@ -432,7 +432,7 @@ services:
 
   matrix-livekit-jwt:
     container_name: ${STACK_NAME:-meowstack}_livekit_jwt
-    image: ${LIVEKIT_JWT_IMAGE:-ghcr.io/element-hq/lk-jwt-service:latest}
+    image: ${LIVEKIT_JWT_IMAGE:-ghcr.io/element-hq/lk-jwt-service:0.5.0}
     profiles: [matrix]
     <<: [*restart, *logging]
     depends_on: [matrix-livekit]
