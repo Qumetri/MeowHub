@@ -542,7 +542,7 @@ services:
   # the CPU, which is slow but works.
   ollama:
     container_name: ${STACK_NAME:-meowstack}_ollama
-    image: ${OLLAMA_IMAGE:-ollama/ollama:0.20.3}
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.40.5}
     profiles: [ollama]
     <<: [*restart, *logging]
     environment:
