@@ -58,6 +58,9 @@ services:
       CRYPTO_ADMIN_USER: ${CRYPTO_ADMIN_USER:-cryptoadmin}
       N8N_PUBLIC_PATH: ${N8N_PUBLIC_PATH:-n8n-unset}
       SENSOR_PATH: ${SENSOR_PATH:-sensor-unset}
+      # Home Assistant gate (docs/HOMEASSISTANT.md); only used with ENABLE_HOMEASSISTANT=true.
+      HA_PATH: ${HA_PATH:-home-unset}
+      HA_GATE_TOKEN: ${HA_GATE_TOKEN:-unset}
       # Helper bot Mini App + owner admin page. These carry `:?` (fail the whole
       # `docker compose` command) rather than a fallback, for the same reason:
       # an empty path turns the route into /* and swallows the root domain.

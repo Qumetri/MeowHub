@@ -1,0 +1,31 @@
+# Home Assistant (docs/HOMEASSISTANT.md). A separate compose project on purpose, like
+# amneziawg/: nothing here can recreate the main stack. Run `docker compose` from this folder.
+# Caddy reaches it over the shared proxy network; enable the Caddy routes with
+# ENABLE_HOMEASSISTANT=true in the main .env and re-run ./bootstrap.sh.
+name: homeassistant
+
+services:
+  homeassistant:
+    # Pinned: HA moves fast and breaking changes land in monthly releases.
+    image: ${HA_IMAGE:-ghcr.io/home-assistant/home-assistant:2026.10.2}
+    container_name: homeassistant
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./config:/config
+    # No host network: host mode publishes :8123 on every interface. Discovery (mDNS,
+    # Bluetooth) needs it, but only for devices on the server's own LAN; remote devices
+    # post to webhooks instead (docs/HOMEASSISTANT.md). Loopback port for debugging.
+    ports:
+      - '127.0.0.1:8123:8123'
+    networks:
+      - proxy
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-meowstack-proxy}

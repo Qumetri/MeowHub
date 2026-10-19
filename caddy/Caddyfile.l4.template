@@ -258,8 +258,31 @@
 	}
 #ENDIF
 
+#IF:homeassistant
+	# Home Assistant (docs/HOMEASSISTANT.md). HA can't run under a sub-path, so it is served
+	# at the root of this domain, but only to browsers holding the gate cookie, which the
+	# secret path HA_PATH sets. Every other route here has its own handle and wins first.
+	@ha_cookie header Cookie *meow_ha={$HA_GATE_TOKEN}*
+	@ha_sw path /sw-modern.js /service_worker.js /sw-legacy.js
+	redir /{$HA_PATH} /{$HA_PATH}/ 308
+	handle /{$HA_PATH}/* {
+		header Set-Cookie "meow_ha={$HA_GATE_TOKEN}; Path=/; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax"
+		redir * /lovelace/0 302
+	}
+	# HA's public entry point for devices; the long webhook id is the secret.
+	handle /api/webhook/* {
+		reverse_proxy homeassistant:8123
+	}
+#ENDIF
 	handle {
-		redir https://{$CLOUD_HOST}{uri} permanent
+		route {
+#IF:homeassistant
+			# HA's service worker would claim every path on this domain; HA runs without it.
+			respond @ha_sw 404
+			reverse_proxy @ha_cookie homeassistant:8123
+#ENDIF
+			redir https://{$CLOUD_HOST}{uri} permanent
+		}
 	}
 }
 

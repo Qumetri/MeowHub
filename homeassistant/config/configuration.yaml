@@ -1,0 +1,23 @@
+# Home Assistant (docs/HOMEASSISTANT.md). HA writes its own files next to this one.
+default_config:
+
+homeassistant:
+  name: Home
+  unit_system: metric
+
+# HA 2026.10 moved the http: settings (proxy trust, bans) to Settings → System → Network.
+# On first start this block is imported once as a trial: confirm the dialog in the UI within
+# ~3 minutes (or HA reverts and restarts), then delete the block.
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 172.16.0.0/12          # docker's default address pools: the proxy network, i.e. Caddy
+  ip_ban_enabled: true
+  login_attempts_threshold: 5
+
+# Each user can turn on a TOTP code under Profile → Security.
+auth_mfa_modules:
+  - type: totp
+
+recorder:
+  purge_keep_days: 30

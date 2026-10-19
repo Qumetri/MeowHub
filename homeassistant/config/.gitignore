@@ -1,0 +1,4 @@
+# HA writes everything else here; only our configuration.yaml is tracked
+*
+!configuration.yaml
+!.gitignore

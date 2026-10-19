@@ -92,6 +92,8 @@ set_env SENSOR_TOKEN               "$(hex 24)"
 # X-Admin-Key on the basic_auth-protected admin route only (and strips it on the
 # public Mini App route), and the app treats a matching header as the owner.
 set_env BOT_ADMIN_KEY              "$(hex 32)"
+# Value of the cookie the Home Assistant secret path sets (docs/HOMEASSISTANT.md).
+set_env HA_GATE_TOKEN              "$(hex 24)"
 
 # Secret paths: the placeholder defaults are guessable, so give each a random
 # suffix on first run. Once randomised they look nothing like the default and
@@ -127,6 +129,7 @@ randomise_path N8N_PUBLIC_PATH n8n
 randomise_path SENSOR_PATH     sensor
 randomise_path BOT_APP_PATH    bot
 randomise_path BOT_ADMIN_PATH  botadmin
+randomise_path HA_PATH         home
 
 # Reload so the rendering below sees everything we just wrote.
 set -a; . "$ENV_FILE"; set +a
@@ -253,6 +256,9 @@ if os.environ.get("ENABLE_VPN","true").lower() in ("1","true","yes"):
     profiles.add("vpn")
 if os.environ.get("VPN_PASSTHROUGH","false").lower() in ("1","true","yes"):
     profiles.add("vpn_passthrough")
+# Home Assistant is its own project (homeassistant/), not a compose profile.
+if os.environ.get("ENABLE_HOMEASSISTANT","false").lower() in ("1","true","yes"):
+    profiles.add("homeassistant")
 
 src = open("caddy/Caddyfile.l4.template").read()
 out, skip, dropped = [], None, []
@@ -425,6 +431,7 @@ echo "   hub         https://${BASE_DOMAIN}/${DASHBOARD_PATH}/"
 [[ $COMPOSE_PROFILES == *metube*    ]] && echo "   downloader  https://${BASE_DOMAIN}/${METUBE_PATH}/"
 [[ $COMPOSE_PROFILES == *crypto*    ]] && echo "   crypto      https://${BASE_DOMAIN}/${CRYPTO_PATH}/"
 [[ $COMPOSE_PROFILES == *n8n*       ]] && echo "   automation  https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/"
+[[ ${ENABLE_HOMEASSISTANT:-false} == true ]] && echo "   home        https://${BASE_DOMAIN}/${HA_PATH}/   (cd homeassistant && docker compose up -d; create the owner account at once)"
 [[ $COMPOSE_PROFILES == *helper*    ]] && [[ -z ${HELPER_BOT_TOKEN:-} ]] && echo "   bot         set HELPER_BOT_TOKEN in .env (docs/HELPER.md)"
 [[ $COMPOSE_PROFILES == *helper*    ]] && echo "   bot admin   https://${BASE_DOMAIN}/${BOT_ADMIN_PATH}/   (${BOT_ADMIN_USER:-botadmin}, password in ./secrets/bot-admin-password)"
 echo
