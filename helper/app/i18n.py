@@ -548,6 +548,7 @@ _("cmd.pass", "Пароли к сервисам", "Service passwords")
 _("cmd.setpass", "/setpass <сервис> <логин> <пароль>", "/setpass <service> <login> <password>")
 _("cmd.delpass", "/delpass <сервис>", "/delpass <service>")
 _("cmd.sshalerts", "Оповещения о входах по SSH: /sshalerts on|off", "SSH login alerts: /sshalerts on|off")
+_("cmd.sshunban", "Снять SSH-бан с адреса: /sshunban <ip>", "Lift an SSH ban: /sshunban <ip>")
 
 # -- health findings (monitor + report) ---------------------------------------------------------------------------
 _("health.stats_down", "hub-stats не отвечает: {e}", "hub-stats isn't responding: {e}")
@@ -730,17 +731,37 @@ _("app.open_hint", "📱 MeowHub — открой кнопкой ниже (ил�
   "📱 MeowHub — open it with the button below (or the blue “MeowHub” button left of the input field).")
 _("err.no_app", "Мини-приложение сейчас не настроено.", "The Mini App isn't configured right now.")
 # -- SSH guard (scripts/ssh-watch.py + fail2ban, ssh-guard.md) ----------------------
-_("ssh.title", "🚨 <b>SSH: неудачные попытки входа</b>", "🚨 <b>SSH: failed login attempts</b>")
+_("ssh.title", "🚨 <b>SSH: подбирают пароль к настоящей учётке</b>", "🚨 <b>SSH: password guesses on a real account</b>")
 _("ssh.line", "• <code>{ip}</code> — {n} шт.{users}{ban}", "• <code>{ip}</code> — {n}×{users}{ban}")
 _("ssh.banned", " · 🚫 бан", " · 🚫 banned")
 _("ssh.more", "…и ещё адресов: {n}", "…and {n} more addresses")
-_("ssh.foot", "<i>Каждый адрес — не чаще раза в сутки. fail2ban банит после 5 ошибок за 10 мин.</i>",
-  "<i>Each address at most once a day. fail2ban bans after 5 failures in 10 min.</i>")
+_("ssh.foot", "<i>Каждый адрес — не чаще раза в сутки. fail2ban банит после 5 ошибок за 10 мин. "
+             "Попытки на root и несуществующих пользователей банятся сразу и попадают только в утреннюю сводку.</i>",
+  "<i>Each address at most once a day. fail2ban bans after 5 failures in 10 min. "
+  "Attempts on root and made-up users are banned at once and only appear in the morning summary.</i>")
 _("ssh.btn_off", "🔕 Выключить оповещения", "🔕 Turn alerts off")
-_("ssh.state_on", "🔔 Оповещения о неудачных входах по SSH включены. Выключить: /sshalerts off",
-  "🔔 Failed SSH login alerts are on. Turn off: /sshalerts off")
-_("ssh.state_off", "🔕 Оповещения о неудачных входах по SSH выключены. Включить: /sshalerts on",
-  "🔕 Failed SSH login alerts are off. Turn on: /sshalerts on")
+_("ssh.state_on", "🔔 SSH-оповещения включены: вход с нового адреса и подбор пароля к настоящей учётке — сразу, "
+                  "остальное — сводкой в утреннем отчёте. Выключить: /sshalerts off",
+  "🔔 SSH alerts are on: a login from a new address and guesses at a real account come at once, "
+  "the rest as a summary in the morning report. Turn off: /sshalerts off")
+_("ssh.state_off", "🔕 SSH-оповещения и сводка выключены. Включить: /sshalerts on",
+  "🔕 SSH alerts and the summary are off. Turn on: /sshalerts on")
+_("ssh.login_new", "🔑 <b>Вход по SSH с нового адреса</b>\n{user} · <code>{ip}</code> · {method}\n"
+                   "<i>Если это не вы — забаньте адрес кнопкой и смените пароль.</i>",
+  "🔑 <b>SSH login from a new address</b>\n{user} · <code>{ip}</code> · {method}\n"
+  "<i>If this wasn't you, ban the address with the button and change the password.</i>")
+_("ssh.btn_ban", "🚫 Это не я — забанить", "🚫 Not me — ban it")
+_("ssh.ban_sent", "Адрес {ip} будет забанен в течение минуты. Смените пароль: passwd", "{ip} will be banned within a minute. Change the password: passwd")
+_("ssh.unban_usage", "Разбанить адрес: <code>/sshunban 1.2.3.4</code>", "Unban an address: <code>/sshunban 1.2.3.4</code>")
+_("ssh.unban_sent", "Снимаю бан с <code>{ip}</code> — в течение минуты.", "Lifting the ban on <code>{ip}</code> within a minute.")
+_("ssh.sum_title", "🛡 <b>SSH за сутки</b>", "🛡 <b>SSH, last 24 h</b>")
+_("ssh.sum_attempts", "Неудачных попыток: {n} с {ips} адресов, забанено: {banned}. Чаще всего: {top}",
+  "Failed attempts: {n} from {ips} addresses, banned: {banned}. Most tried: {top}")
+_("ssh.sum_quiet", "Неудачных попыток не было.", "No failed attempts.")
+_("ssh.sum_real", "⚠️ Из них на настоящие учётки: {n}", "⚠️ Of these on real accounts: {n}")
+_("ssh.sum_jails", "Сейчас в бане: {now}", "Banned right now: {now}")
+_("ssh.sum_logins", "Входы: {list}", "Logins: {list}")
+_("ssh.sum_no_logins", "Входов не было.", "No logins.")
 _("ssh.watch_silent", "ssh-watch молчит больше 30 мин — оповещения о входах по SSH не работают",
   "ssh-watch has been silent for 30+ min — SSH login alerts are not working")
 _("app.amnezia_sub", "только AmneziaWG · Android, iOS, ПК", "AmneziaWG only · Android, iOS, desktop")

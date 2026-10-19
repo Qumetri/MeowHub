@@ -1,5 +1,12 @@
 # Installed as /etc/fail2ban/jail.d/sshd-meowhub.local (see docs/SSH-GUARD.md).
-# Public SSH with password auth gets thousands of guesses a day from scanners.
+# Public SSH with password auth: scanners try root and made-up users all day.
+[DEFAULT]
+# loopback, your LAN + the docker bridges are never banned: adjust the LAN range to yours
+ignoreip = 127.0.0.1/8 ::1 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12
+# nor any address you logged in from in the last 90 days (ssh-watch keeps the list),
+# so a mistyped password or username from your own network can't lock you out
+ignorecommand = /usr/bin/python3 -I /usr/local/sbin/ssh-watch --is-known <ip>
+
 [sshd]
 enabled = true
 # aggressive: also counts invalid users and pre-auth disconnects, not just bad passwords
@@ -11,5 +18,14 @@ bantime = 1h
 bantime.increment = true
 bantime.maxtime = 1w
 
-# your LAN + the docker bridges are never banned: adjust the LAN range to yours
-ignoreip = 127.0.0.1/8 ::1 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12
+# root or a user that doesn't exist: banned on the first try, a day at first, up to 4 weeks
+[sshd-instant]
+enabled = true
+backend = systemd
+filter = sshd-instant
+port = ssh
+maxretry = 1
+findtime = 1d
+bantime = 1d
+bantime.increment = true
+bantime.maxtime = 4w

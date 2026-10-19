@@ -21,6 +21,7 @@ the member bot's handlers are the same methods run through a MemberFront.
 Long polling, not a webhook: nothing new listens on the internet for the bot
 itself. The Mini App web server (webapp.py) is started from here.
 """
+import ipaddress
 import json
 import logging
 import math
@@ -72,7 +73,7 @@ URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
 OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
-              "/sshalerts")
+              "/sshalerts", "/sshunban")
 SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
 
 
@@ -81,9 +82,13 @@ def short(s, lang="ru"):
 WIZ_DAYS = (30, 90, 180, 365)
 SEEN_MAX = 500
 STRANGER_RENOTIFY = 6 * 3600     # a stranger writing again later is reported again
-# Failed SSH logins, fed by scripts/ssh-watch.py on the host (ssh-guard.md).
+# SSH logins, fed by scripts/ssh-watch.py on the host (docs/SSH-GUARD.md). Root and made-up users
+# are banned on the first try and only counted in the daily summary; the owner is alerted at
+# once only about a login from a new address and about guesses at a real account.
 SSH_FEED = os.environ.get("SSH_FEED", "/data/ssh-events.jsonl")
+SSH_REQUESTS = os.path.join(os.path.dirname(SSH_FEED), "ssh-requests.jsonl")   # unban/ban, done by ssh-watch
 SSH_REPEAT = 24 * 3600           # one alert per address per day
+SSH_DAY_IPS = 5000               # addresses kept for the summary's unique count
 SSH_SILENT = 1800                # the watcher beats every 10 min; 30 min of silence = it is down
 SSH_LIST_MAX = 15
 YT_NAG_EVERY = 3600
@@ -91,6 +96,20 @@ YT_NAG_EVERY = 3600
 
 def esc(s):
     return health.esc(s)
+
+
+def ssh_ip(text):
+    """A normalised IP address, or None."""
+    try:
+        return str(ipaddress.ip_address(text.strip()))
+    except ValueError:
+        return None
+
+
+def ssh_request(req):
+    """Hand an unban/ban to ssh-watch on the host (only root can talk to fail2ban)."""
+    with open(SSH_REQUESTS, "a") as f:
+        f.write(json.dumps(req) + "\n")
 
 
 def code_fmt(norm):
@@ -435,7 +454,7 @@ class Helper:
         if not owner:
             return base
         return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"),
-                       d("pass"), d("setpass"), d("delpass"), d("sshalerts")]
+                       d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban")]
 
     def _commands(self):
         """Default-scope commands: English text, plus Russian for the Russian-speaking
@@ -578,6 +597,8 @@ class Helper:
             return self.cmd_allow(cid, cmd, arg)
         if cmd == "/sshalerts":
             return self.cmd_sshalerts(cid, arg.strip().lower())
+        if cmd == "/sshunban":
+            return self.cmd_sshunban(cid, arg.strip())
         return self.bot.send(cid, self.help_text(role, L), reply_markup=self.keyboard(uid))
 
     # --------------------------------------------------------------- language --
@@ -1174,8 +1195,26 @@ class Helper:
 
     def cb_ssh(self, cid, mid, rest):
         L = self.olang()
+        if rest.startswith("ban:"):
+            ip = ssh_ip(rest[4:])
+            if not ip:
+                return tr(L, "cb.stale")
+            ssh_request({"ban": ip})
+            return tr(L, "ssh.ban_sent", ip=ip), True
         self.store.set("ssh_alerts", "0" if rest == "off" else "1")
         return tr(L, "ssh.state_on" if rest != "off" else "ssh.state_off")
+
+    def cmd_sshunban(self, cid, arg):
+        L = self.lang(cid)
+        ip = ssh_ip(arg)
+        if not ip:
+            return self.bot.send(cid, tr(L, "ssh.unban_usage"))
+        try:
+            ssh_request({"unban": ip})
+        except OSError as e:
+            log.warning("ssh unban request: %s", e)
+            return self.bot.send(cid, tr(L, "cb.error"))
+        return self.bot.send(cid, tr(L, "ssh.unban_sent", ip=esc(ip)))
 
     def cmd_setpass(self, cid, mid, arg):
         L = self.lang(cid)
@@ -1314,8 +1353,9 @@ class Monitor:
             self.alerted.pop(k, None)
 
     def ssh_tick(self, now):
-        """New lines of the ssh-watch feed -> one batched alert listing every address not
-        reported in the last SSH_REPEAT; plus a warning when the watcher goes silent."""
+        """New lines of the ssh-watch feed. Logins from a new address and failed guesses at a real
+        account alert at once (each address once a day); everything else only goes into the
+        day's numbers for the summary in the daily report. Also warns when the watcher goes silent."""
         try:
             info = os.stat(SSH_FEED)
         except OSError:
@@ -1332,27 +1372,110 @@ class Monitor:
         chunk = chunk[:chunk.rfind(b"\n") + 1]
         st.set("ssh_off", off + len(chunk))
         st.set("ssh_ino", str(info.st_ino))
-        new = {}
+        day = self.ssh_day()
+        ips, banned = set(day["ips"]), set(day["banned"])
+        new, logins = {}, []
         for line in chunk.decode(errors="replace").splitlines():
             try:
                 rec = json.loads(line)
             except ValueError:
                 continue
+            if rec.get("jails"):
+                day["jails"] = rec["jails"]
+            for e in rec.get("logins") or []:
+                login = {"ip": str(e.get("ip", "")), "user": str(e.get("user", "")),
+                         "method": str(e.get("method", "")), "new": bool(e.get("new"))}
+                day["logins"].append(login)
+                if login["new"]:
+                    logins.append(login)
             for e in rec.get("ips") or []:
-                ip = str(e.get("ip", ""))
-                if not ip or (ip in self.ssh_seen and now - self.ssh_seen[ip] < SSH_REPEAT):
+                ip, n = str(e.get("ip", "")), int(e.get("n") or 0)
+                if not ip:
+                    continue
+                day["attempts"] += n
+                ips.add(ip)
+                if e.get("banned"):
+                    banned.add(ip)
+                for u in e.get("users") or []:
+                    day["users"][u] = day["users"].get(u, 0) + 1
+                if e.get("junk", True):
+                    continue                            # root / made-up user: banned, summary only
+                day["real"] += n
+                if ip in self.ssh_seen and now - self.ssh_seen[ip] < SSH_REPEAT:
                     continue
                 cur = new.setdefault(ip, {"ip": ip, "n": 0, "users": [], "banned": False})
-                cur["n"] += int(e.get("n") or 0)
+                cur["n"] += n
                 cur["users"] += [u for u in e.get("users") or [] if u not in cur["users"]]
                 cur["banned"] = bool(e.get("banned"))
+        if chunk:
+            day["ips"] = sorted(ips)[-SSH_DAY_IPS:]
+            day["banned"] = sorted(banned)[-SSH_DAY_IPS:]
+            day["users"] = dict(sorted(day["users"].items(), key=lambda kv: -kv[1])[:50])
+            day["logins"] = day["logins"][-50:]
+            st.set("ssh_day", json.dumps(day))
         self.ssh_seen = {ip: t for ip, t in self.ssh_seen.items() if now - t < SSH_REPEAT}
         for ip in new:
             self.ssh_seen[ip] = now
         silent = now - info.st_mtime > SSH_SILENT
         self.process([health.F("sshwatch", "warn" if silent else "ok", "ssh.watch_silent")], ("sshwatch",))
-        if new and self.h.ssh_alerts_on():
+        if not self.h.ssh_alerts_on():
+            return
+        for login in logins:
+            self.ssh_login_alert(login)
+        if new:
             self.ssh_alert(sorted(new.values(), key=lambda e: -e["n"]))
+
+    def ssh_day(self):
+        """The numbers since the last daily summary."""
+        try:
+            day = json.loads(self.h.store.get("ssh_day", "") or "{}")
+        except ValueError:
+            day = {}
+        base = {"since": int(time.time()), "attempts": 0, "real": 0, "ips": [], "banned": [],
+                "users": {}, "logins": [], "jails": {}}
+        return {**base, **day} if isinstance(day, dict) else base
+
+    def ssh_summary(self, L):
+        """The SSH part of the daily report; starts a new day. None when alerts are off."""
+        day = self.ssh_day()
+        self.h.store.set("ssh_day", json.dumps({"since": int(time.time()), "jails": day["jails"]}))
+        if not self.h.ssh_alerts_on():
+            return None
+        lines = [tr(L, "ssh.sum_title")]
+        if day["attempts"]:
+            top = ", ".join(esc(u) for u in list(day["users"])[:5])
+            lines.append(tr(L, "ssh.sum_attempts", n=day["attempts"], ips=len(day["ips"]),
+                            banned=len(day["banned"]), top=top or "—"))
+        else:
+            lines.append(tr(L, "ssh.sum_quiet"))
+        if day["real"]:
+            lines.append(tr(L, "ssh.sum_real", n=day["real"]))
+        if day["jails"]:
+            lines.append(tr(L, "ssh.sum_jails", now=sum(int(v or 0) for v in day["jails"].values())))
+        seen = {}
+        for login in day["logins"]:
+            k = (login["user"], login["ip"])
+            seen[k] = seen.get(k, 0) + 1
+        if seen:
+            lines.append(tr(L, "ssh.sum_logins", list="; ".join(
+                f"{esc(u)} · <code>{esc(ip)}</code>" + (f" ×{n}" if n > 1 else "")
+                for (u, ip), n in seen.items())))
+        else:
+            lines.append(tr(L, "ssh.sum_no_logins"))
+        return "\n".join(lines)
+
+    def ssh_login_alert(self, login):
+        oid = self.h.owner_id()
+        if not oid:
+            return
+        L = self.h.lang(oid)
+        try:
+            self.h.bot.send(oid, tr(L, "ssh.login_new", user=esc(login["user"]), ip=esc(login["ip"]),
+                                    method=esc(login["method"])),
+                            reply_markup={"inline_keyboard": [[
+                                {"text": tr(L, "ssh.btn_ban"), "callback_data": f"ssh:ban:{login['ip']}"}]]})
+        except TelegramError as e:
+            log.warning("ssh login alert: %s", e)
 
     def ssh_alert(self, items):
         oid = self.h.owner_id()
@@ -1404,7 +1527,10 @@ class Monitor:
                         last_report = today
                         self.h.store.set("last_report", today)
                         f, i = health.full(self.h.store)
-                        self.notify(lambda L: tr(L, "mon.report") + "\n\n" + health.render(f, i, L))
+                        oid = self.h.owner_id()
+                        ssh = self.ssh_summary(self.h.lang(oid)) if oid else None
+                        self.notify(lambda L: tr(L, "mon.report") + "\n\n" + health.render(f, i, L)
+                                    + (f"\n\n{ssh}" if ssh else ""))
             except Exception:                                  # noqa: BLE001
                 log.exception("monitor pass failed")
             time.sleep(10)
