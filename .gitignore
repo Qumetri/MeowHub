@@ -27,3 +27,7 @@ amneziawg/clients/
 3xpanel/db/
 3xpanel/cert/
 *.log
+__pycache__/
+*.pyc
+*.orig
+*.rej
