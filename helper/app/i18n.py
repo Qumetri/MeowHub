@@ -192,7 +192,27 @@ _("short.tools", "Инструменты", "Tools")
 # -- menus, errors, callbacks ----------------------------------------------------
 _("menu.open_app", "📱 Открыть MeowHub", "📱 Open MeowHub")
 _("menu.open_app_in", "📱 Открыть в MeowHub", "📱 Open in MeowHub")
-_("menu.hint", "👇 Меню — кнопками внизу.", "👇 Menu — use the buttons below.")
+_("menu.blue",
+  "👉 <b>Чтобы начать, нажми синюю кнопку «MeowHub» слева от поля ввода</b> — там VPN, мессенджер, "
+  "подписка и всё остальное. Кнопка внизу только переключает язык.",
+  "👉 <b>To start, tap the blue “MeowHub” button left of the message field</b> — VPN, messenger, "
+  "subscription and everything else are there. The button below only switches the language.")
+_("stranger.blue",
+  "👉 Код можно ввести и в приложении: синяя кнопка «MeowHub» слева от поля ввода.",
+  "👉 You can also enter the code in the app: the blue “MeowHub” button left of the message field.")
+_("member.matrix_why",
+  "💬 <b>Мессенджер — это наш собственный закрытый сервер</b> (Matrix), а не общий Element или "
+  "matrix.org. Element X — только программа, которой ты к нему подключаешься. Поэтому аккаунт "
+  "создаётся здесь, в MeowHub (раздел «Мессенджер»): зарегистрироваться на нашем сервере из самого "
+  "Element X нельзя, а обычный аккаунт Element попадёт на чужой сервер, где нас нет.\n"
+  "Потом в Element X при входе смени сервер (Change account provider) на <code>{server}</code> "
+  "и войди с этим логином и паролем.",
+  "💬 <b>The messenger is our own private server</b> (Matrix), not the public Element or matrix.org. "
+  "Element X is just the app you connect to it with. That's why you create the account here, in "
+  "MeowHub (the Messenger section): you can't sign up on our server from Element X itself, and a "
+  "regular Element account would end up on someone else's server where none of us are.\n"
+  "Then, when signing in to Element X, change the server (Change account provider) to "
+  "<code>{server}</code> and use that username and password.")
 _("err.not_in_sub", "⛔ Эта функция не входит в твою подписку.",
   "⛔ This feature isn't part of your subscription.")
 _("err.owner_only", "⛔ Эта функция доступна только владельцу.", "⛔ This feature is for the owner only.")
@@ -259,8 +279,8 @@ _("st.word.expired", "истёк", "expired")
 _("st.word.suspended", "на паузе", "paused")
 
 _("member.start",
-  "🐱 <b>MeowHub</b> — привет, {name}!\n\nПодписка: {status}\nСервисы: {svcs}\n\nМеню — кнопками внизу.",
-  "🐱 <b>MeowHub</b> — hi, {name}!\n\nSubscription: {status}\nServices: {svcs}\n\nMenu — use the buttons below.")
+  "🐱 <b>MeowHub</b> — привет, {name}!\n\nПодписка: {status}\nСервисы: {svcs}",
+  "🐱 <b>MeowHub</b> — hi, {name}!\n\nSubscription: {status}\nServices: {svcs}")
 _("member.paused",
   "⏸ <b>Доступ приостановлен</b>\nПричина: {why}.\n"
   "Аккаунты и настройки сохранены. Пришли новый код или напиши {c}.",
@@ -269,10 +289,8 @@ _("member.paused",
 _("member.why_susp", "владелец приостановил доступ", "the owner paused your access")
 _("member.why_exp", "подписка закончилась {date}", "your subscription ended {date}")
 _("member.welcome",
-  "🎉 <b>Добро пожаловать в MeowHub, {name}!</b>\n\nПодписка: {status}\nСервисы: {svcs}\n\n"
-  "Меню — кнопками внизу, а всё в одном месте — в приложении.",
-  "🎉 <b>Welcome to MeowHub, {name}!</b>\n\nSubscription: {status}\nServices: {svcs}\n\n"
-  "Use the buttons below for the menu, or find everything in one place in the app.")
+  "🎉 <b>Добро пожаловать в MeowHub, {name}!</b>\n\nПодписка: {status}\nСервисы: {svcs}",
+  "🎉 <b>Welcome to MeowHub, {name}!</b>\n\nSubscription: {status}\nServices: {svcs}")
 _("member.sub",
   "🗓 <b>Подписка</b>\n\nСтатус: {status}\nСервисы: {svcs}\n\nЧтобы продлить — пришли новый код.",
   "🗓 <b>Subscription</b>\n\nStatus: {status}\nServices: {svcs}\n\nTo renew, send a new code.")
@@ -349,8 +367,10 @@ _("matrix.accounts", "Твои аккаунты:", "Your accounts:")
 _("matrix.none", "Аккаунтов пока нет.", "No accounts yet.")
 _("matrix.login", "Вход: приложение Element X → сервер <code>{server}</code> → логин и пароль.",
   "Sign in: the Element X app → server <code>{server}</code> → username and password.")
-_("matrix.note", "Аккаунт создаётся в приложении MeowHub — так пароль не остаётся в чате.",
-  "The account is created in the MeowHub app, so the password never sits in the chat.")
+_("matrix.note", "Это наш закрытый сервер: аккаунт создаётся в приложении MeowHub, а не в Element X "
+  "(там регистрация на него закрыта) — и пароль не остаётся в чате.",
+  "It's our private server: the account is created in the MeowHub app, not in Element X "
+  "(sign-up there is closed) — and the password never sits in the chat.")
 
 # -- owner: services -----------------------------------------------------------------
 _("svc.head", "⚙️ <b>Сервисы</b>", "⚙️ <b>Services</b>")

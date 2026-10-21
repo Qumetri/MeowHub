@@ -723,22 +723,20 @@ class TestMemberBot(TwoBots):
         self.assertIn("активировал", note[0][2])
         # the reply keyboard is the member's, not the owner's
         kb = [b["text"] for r in self.mb.sent(78)[-1][3]["reply_markup"]["keyboard"] for b in r]
-        self.assertIn(botmod_B("B_VPN"), kb)
-        self.assertNotIn(botmod_B("B_PASS"), kb)
+        self.assertEqual(kb, [botmod_B("B_LANG")])
 
     def test_owner_on_member_bot_is_a_stranger_without_membership(self):
         self.front.on_message(msg(OWNER_ID, "/start"))
         self.assertIn("закрытый сервис", self.mb.sent(OWNER_ID)[0][2])
         self.assertEqual(self.hb.sent(OWNER_ID), [])                # no "👤 Боту пишет …" about themselves
         self.assertEqual(self.front.role(OWNER_ID), None)
-        self.assertIsNone(self.front.keyboard(OWNER_ID))
+        self.assertEqual(self.front.keyboard(OWNER_ID)["keyboard"], [[{"text": botmod_B("B_LANG")}]])
 
     def test_owner_keeps_health_and_links_on_member_bot(self):
         self.make_member(OWNER_ID, services=["vpn"])
         self.assertTrue(self.front.tools_ok(OWNER_ID))
         kb = [b["text"] for r in self.front.keyboard(OWNER_ID)["keyboard"] for b in r]
-        self.assertIn(botmod_B("B_HEALTH"), kb)
-        self.assertNotIn(botmod_B("B_PASS"), kb)                # still no owner ops here
+        self.assertEqual(kb, [botmod_B("B_LANG")])              # member menu: language only, no owner ops
 
     def test_owner_on_member_bot_with_membership_gets_member_menus_only(self):
         self.make_member(OWNER_ID)
@@ -746,7 +744,7 @@ class TestMemberBot(TwoBots):
         self.front.on_message(msg(OWNER_ID, "/start"))
         texts = [b["text"] for e in self.mb.sent(OWNER_ID) if "keyboard" in str(e[3].get("reply_markup"))
                  for r in e[3]["reply_markup"].get("keyboard", []) for b in r]
-        self.assertIn(botmod_B("B_VPN"), texts)
+        self.assertEqual(texts, [botmod_B("B_LANG")])
         for owner_only in ("B_PASS", "B_MEMBERS", "B_CODE"):
             self.assertNotIn(botmod_B(owner_only), texts)
         with mock.patch.object(self.h, "cmd_health") as health:      # read-only tools: yes (2026-10-11)

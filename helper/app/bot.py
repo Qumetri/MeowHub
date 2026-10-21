@@ -254,22 +254,11 @@ class Helper:
             rows = [[lb("health"), lb("links"), lb("pass")], [lb("yt")],
                     [lb("members"), lb("code"), lb("svc")]]
             rows += [app[0] + [lb("lang")]] if app else [[lb("lang")]]
-        elif role == "member":
-            m = self.members.get(uid)
-            if self.members.status(m) != "active":
-                rows = app + [[lb("help"), lb("lang")]]
-            else:
-                rows = list(app)
-                svc = [lb(k) for s, k in (("vpn", "vpn"), ("matrix", "mx")) if self.members.has(uid, s)]
-                if svc:
-                    rows.append(svc)
-                rows.append([lb("sub"), lb("help"), lb("lang")])
-                if self.tools_ok(uid, role):
-                    rows.append([lb("health"), lb("links")])
-                if self.members.has(uid, "youtube"):
-                    rows.append([lb("yt")])
         else:
-            return None
+            # Members and strangers get only the language switch: everything else lives in
+            # the Mini App behind the blue menu button, and extra buttons here were taken
+            # for the app itself. The old buttons' commands still answer (/vpn, /sub, ...).
+            rows = [[lb("lang")]]
         return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
 
     # ------------------------------------------------------------- messaging --
@@ -317,12 +306,12 @@ class Helper:
         except TelegramError as e:
             log.info("edit %s/%s: %s", cid, mid, e)
 
-    def send_menu(self, cid, uid, text, page=None):
-        """Text with the inline app button, then the reply keyboard (one
-        message cannot carry both kinds of markup)."""
+    def send_menu(self, cid, uid, text):
+        """Text that points at the blue menu button, with the (language-only) reply keyboard."""
         L = self.lang(uid)
-        self.bot.send(cid, text, reply_markup=self.app_markup(tr(L, "menu.open_app"), page))
-        self.bot.send(cid, tr(L, "menu.hint"), reply_markup=self.keyboard(uid))
+        if self.webapp_url:
+            text += "\n\n" + tr(L, "menu.blue")
+        self.bot.send(cid, text, reply_markup=self.keyboard(uid))
 
     # ------------------------------------------------------------------ loop --
     def run(self):
@@ -540,7 +529,10 @@ class Helper:
         if role is None:
             return self.stranger(frm, cid, text)
         if btn == "app":
-            return self.open_app(cid, L)
+            if role == "owner":
+                return self.open_app(cid, L)
+            # a stale keyboard from before it was trimmed: point at the menu button, swap the keyboard
+            return self.bot.send(cid, tr(L, "menu.blue"), reply_markup=self.keyboard(uid))
 
         if role == "member":
             mem = self.members.get(uid)
@@ -656,7 +648,15 @@ class Helper:
         m = self.members.get(uid)
         L = self.lang(uid)
         self.send_menu(cid, uid, tr(L, "member.start", name=esc(person(m)), status=self.status_line(m, L),
-                                    svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—")))
+                                    svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—"))
+                       + self.matrix_why(m, L))
+
+    def matrix_why(self, m, L):
+        """Why the Element X account is made here: it's our private server, not Element at large."""
+        if not m or "matrix" not in self.members.effective_services(m):
+            return ""
+        server = os.environ.get("MATRIX_SERVER_NAME", "").strip() or hub.base_domain()
+        return "\n\n" + tr(L, "member.matrix_why", server=esc(server))
 
     def paused(self, cid, uid, m):
         L = self.lang(uid)
@@ -669,7 +669,7 @@ class Helper:
     def welcome(self, m):
         L = self.lang(m["id"])
         return tr(L, "member.welcome", name=esc(person(m)), status=self.status_line(m, L),
-                  svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—"))
+                  svcs=esc(svc_names(self.members.effective_services(m), lang=L) or "—")) + self.matrix_why(m, L)
 
     # ------------------------------------------------------------------ codes --
     def redeem_code(self, cid, uid, frm, text):
@@ -721,8 +721,10 @@ class Helper:
             self.seen_from.pop(next(iter(self.seen_from)))
         first = text.split(" ")[0].split("@")[0].lower() == "/start" and uid != self.owner_id()
         key = "stranger.welcome" if first else "stranger.text"
-        self.bot.send(cid, tr(L, key, name=esc(frm.get("first_name") or name), c=esc(self.contact())),
-                      reply_markup=self.app_markup(tr(L, "menu.open_app")))
+        text_ = tr(L, key, name=esc(frm.get("first_name") or name), c=esc(self.contact()))
+        if self.webapp_url:
+            text_ += "\n\n" + tr(L, "stranger.blue")
+        self.bot.send(cid, text_, reply_markup=self.keyboard(uid))
         # tell the owner once per STRANGER_RENOTIFY, and only mark it once the notice got through
         now = time.time()
         if uid != self.owner_id() and now - self.nagged.get(uid, 0) >= STRANGER_RENOTIFY:

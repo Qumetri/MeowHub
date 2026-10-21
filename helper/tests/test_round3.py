@@ -644,23 +644,13 @@ class TestMemberChatUsesHas(Bot3):
     def labels(kb):
         return [b["text"] for r in kb["keyboard"] for b in r]
 
-    def test_master_off_removes_buttons(self):
+    def test_master_off_gates_the_commands(self):
         uid = self.make_member(50, ["vpn", "matrix", "tools"])
-        lab = self.labels(self.h.keyboard(uid))
-        for b in (tb.botmod.B_VPN, tb.botmod.B_MX, tb.botmod.B_HEALTH):
-            self.assertIn(b, lab)
-        self.mm.set_service_enabled("vpn", False)
+        self.assertEqual(self.labels(self.h.keyboard(uid)), [tb.botmod.B_LANG])   # language only, always
         self.mm.set_service_enabled("tools", False)
-        lab = self.labels(self.h.keyboard(uid))
-        self.assertNotIn(tb.botmod.B_VPN, lab)
-        self.assertNotIn(tb.botmod.B_HEALTH, lab)
-        self.assertIn(tb.botmod.B_MX, lab)
-
-    def test_youtube_adds_the_download_button(self):
-        uid = self.make_member(50)
-        self.assertNotIn(tb.botmod.B_YT, self.labels(self.h.keyboard(uid)))
-        self.mm.set_service_enabled("youtube", True)
-        self.assertIn(tb.botmod.B_YT, self.labels(self.h.keyboard(uid)))
+        with mock.patch.object(self.h, "cmd_health") as health:
+            self.h.on_message(tb.msg(uid, "/health"))
+            health.assert_not_called()
 
     def test_help_lists_effective_services(self):
         uid = self.make_member(50, ["vpn"])

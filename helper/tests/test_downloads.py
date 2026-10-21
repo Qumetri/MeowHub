@@ -1054,11 +1054,9 @@ class TestChatFlow(ChatBase):
         self.h.on_message(tb.msg(50, URL))
         self.assertEqual(len(self.b.sent(50)), 2)
 
-    def test_member_with_youtube_gets_the_handoff_and_the_keyboard_button(self):
+    def test_member_with_youtube_gets_the_handoff(self):
         self.mm.set_service_enabled("youtube", True)
         self.mm.grant(50, tb.frm(50), 30, [])
-        labels = [b["text"] for r in self.h.keyboard(50)["keyboard"] for b in r]
-        self.assertIn(tb.botmod.B_YT, labels)
         self.assertEqual(tb.botmod.B_YT, "🎬 Скачать видео")
         self.h.on_message(tb.msg(50, tb.botmod.B_YT))
         self.assertIn("Пришли ссылку", self.b.sent(50)[-1][2])

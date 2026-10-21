@@ -465,17 +465,12 @@ class TestLangCommand(BotCase):
         self.assertEqual(i18n.get_pref(self.h.store, uid), "en")
         out = self.b.sent(uid)[-1]
         self.assertEqual(out[2], "Language: English")
-        labels = self.labels(out[3]["reply_markup"])
-        self.assertIn("🔐 VPN", labels)
-        self.assertIn("🗓 Subscription", labels)
-        self.assertIn("❓ Help", labels)
-        self.assertIn("🌐 Language", labels)
-        self.assertNotIn("🗓 Подписка", labels)
+        self.assertEqual(self.labels(out[3]["reply_markup"]), ["🌐 Language"])
         self.assertEqual(self.b.answers()[-1][2], "Language: English")
         self.h.on_callback(self.cbq(uid, "lang:ru"))
         out = self.b.sent(uid)[-1]
         self.assertEqual(out[2], "Язык: русский")
-        self.assertIn("🗓 Подписка", self.labels(out[3]["reply_markup"]))
+        self.assertEqual(self.labels(out[3]["reply_markup"]), ["🌐 Язык"])
 
     def test_auto_follows_telegram_again(self):
         uid = self.member(50, "en")
@@ -483,7 +478,7 @@ class TestLangCommand(BotCase):
         self.h.on_callback(self.cbq(uid, "lang:auto", "en"))
         self.assertEqual(i18n.get_pref(self.h.store, uid), "auto")
         self.assertEqual(self.b.sent(uid)[-1][2], "Language: auto (as in Telegram), now English")
-        self.assertIn("🗓 Subscription", self.labels(self.b.sent(uid)[-1][3]["reply_markup"]))
+        self.assertEqual(self.labels(self.b.sent(uid)[-1][3]["reply_markup"]), ["🌐 Language"])
 
     def test_bad_callback_value(self):
         uid = self.member(50)
@@ -497,7 +492,7 @@ class TestLangCommand(BotCase):
         self.h.on_callback(self.cbq(77, "lang:ru", "en"))
         self.assertEqual(i18n.get_pref(self.h.store, 77), "ru")
         self.assertEqual(self.b.sent(77)[-1][2], "Язык: русский")
-        self.assertIsNone(self.b.sent(77)[-1][3]["reply_markup"])          # strangers have no reply keyboard
+        self.assertEqual(self.labels(self.b.sent(77)[-1][3]["reply_markup"]), ["🌐 Язык"])  # strangers: language only
         self.h.on_message(self.msg(77, "hello", "en"))
         self.assertIn("закрытый сервис", self.b.sent(77)[-1][2])           # and the pref applies to the lock text
 
@@ -588,7 +583,8 @@ class TestBotTextsInEnglish(BotCase):
         texts = "\n".join(e[2] for e in self.b.sent(79))
         self.assertIn("Welcome to MeowHub", texts)
         self.assertIn("Services: VPN, Messenger", texts)
-        self.assertIn("Menu — use the buttons below.", texts)
+        self.assertIn("tap the blue “MeowHub” button", texts)
+        self.assertIn("our own private server", texts)
         self.assertIn("redeemed the code", self.b.sent(tb.OWNER)[-1][2])
         self.assertIn("+30 d", self.b.sent(tb.OWNER)[-1][2])
 
@@ -771,7 +767,7 @@ class TestTwoBots(unittest.TestCase):
         self.front.on_callback(BotCase.cbq(50, "lang:en"))
         out = self.mb.sent(50)[-1]
         self.assertEqual(out[2], "Language: English")
-        self.assertIn("🗓 Subscription", [b["text"] for r in out[3]["reply_markup"]["keyboard"] for b in r])
+        self.assertEqual([b["text"] for r in out[3]["reply_markup"]["keyboard"] for b in r], ["🌐 Language"])
         sets = [e for e in self.mb.log if e[0] == "setMyCommands" and e[3].get("scope")]
         self.assertEqual(sets[-1][3]["scope"]["chat_id"], 50)
         self.assertEqual(self.hb.sent(50), [])                              # nothing leaked to the ops bot

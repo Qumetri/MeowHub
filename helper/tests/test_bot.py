@@ -108,9 +108,9 @@ class BotTest(unittest.TestCase):
         self.assertIn("<code>77</code>", notes[0][2])
         data = [b["callback_data"] for r in notes[0][3]["reply_markup"]["inline_keyboard"] for b in r]
         self.assertEqual(data, ["g:77:30", "g:77:x"])
-        # the inline app button appears only because BOT_APP_PATH is set
-        self.assertEqual(out[0][3]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"],
-                         "https://example.org/app/")
+        # no inline app button: the text points at the blue menu button; the keyboard is language only
+        self.assertIn("синяя кнопка «MeowHub»", out[0][2])
+        self.assertEqual(out[0][3]["reply_markup"]["keyboard"], [[{"text": botmod.B_LANG}]])
 
     def test_stranger_start_gets_welcome_and_owner_sees_what_they_wrote(self):
         self.h.on_message(msg(78, "/start", first="Zed"))
@@ -135,7 +135,12 @@ class BotTest(unittest.TestCase):
     def test_no_webapp_url_omits_buttons(self):
         self.h.webapp_url = ""
         self.h.on_message(msg(77, "hi"))
-        self.assertIsNone(self.b.sent(77)[0][3].get("reply_markup"))
+        out = self.b.sent(77)[0]
+        self.assertNotIn("inline_keyboard", out[3]["reply_markup"])
+        self.assertNotIn("MeowHub»", out[2])                      # no pointer at a button that isn't there
+        uid = self.make_member(58)
+        self.h.on_message(msg(uid, "/start"))
+        self.assertNotIn("синюю кнопку", self.b.sent(uid)[-1][2])
 
     def test_stranger_redeems_code_with_spaces_and_lowercase(self):
         code = self.mm.new_code(30, ["vpn", "matrix"])
@@ -179,8 +184,7 @@ class BotTest(unittest.TestCase):
         self.assertIn("Доступ приостановлен", out)
         self.assertIn("подписка закончилась", out)
         kb = self.b.sent(uid)[-1][3]["reply_markup"]["keyboard"]
-        self.assertTrue(any(b["text"] == botmod.B_HELP for r in kb for b in r))
-        self.assertFalse(any(b["text"] == botmod.B_VPN for r in kb for b in r))
+        self.assertEqual(kb, [[{"text": botmod.B_LANG}]])
         code = self.mm.new_code(30)
         self.h.on_message(msg(uid, code))
         self.assertIn("Подписка продлена", self.texts(uid))
@@ -215,24 +219,40 @@ class BotTest(unittest.TestCase):
         with mock.patch.object(self.h, "cmd_health") as health:
             self.h.on_message(msg(uid, "/health"))
             health.assert_called_once()
-        kb = self.h.keyboard(uid)["keyboard"]
-        self.assertTrue(any(b["text"] == botmod.B_HEALTH for r in kb for b in r))
+        with mock.patch.object(self.h, "cmd_health") as health:   # an old keyboard's button still works
+            self.h.on_message(msg(uid, botmod.B_HEALTH))
+            health.assert_called_once()
 
-    def test_member_keyboard_matches_services(self):
-        uid = self.make_member(54, services=["vpn"])
-        texts = [b["text"] for r in self.h.keyboard(uid)["keyboard"] for b in r]
-        self.assertIn(botmod.B_VPN, texts)
-        self.assertNotIn(botmod.B_MX, texts)
-        self.assertNotIn(botmod.B_HEALTH, texts)
-        first = self.h.keyboard(uid)["keyboard"][0][0]
-        self.assertEqual(first, {"text": botmod.B_APP})       # plain text: keyboard web_app gets no initData
+    def test_member_keyboard_is_language_only(self):
+        # extra buttons were mistaken for the app; everything lives behind the blue menu button
+        uid = self.make_member(54, services=["vpn", "matrix", "tools"])
+        self.assertEqual(self.h.keyboard(uid)["keyboard"], [[{"text": botmod.B_LANG}]])
+        self.h.on_message(msg(uid, "/start"))
+        e = self.b.sent(uid)
+        self.assertEqual(len(e), 1)                                # one message, no inline app button
+        self.assertIn("синюю кнопку «MeowHub»", e[0][2])
+        self.assertEqual(e[0][3]["reply_markup"]["keyboard"], [[{"text": botmod.B_LANG}]])
 
-    def test_app_button_answers_with_inline_web_app(self):
+    def test_start_explains_the_private_matrix_server(self):
+        uid = self.make_member(59, services=["vpn", "matrix"])
+        self.h.on_message(msg(uid, "/start"))
+        t = self.b.sent(uid)[-1][2]
+        self.assertIn("закрытый сервер", t)
+        self.assertIn("Element X", t)
+        self.assertIn("<code>example.org</code>", t)
+        uid = self.make_member(60, services=["vpn"])
+        self.h.on_message(msg(uid, "/start"))
+        self.assertNotIn("Element X", self.b.sent(uid)[-1][2])
+
+    def test_stale_app_button_points_at_the_menu_button(self):
         uid = self.make_member(57)
         self.h.on_message(msg(uid, botmod.B_APP))
         e = self.b.sent(uid)[-1]
-        self.assertEqual(e[3]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"], "https://example.org/app/")
-        self.assertFalse(any("web_app" in b for r in self.h.keyboard(uid)["keyboard"] for b in r))
+        self.assertIn("синюю кнопку «MeowHub»", e[2])
+        self.assertEqual(e[3]["reply_markup"]["keyboard"], [[{"text": botmod.B_LANG}]])  # swaps the old keyboard
+        self.h.on_message(msg(OWNER, botmod.B_APP))                  # the owner keeps the inline button
+        self.assertEqual(self.b.sent(OWNER)[-1][3]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"],
+                         "https://example.org/app/")
 
 
     def test_vpn_button_shows_sub_url(self):
