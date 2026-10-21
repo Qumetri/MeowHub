@@ -163,6 +163,21 @@ holding the driver package.
 **Immich's first user is whoever registers first.** Claim it immediately after
 exposing the service.
 
+## Reports to Telegram
+
+`scripts/tg-report.py` sends a message or a file to your Telegram through the bot in
+`CLAUDE_REPORT_BOT_TOKEN` / `CLAUDE_REPORT_CHAT_ID` (stdlib only):
+
+```bash
+scripts/tg-report.py "backup finished"           # text, split at 4096 chars
+some-command | scripts/tg-report.py               # text from stdin
+scripts/tg-report.py -f report.md "caption"       # a file as a document
+```
+
+It only sends and never calls `getUpdates`, so it can share a bot with something that
+polls it, like the 3x-ui panel's notification bot. Uploads to Telegram from a home link
+can stall for a couple of minutes, so the timeout is 300 s.
+
 ## Health checks
 
 ```bash
