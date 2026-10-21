@@ -160,7 +160,7 @@ access rule (`members.has()`): the membership is active **and** the switch is on
 | `grant` | `vpn`, `matrix`, `tools` | given per member (codes, member card). The switch is a master kill-switch: off means VPN clients are disabled and Matrix accounts locked for everyone, and flipping it back restores them |
 | `all` | `youtube` | switch on means every active member has it. No per-member grant, and asking for it in a code or on a member card is refused (`not_grantable`) |
 
-A service that is switched off disappears from the member's app and keyboard.
+A service that is switched off disappears from the member's app, and its commands stop answering.
 API: `GET /api/admin/services` and `POST /api/admin/services/<id>` with
 `{"enabled": true|false}`.
 
@@ -194,6 +194,14 @@ grant buttons, always come from the **helper** bot. Access-code share links
 The **📱 MeowHub button on the reply keyboard is plain text**; the bot answers it
 with an inline button that opens the app. Telegram passes no `initData` to a Mini
 App opened from a reply-keyboard `web_app` button, so it couldn't log anyone in.
+That button is the **owner's only**: members and strangers get a keyboard with just
+🌐, because extra buttons were taken for the app itself. `/start`, the welcome after a
+code and the stranger texts end with a pointer at the blue "MeowHub" menu button
+(left out when no Mini App URL is set). The old button labels still route, and a stale
+📱 press answers with that pointer and swaps in the new keyboard. Members with the
+messenger also get a paragraph saying it's your **private** Matrix server: Element X is
+only the client, so the account is created in MeowHub and then signed into with
+"Change account provider" → `MATRIX_SERVER_NAME`.
 
 **Failed SSH logins** (optional, host-level): with `ssh-watch` installed, the
 monitor sends you one batched alert per new attacking address per day, with 🚫 for
@@ -432,8 +440,8 @@ The Russian texts are the originals; add a key with both languages whenever you 
 - **One rule** — `i18n.resolve(pref, language_code)`: `ru`/`en` pref wins; `auto` follows Telegram
   (`ru`, `uk`, `be`, `kk` → Russian, any other non-empty code → English, empty → Russian).
   `i18n.lang_of(store, uid, code)` adds the lookups (pref → fresh code → remembered `lc` → members row → ru).
-- **Switching**: `/lang` or the **🌐 Язык / 🌐 Language** button (member and owner keyboards, strangers
-  too) → inline `Русский · English · Авто`, callback `lang:ru|en|auto`; it saves, confirms in the
+- **Switching**: `/lang` or the **🌐 Язык / 🌐 Language** button (member, owner and stranger keyboards;
+  for members and strangers it is the only button) → inline `Русский · English · Авто`, callback `lang:ru|en|auto`; it saves, confirms in the
   new language and re-sends the reply keyboard. In the app: `POST /api/lang {"lang": "auto|ru|en"}`
   → `{"lang": <effective>, "lang_pref": <pref>}`; `GET /api/me` carries both. The browser admin
   page (no Telegram user) reads and writes the **owner's** preference, so it is one setting.
@@ -507,8 +515,8 @@ Downloads happen in the Mini App page "Скачать" (`?p=downloads&url=…`).
   MeTube.
 - **Bot**: a link (or `/yt <url>`) from the owner or a member with the service gets one
   message with an "Открыть загрузчик" `web_app` button that opens the app with the
-  canonical URL filled in (plain text when no Mini App URL is configured). Members with
-  the service get a "Скачать видео" keyboard button; members without it are told at most
+  canonical URL filled in (plain text when no Mini App URL is configured). The "Скачать
+  видео" keyboard button is the owner's (members can still type it or just send a link); members without the service are told at most
   hourly that downloads are switched off.
 - **Admin**: the Bots page "Загрузки" section (disk free, today's jobs and bytes,
   recent jobs).
