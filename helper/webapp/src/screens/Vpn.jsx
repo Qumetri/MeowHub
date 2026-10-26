@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import qrcode from 'qrcode-generator'
 import Icon from '../icons.jsx'
-import { Cell, Dot, ErrorBox, Section, Skeleton, doCopy, Button, Empty } from '../ui.jsx'
+import { Cell, Dot, ErrorBox, Section, Skeleton, doCopy, Button, Empty, Pill } from '../ui.jsx'
 import { api } from '../api.js'
 import { getLang, t } from '../i18n.js'
 import { haptic, openLink, openTelegramLink, saveFile } from '../tg.js'
@@ -111,6 +111,9 @@ function LinkCell({ l, i }) {
   )
 }
 
+// The app we point people to first (the server marks it `recommended` too).
+const REC_APP = 'Happ'
+
 // One config family = one set of apps that can use it.
 function Group({ g, defaultOpen }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -120,7 +123,7 @@ function Group({ g, defaultOpen }) {
         <h3>{g.title}</h3>
         <Icon name="chevdown" size={16} className={'rot' + (open ? ' open' : '')} />
       </button>
-      {g.apps?.length > 0 && <div className="appchips">{g.apps.map((a) => <span key={a} className="appchip">{a}</span>)}</div>}
+      {g.apps?.length > 0 && <div className="appchips">{g.apps.map((a) => <span key={a} className={'appchip' + (a === REC_APP ? ' appchip--rec' : '')}>{a}</span>)}</div>}
       {open && (
         <>
           <div className="group">{g.links.map((l, i) => <LinkCell key={i} l={l} i={i} />)}</div>
@@ -178,10 +181,16 @@ export default function Vpn() {
             </Section>
 
             <Section title={t('vpn.add')} footer={t('vpn.add_foot')}>
-              {apps.map((a) => (
-                <Cell key={a.id} icon="external" title={a.name} sub={Array.isArray(a.platforms) ? a.platforms.join(' · ') : (a.platforms || '')} chevron
-                  onClick={() => { haptic.impact('light'); openLink(goUrl(a.go_url)) }} />
-              ))}
+              {[...apps].sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0)).map((a) => {
+                const plat = Array.isArray(a.platforms) ? a.platforms.join(' · ') : (a.platforms || '')
+                return (
+                  <Cell key={a.id} icon={a.recommended ? 'star' : 'external'} tone={a.recommended ? 'ok' : undefined}
+                    className={a.recommended ? 'cell--rec' : ''} chevron
+                    title={a.name} sub={a.recommended ? <>{t('vpn.rec_why')}<br />{plat}</> : plat}
+                    right={a.recommended ? <Pill tone="ok">{t('vpn.recommended')}</Pill> : null}
+                    onClick={() => { haptic.impact('light'); openLink(goUrl(a.go_url)) }} />
+                )
+              })}
             </Section>
           </>
         )}

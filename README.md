@@ -41,6 +41,7 @@ on hardware you control.
 | 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people, with a Telegram Mini App in Russian or English | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
+| 🏠 | **Home Assistant** — devices in another place, on a secret path, webhooks for ESP32s | optional |
 
 ## Quick start
 
@@ -137,7 +138,7 @@ The dashboard is responsive, so the hub works from a phone as well as a desk.
 
 ## Everything is in one file
 
-`.env` holds **128 settings**, each documented where it sits. Only two have no
+`.env` holds **131 settings**, each documented where it sits. Only two have no
 sensible default, because they can't:
 
 ```ini
@@ -269,14 +270,15 @@ at your IP — and again when it's fixed. It also lists the hub's links and hand
 **you, and only you**, the logins for your services, in a message that deletes
 itself after a minute.
 
-<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card, the VPN page grouped by app, and the downloader" width="100%">
+<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card, the VPN page with Happ marked as recommended, and the audiobooks beta" width="100%">
 
 It can also **let other people in**. You mint an access code; whoever redeems it
 becomes a member for 30 days (or as long as you choose) and gets, from a
 Wallet-style Telegram Mini App:
 
 - **VPN** — a personal, auto-updating subscription from your 3x-ui panel that
-  opens straight in Happ, Hiddify, v2RayTun, Streisand or v2rayNG, plus one
+  opens straight in **Happ** (marked as recommended: it takes every config family
+  in one tap), Hiddify, v2RayTun, Streisand or v2rayNG, plus one
   AmneziaWG peer each (one tap into AmneziaVPN on Android, a file elsewhere).
   Configs are grouped by the app they need, each with a one-line instruction.
   New inbounds reach every member by themselves.
@@ -285,6 +287,9 @@ Wallet-style Telegram Mini App:
   1080p or MP3/M4A/Opus, add subtitles or a clip range, and save the file from a
   signed link. Every user gets their own folder and quotas; files delete
   themselves after 30 minutes, so a busy server doesn't fill up.
+- **Audiobooks (beta)** — upload an EPUB or PDF, pick a voice, and the server reads
+  it aloud into an M4B with chapters, with a visible queue and an in-app player. It
+  fronts a separate [book2audio](docs/HELPER.md#audiobooks-beta) server and starts off.
 
 The bot reminds members 24 hours before their time runs out. When it does, the
 VPN client is switched off and the Matrix accounts are locked (rooms and history
@@ -300,7 +305,9 @@ or a switch in the app overrides it, for the bot and the app at once.
 The owner's **Bots** page (on the hub, and inside the app) shows members, codes,
 activity, downloads and every bot token — which you can swap from the page
 without touching `.env` — and has a "view as a member" preview. An optional
-second bot keeps your ops bot private while members talk to theirs.
+second bot keeps your ops bot private while members talk to theirs. You can make
+trusted people **admins** (`HELPER_ADMIN_IDS`): they get your controls but not your
+personal logins or the bot tokens, and alerts still come only to you.
 
 Setup is two lines in `.env` — `HELPER_BOT_TOKEN` and your Telegram id as
 `HELPER_OWNER_ID`; the VPN and Matrix halves of the memberships each need one
@@ -357,12 +364,12 @@ the main directory cannot recreate or destroy them, and vice versa.
 | | |
 |---|---|
 | 🚀 **[DEPLOY.md](docs/DEPLOY.md)** | First deployment — host prep, DNS, router ports, permissions, migrating an existing install |
-| 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, and the failure modes worth knowing in advance |
+| 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, host safety (reboot on a kernel crash, Docker waits for the data disk), and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
 | 🌡️ **[SENSOR.md](docs/SENSOR.md)** | The ESP32 room sensor — posting from another network, token, certificate check, importing old readings |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
-| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, VPN by app, downloader, Russian/English |
+| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, admins, VPN by app, downloader, audiobooks, Russian/English |
 | 🏠 **[HOMEASSISTANT.md](docs/HOMEASSISTANT.md)** | Optional: Home Assistant for devices in another place, on a secret path (no subdomain), webhooks for ESP32s |
 | 🔒 **[SSH-GUARD.md](docs/SSH-GUARD.md)** | Optional: fail2ban for the host's SSH (root and made-up users banned at once), new-login alerts and a daily summary in Telegram |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |

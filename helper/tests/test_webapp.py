@@ -372,6 +372,7 @@ class TestVpn(Base):
         self.assertTrue(d["online"])
         self.assertEqual([a["id"] for a in d["apps"]], ["happ", "v2raytun", "hiddify", "streisand", "v2rayng"])
         self.assertTrue(d["apps"][0]["go_url"].startswith("./go/happ?u=https%3A%2F%2Fexample.org"))
+        self.assertEqual([a["id"] for a in d["apps"] if a["recommended"]], ["happ"])
 
     def test_vpn_online(self):
         self.make_member(200)

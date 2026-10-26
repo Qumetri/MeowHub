@@ -67,6 +67,9 @@ VPN_APPS = [
      lambda s: "v2rayng://install-config?url=" + urllib.parse.quote(s, safe="")),
 ]
 APPS_BY_ID = {a[0]: a for a in VPN_APPS}
+# Shown first and marked "recommended": it handles every config family we hand out
+# (VLESS/Reality, XHTTP, Hysteria2, Shadowsocks) and imports the subscription in one tap.
+RECOMMENDED_APP = "happ"
 
 # Human texts live in i18n.T; these two are the Russian renderings, kept for callers that want a dict.
 RESULT_MESSAGES = {k: i18n.tr("ru", "result." + k) for k in
@@ -768,7 +771,7 @@ class App:
             online = email in set(xui.onlines())
         except Exception:
             online = False
-        apps = [{"id": a[0], "name": a[1], "platforms": a[2],
+        apps = [{"id": a[0], "name": a[1], "platforms": a[2], "recommended": a[0] == RECOMMENDED_APP,
                  "go_url": f"./go/{a[0]}?u={urllib.parse.quote(sub, safe='')}"} for a in VPN_APPS]
         if any(g["id"] == "awg" for g in groups):
             # AmneziaVPN takes only the AmneziaWG config, not the subscription: its entry

@@ -529,6 +529,8 @@ html[data-mode='browser'] .keycard { backdrop-filter: blur(12px); }
 .vgrp { margin-bottom: 18px; }
 .vgrp .sec__h { margin-bottom: 4px; }
 .vgrp .sec__h h3 { font-size: 15px; font-weight: 600; color: var(--text); }
+.appchip--rec { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); font-weight: 600; }
+.cell--rec { background: color-mix(in srgb, var(--ok) 7%, transparent); }
 .appchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 16px 8px; }
 .appchip {
   padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--subtitle);

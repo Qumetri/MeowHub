@@ -351,12 +351,12 @@ _("vpn.prep_fail", "❌ Не получилось подготовить кон�
   "❌ Couldn't prepare your configs. Try again later or contact {c}.")
 _("vpn.card",
   "🔐 <b>Твой VPN</b>\n\nСсылка-подписка:\n<code>{url}</code>\n\n"
-  "1. Установи Happ, v2RayTun или Hiddify.\n"
+  "1. Установи <b>Happ</b> — рекомендуем: работает со всеми нашими протоколами и добавляет подписку в одно касание. Подойдут и v2RayTun или Hiddify.\n"
   "2. Добавь эту ссылку в приложении как подписку.\n"
   "3. Конфиги обновляются сами, новые серверы появятся автоматически. "
   "Никому не передавай ссылку.",
   "🔐 <b>Your VPN</b>\n\nSubscription link:\n<code>{url}</code>\n\n"
-  "1. Install Happ, v2RayTun or Hiddify.\n"
+  "1. Install <b>Happ</b> — recommended: it handles all our protocols and adds the subscription in one tap. v2RayTun or Hiddify work too.\n"
   "2. Add this link in the app as a subscription.\n"
   "3. Configs update on their own and new servers appear automatically. "
   "Don't share the link with anyone.")
