@@ -483,7 +483,7 @@ The Russian texts are the originals; add a key with both languages whenever you 
 - No `OWNER_CONTACT` set: messages that say "write {contact}" fall back to "the owner" / "владельцу"
   (the catalog gets an empty `c`, `i18n.tr` fills the wording); the Mini App hides the contact cell.
 - Frontend strings live in `webapp/src/i18n.js` (`ru` and `en` dictionaries); `npm run build` runs
-  `scripts/check-i18n.mjs` first and fails on a key or `{placeholder}` missing in either language.
+  `helper/webapp/scripts/check-i18n.mjs` first and fails on a key or `{placeholder}` missing in either language.
 
 ## Downloader
 

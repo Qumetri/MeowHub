@@ -142,7 +142,7 @@ All 8 tracked coins are already listed everywhere, so new listings matter little
 
 ## What we did
 
-Implemented §3 on 2026-10-08 (details in [`../CRYPTO.md`](../crypto.md), "Newswatch (breaking news)"):
+Implemented §3 on 2026-10-08 (details in [`../CRYPTO.md`](../CRYPTO.md), "Newswatch (breaking news)"):
 - `crypto/app/newswatch.py`: Binance catalogs 48/161/157, Upbit, Kraken and Coinbase status, Telegram channel previews (`WatcherGuru`), and OKX/Bybit/KuCoin/Bitget, with the scoring table above, a sqlite `news_seen` table, trigram dedupe and pushes under `news_min_score` / `news_max_per_day` / quiet hours. OKX now queries the delisting and deposit/withdrawal types.
 - `/api/digest` reads `news_seen` first, drops converter pages, clusters near-duplicates, adds The Block, uses Google News only for sparse coins, and carries `macro` (hard-coded 2026 FOMC dates, verified on federalreserve.gov, plus the newest Fed release) and `news_health`.
 - Not done: helper-bot alerting on `news_health`, the weekly explain-coverage figure, an update of the n8n explainer prompt to use `first_seen` ("seen N min before the move"), 2027 FOMC dates, Binance's push WebSocket.
