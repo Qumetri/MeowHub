@@ -664,6 +664,59 @@ _("api.timeout", "Операция идёт слишком долго, попр�
 _("api.bot_starting", "Бот ещё запускается, попробуй через минуту.", "The bot is still starting, try again in a minute.")
 _("api.bot_starting_short", "Бот ещё запускается.", "The bot is still starting.")
 _("api.sync_not_started", "Синхронизация ещё не запущена.", "Sync hasn't started yet.")
+_("api.books_down", "Сервис озвучки сейчас недоступен. Попробуй через пару минут.",
+  "The narration service is unavailable right now. Try again in a couple of minutes.")
+_("api.books_engine", "Сервис озвучки не принял запрос. Попробуй ещё раз.",
+  "The narration service rejected the request. Try again.")
+_("api.books_upload_cut", "Загрузка оборвалась. Попробуй ещё раз.", "The upload was cut off. Try again.")
+_("api.books_bad_file", "Не получилось прочитать файл. Нужен EPUB или PDF с текстом (не скан).",
+  "Couldn't read the file. It must be an EPUB or a PDF with real text (not a scan).")
+_("api.books_bad_type", "Подходят только файлы .epub и .pdf.", "Only .epub and .pdf files work.")
+_("api.books_too_large", "Файл больше {mb} МБ.", "The file is over {mb} MB.")
+_("api.books_limit", "Лимит беты — {n} аудиокниги на человека, и он исчерпан.",
+  "The beta limit is {n} audiobooks per person, and you've used it.")
+_("api.books_pending", "Сначала озвучь или удали уже загруженные книги (можно держать {n} неозвученные).",
+  "Narrate or delete the books you've uploaded first (up to {n} can wait un-narrated).")
+_("api.books_not_found", "Книга не найдена.", "Book not found.")
+_("api.books_bad_voice", "Этот голос не подходит для языка книги.", "That voice doesn't fit the book's language.")
+_("api.books_busy", "Книга уже в работе.", "The book is already being processed.")
+_("api.books_busy_delete", "Сначала останови озвучку.", "Stop the narration first.")
+_("api.books_done", "Эта книга уже озвучена.", "This book is already narrated.")
+_("api.books_not_running", "Озвучка не идёт.", "Nothing is being narrated.")
+_("api.books_upload_type", "Отправь файл как есть (EPUB или PDF).", "Send the file as is (EPUB or PDF).")
+_("books.err_gone", "Книга пропала с сервера. Удали её и загрузи заново.",
+  "The book is gone from the server. Delete it and upload it again.")
+_("books.err_failed", "Озвучка не удалась. Попробуй ещё раз или выбери другой голос.",
+  "Narration failed. Try again or pick another voice.")
+_("books.ready", "📚 <b>{title}</b> озвучена — {dur}. Слушать и скачать — в MeowHub, раздел «Аудиокниги».",
+  "📚 <b>{title}</b> is ready — {dur}. Listen and download in MeowHub, section “Audiobooks”.")
+_("books.failed", "📚 Озвучить <b>{title}</b> не получилось. Открой MeowHub → «Аудиокниги», чтобы попробовать снова. "
+  "Попытка не списана.",
+  "📚 Couldn't narrate <b>{title}</b>. Open MeowHub → “Audiobooks” to try again. It didn't use up your limit.")
+_("books.owner_queued",
+  "📚 {who} отправил(а) книгу на озвучку\n\n"
+  "<b>{title}</b> — {author}\n"
+  "Голос: {voice} · глав: {chapters} · ≈ {listen} звучания\n"
+  "Перед ней в очереди: {ahead}; будет готова примерно через {ready}.\n"
+  "Лимит участника: {used} из {total}.",
+  "📚 {who} sent a book to be narrated\n\n"
+  "<b>{title}</b> — {author}\n"
+  "Voice: {voice} · chapters: {chapters} · ≈ {listen} of audio\n"
+  "Ahead of it in line: {ahead}; ready in about {ready}.\n"
+  "Member's limit: {used} of {total}.")
+_("books.announce",
+  "📚 <b>Новое в MeowHub: аудиокниги (бета)</b>\n\n"
+  "Загрузи книгу в EPUB или PDF, выбери голос — сервер прочитает её вслух и соберёт аудиокнигу "
+  "с главами. Слушать можно прямо в приложении или скачать файл M4B.\n\n"
+  "Озвучка занимает прилично времени и ресурсов сервера, поэтому книги идут по очереди, а лимит пока "
+  "<b>3 книги на человека</b>. Сколько ждать, приложение покажет.\n\n"
+  "Где: синяя кнопка «MeowHub» слева от поля ввода → «Аудиокниги».",
+  "📚 <b>New in MeowHub: audiobooks (beta)</b>\n\n"
+  "Upload a book as EPUB or PDF and pick a voice — the server reads it aloud and builds an audiobook "
+  "with chapters. Listen right in the app or download the M4B file.\n\n"
+  "Narration takes a fair amount of time and server resources, so books go one at a time and the limit "
+  "for now is <b>3 books per person</b>. The app shows how long you'll wait.\n\n"
+  "Where: the blue “MeowHub” button left of the message field → “Audiobooks”.")
 _("api.dl_starting", "Загрузчик ещё запускается, попробуй через минуту.",
   "The downloader is still starting, try again in a minute.")
 _("api.session_invalid", "Сессия недействительна, открой приложение заново.", "Your session is invalid, reopen the app.")

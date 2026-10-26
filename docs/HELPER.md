@@ -44,8 +44,24 @@ For a separate bot for members, see [Two bots](#two-bots) below.
 | VPN link (`vpn`), Matrix accounts (`matrix`) | ✅ | if the membership has the service | — |
 | Redeem an access code | ✅ | ✅ (extends) | ✅ (becomes a member) |
 | 🔑 Logins (`/pass`, `/setpass`, `/delpass`) | ✅ | — | — |
+| 📚 Audiobooks (`books`) | ✅ (no limit) | while the owner has switched `books` on | — |
 | Members and codes (`/members`, `/code`, `/allow`, `/deny`, 🎟) | ✅ | — | — |
 | Bots page | ✅ | — | — |
+
+
+### Admins
+
+`HELPER_ADMIN_IDS` (comma-separated Telegram ids) makes people **admins**: they get the
+owner's column above on the helper bot and in the Mini App opened from it (members, codes,
+services, inbounds, health, downloads, `/pass`). Two things stay with the owner:
+
+- the owner's **personal logins**, `HELPER_PRIVATE_VAULT` (default `immich,nextcloud,matrix`):
+  hidden from an admin's `/pass` and refused for `/setpass` / `/delpass`;
+- the **bot tokens**: "Боты и ключи" is hidden for admins and its API answers 403.
+
+Alerts, the daily report and stranger/code notices still go to the owner only. On the member
+bot an admin is an ordinary member. Telegram won't set an admin's menu button and command list
+until they have pressed /start in the helper bot; the bot retries on their first message.
 
 The bot is public on Telegram — anyone can find it and write to it. A stranger is
 told to send an access code or to contact `OWNER_CONTACT` (a Telegram `@handle`;
@@ -151,14 +167,14 @@ half shows "not configured" and the rest keeps working.
 Every member service has a **global on/off switch**, set by the owner in the helper
 bot (`⚙️ Сервисы` / `/services`) or on the Bots page (Overview, "Сервисы для
 участников"). It is stored in the `helper.db` setting `svc_enabled`. Defaults:
-`vpn`, `matrix` and `tools` on, **`youtube` off** until you switch it on. The one
+`vpn`, `matrix` and `tools` on, **`youtube` and `books` off** until you switch them on. The one
 access rule (`members.has()`): the membership is active **and** the switch is on
 **and** (the service is mode `all` **or** the member was granted it).
 
 | Mode | Services | Meaning |
 |---|---|---|
 | `grant` | `vpn`, `matrix`, `tools` | given per member (codes, member card). The switch is a master kill-switch: off means VPN clients are disabled and Matrix accounts locked for everyone, and flipping it back restores them |
-| `all` | `youtube` | switch on means every active member has it. No per-member grant, and asking for it in a code or on a member card is refused (`not_grantable`) |
+| `all` | `youtube`, `books` | switch on means every active member has it. No per-member grant, and asking for it in a code or on a member card is refused (`not_grantable`) |
 
 A service that is switched off disappears from the member's app, and its commands stop answering.
 API: `GET /api/admin/services` and `POST /api/admin/services/<id>` with
@@ -525,6 +541,25 @@ Downloads happen in the Mini App page "Скачать" (`?p=downloads&url=…`).
   inside the tap (iOS shows a "Paste" bubble; most Android WebViews deny it). If both come back
   empty it focuses the URL field (keyboard clipboard chip / long-press → Paste) and says so.
   Sharing the video to the bot (link prefilled) is the zero-friction path.
+
+
+## Audiobooks (beta)
+
+Service `books` (mode `all`, **off by default**): a Mini App page "Аудиокниги" in front of a
+**book2audio** server (EPUB/PDF → M4B with chapters; not shipped in this repo — point
+`BOOKS_URL` at one the helper can reach, default `http://book2audio:8098`). Without it the page
+says the narration service is unavailable and nothing else is affected.
+
+- Per book: upload EPUB/PDF (streamed to book2audio) → pick one of the curated voices (▶ samples)
+  → "Озвучить" → a visible queue with wait estimates (`GET /api/queue` on book2audio) → in-app
+  player and "Сохранить M4B" through signed `/dl/` links.
+- Limits (owner exempt): `BOOKS_PER_USER` (3) audiobooks per member — finished ones count even after
+  deletion; 2 uploads waiting un-narrated; `BOOKS_MAX_MB` (100).
+- The member is told when their book is ready or failed; the owner gets a notice when a member
+  queues a book (who, title, voice, length, place in line).
+- Finished files are read from `BOOKS_FILES` (`/books`): mount book2audio's work dir there read-only.
+- API: `GET /api/books`, `POST /api/books/upload`, `GET /api/books/preview`,
+  `POST /api/books/<id>/narrate|cancel|delete`, `GET /api/books/<id>/cover`. Tests: `tests/test_books.py`.
 
 ## Logins
 

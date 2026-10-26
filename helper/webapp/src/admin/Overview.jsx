@@ -109,7 +109,7 @@ export default function Overview() {
           <DlAdmin />
         </div>
         <div>
-          <Integrations />
+          {data.can_tokens !== false && <Integrations />}
           <Section footer={t('ov.dl_foot')}>
             <Cell icon="download" title={t('ov.dl_title')} chevron onClick={() => { haptic.impact('light'); go('downloads') }} />
           </Section>

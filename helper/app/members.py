@@ -38,11 +38,14 @@ SERVICES = {
     "youtube": {"mode": "all", "name_ru": "YouTube и видео", "name_en": "YouTube and video",
                 "desc_ru": "Скачивание видео и музыки по ссылке",
                 "desc_en": "Download videos and music by link"},
+    "books": {"mode": "all", "name_ru": "Аудиокниги (бета)", "name_en": "Audiobooks (beta)",
+              "desc_ru": "Озвучка книг EPUB и PDF голосом на выбор",
+              "desc_en": "EPUB and PDF books read aloud in a voice you pick"},
 }
 GRANTABLE = [k for k, v in SERVICES.items() if v["mode"] == "grant"]
 DEFAULT_SERVICES = ["vpn", "matrix"]
 # Global switches (settings `svc_enabled`, JSON); a missing key uses these.
-SERVICE_DEFAULTS = {"vpn": True, "matrix": True, "tools": True, "youtube": False}
+SERVICE_DEFAULTS = {"vpn": True, "matrix": True, "tools": True, "youtube": False, "books": False}
 
 DAY = 86400
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

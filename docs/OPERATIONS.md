@@ -153,6 +153,15 @@ is full of leaked sockets. Install `scripts/host-tuning.conf` into
 `/etc/sysctl.d/` — a live `sysctl` alone reverts on reboot and the problem
 returns weeks later, looking like something else entirely.
 
+**The server froze and stayed frozen.** The kernel default `kernel.panic=0` keeps a
+crashed kernel hanging forever. Install `scripts/panic-reboot.conf` so an oops reboots the
+box after 10 s.
+
+**Apps came back empty after a reboot (the disk widget shows the system disk's size).** The
+data disk mounted after Docker started, so containers bound the empty folder underneath the
+mount point. Install `scripts/docker-wait-for-hdd.conf` as a Docker drop-in, then
+`docker restart` every container that binds `DATA_ROOT`.
+
 **Nextcloud blank page after moving data.** Its data dir must be owned by uid
 33 (`www-data`). See DEPLOY.md.
 

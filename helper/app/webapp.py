@@ -28,6 +28,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import books as bkm
 import downloads as dlm
 import i18n
 import links as signed
@@ -431,7 +432,7 @@ class App:
     def role_of(self, uid, via="helper"):
         """owner | member | stranger. Through the member bot even the owner is
         just a member (or a stranger): that bot shows the member experience."""
-        if via != "member" and uid is not None and uid == self.h.owner_id():
+        if via != "member" and self.h.is_admin(uid):    # admins get the owner's controls
             return "owner"
         return "member" if uid is not None and self.h.members.get(uid) else "stranger"
 
@@ -490,6 +491,15 @@ class App:
 
     def need_owner(self, ctx):
         if ctx.role != "owner":
+            raise ApiError(403, "forbidden")
+
+    def is_real_owner(self, ctx):
+        """The owner themself (Telegram or the browser admin page), not an admin."""
+        return ctx.role == "owner" and (ctx.mode == "browser" or ctx.uid == self.h.owner_id())
+
+    def need_real_owner(self, ctx):
+        """Bot tokens: owner only, admins included in `need_owner` don't get them."""
+        if not self.is_real_owner(ctx):
             raise ApiError(403, "forbidden")
 
     def need_service(self, ctx, svc):
@@ -876,7 +886,8 @@ class App:
         rec = self.h.rec
         return jr({"counts": self.h.members.counts(), "activity": self.h.members.activity(30),
                    "bots": bots, "sync": rec.last_sync if rec is not None else None,
-                   "vpn_configured": self.h.xui is not None, "matrix_configured": self.h.syn is not None})
+                   "vpn_configured": self.h.xui is not None, "matrix_configured": self.h.syn is not None,
+                   "can_tokens": self.is_real_owner(ctx)})
 
     def _xui_state(self):
         """({email: traffic}, set(online emails), warning|None)."""
@@ -1120,7 +1131,7 @@ class App:
         return item
 
     def api_integrations(self, req, ctx):
-        self.need_owner(ctx)
+        self.need_real_owner(ctx)
         return jr({"items": [self._integration(t, ctx.lang) for t in tokens.IDS]})
 
     def _check_bot(self, token):
@@ -1192,7 +1203,7 @@ class App:
         return jr({"item": self._integration(tid, lang), "restarting": restart})
 
     def api_integration_set(self, req, ctx, tid):
-        self.need_owner(ctx)
+        self.need_real_owner(ctx)
         if tid not in tokens.IDS:
             raise ApiError(404, "not_found")
         tok = req.json().get("token")
@@ -1207,7 +1218,7 @@ class App:
             return self._apply_integration(tid, tok, False, ctx.lang)
 
     def api_integration_reset(self, req, ctx, tid):
-        self.need_owner(ctx)
+        self.need_real_owner(ctx)
         if tid not in tokens.IDS:
             raise ApiError(404, "not_found")
         with self._integ_lock:
@@ -1262,6 +1273,90 @@ class App:
             return name_of(m) if m else (i18n.tr(ctx.lang, "common.owner") if uid == self.h.owner_id() else str(uid))
         return jr(d.admin(name, ctx.lang))
 
+    # ------------------------------------------------------------ audiobooks --
+    def need_books(self, ctx):
+        """Audiobooks (beta): the owner always, a member while `books` is on."""
+        b = getattr(self.h, "books", None)
+        if b is None:
+            raise ApiError(503, "bot_not_ready", "api.books_down")
+        if ctx.role != "owner" and not (ctx.uid is not None and self.h.members.has(ctx.uid, "books")):
+            raise ApiError(403, "no_access", "api.no_access")
+        return b
+
+    def api_books(self, req, ctx):
+        b = self.need_books(ctx)
+        data = b.list_for(ctx.uid, ctx.lang)
+        base = getattr(self.h, "webapp_url", "")
+        for bk in data["books"]:
+            if bk["status"] == "done":
+                # player: long-lived (an 8 h book is listened to for hours); save: like downloads
+                bk["audio_url"] = signed.sign("book", bk["id"], ctx.uid, ttl=12 * 3600, store=self.h.store)
+                bk["save_url"] = signed.absolute(signed.sign("bookdl", bk["id"], ctx.uid, ttl=1800,
+                                                             store=self.h.store), base)
+        data["limits"] = bkm.limits()
+        return jr(data)
+
+    def api_books_upload(self, req, ctx):
+        """Raw body (the file itself), streamed to book2audio. Content-Type must be a file type:
+        a cross-site form can't send those, which is this route's CSRF guard (no JSON here)."""
+        b = self.need_books(ctx)
+        ctype = (req.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype not in ("application/epub+zip", "application/pdf", "application/octet-stream"):
+            raise ApiError(400, "bad_content_type", "api.books_upload_type")
+        try:
+            n = int(req.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ApiError(400, "bad_request") from None
+        name = urllib.parse.unquote(req.headers.get("X-Filename") or "")
+        m = self.h.members.get(ctx.uid) if ctx.uid is not None else None
+        who = name_of(m) if m else " ".join(x for x in (ctx.user.get("first_name"), ctx.user.get("last_name")) if x)
+        if ctx.user.get("username"):
+            who += f" (@{ctx.user['username']})"
+        req._body_read = True                   # from here on the body is ours (read or connection closed)
+        req.close_connection = True
+        bid = b.upload(ctx.uid, name, req.rfile, n, who.strip() or str(ctx.uid))
+        return jr({"id": bid})
+
+    def api_books_narrate(self, req, ctx, bid):
+        m = self.h.members.get(ctx.uid) if ctx.uid is not None else None
+        name = name_of(m) if m else " ".join(x for x in (ctx.user.get("first_name"), ctx.user.get("last_name")) if x)
+        user = (m or ctx.user).get("username")
+        who = f"<b>{html.escape(name or str(ctx.uid))}</b> ({'@' + html.escape(user) + ', ' if user else ''}<code>{ctx.uid}</code>)"
+        return jr(self.need_books(ctx).narrate(ctx.uid, int(bid), req.json().get("voice"), ctx.lang, who=who))
+
+    def api_books_cancel(self, req, ctx, bid):
+        return jr(self.need_books(ctx).cancel(ctx.uid, int(bid), ctx.lang))
+
+    def api_books_delete(self, req, ctx, bid):
+        return jr(self.need_books(ctx).delete(ctx.uid, int(bid)))
+
+    def api_books_preview(self, req, ctx):
+        b = self.need_books(ctx)
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(req.path).query)
+        data = b.preview((q.get("voice") or [""])[0], (q.get("lang") or ["en"])[0])
+        return Resp(data, "audio/wav", headers={"Cache-Control": "private, max-age=86400"})
+
+    def api_books_cover(self, req, ctx, bid):
+        path = self.need_books(ctx).cover_path(ctx.uid, int(bid))
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            raise ApiError(404, "not_found") from None
+        ctype = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+        return Resp(data, ctype, headers={"Cache-Control": "private, max-age=3600"})
+
+    def dl_book(self, uid, ident, req, attachment):
+        """A finished audiobook through a signed link: inline for the player, attachment to save.
+        Access is re-checked now (the service may have been switched off since)."""
+        if uid != self.h.owner_id() and not self.h.members.has(uid, "books"):
+            raise ApiError(403, "no_access", "api.no_access")
+        b = getattr(self.h, "books", None)
+        if b is None:
+            raise ApiError(503, "bot_not_ready", "api.books_down")
+        path, name = b.audio_path(uid, int(ident))
+        return self.stream_file(path, name, req, "audio/mp4", attachment)
+
     # -------------------------------------------------------- /dl download --
     def dl(self, tok, req=None):
         """Signed link: the token is the auth (no header can be sent). What the
@@ -1278,6 +1373,8 @@ class App:
             return self.awg_open_page(uid, req)
         if kind == "file":
             return self.dl_file(uid, _ident, req)
+        if kind in ("book", "bookdl"):
+            return self.dl_book(uid, _ident, req, kind == "bookdl")
         raise ApiError(404, "not_found")
 
     def dl_file(self, uid, ident, req):
@@ -1287,14 +1384,20 @@ class App:
         if d is None:
             raise ApiError(503, "bot_not_ready", "api.dl_starting")
         path, name = d.file_for_link(uid, ident)
+        return self.stream_file(path, name, req)
+
+    @staticmethod
+    def stream_file(path, name, req, ctype=None, attachment=True):
+        """Range-capable file response (never read whole into memory)."""
         try:
             size = os.path.getsize(path)
         except OSError:
             raise ApiError(404, "not_found") from None
-        headers = {"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(name, safe=""),
+        disp = "attachment" if attachment else "inline"
+        headers = {"Content-Disposition": disp + "; filename*=UTF-8''" + urllib.parse.quote(name, safe=""),
                    "Access-Control-Allow-Origin": "https://web.telegram.org",
                    "Accept-Ranges": "bytes", "Cache-Control": "no-store"}
-        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        ctype = ctype or mimetypes.guess_type(name)[0] or "application/octet-stream"
         start, length, status = 0, size, 200
         rng = (req.headers.get("Range") if req is not None else "") or ""
         if rng:
@@ -1494,6 +1597,13 @@ ROUTES = [
     ("POST", r"/api/dl/(\d{1,12})/cancel", "any", "api_dl_cancel"),
     ("POST", r"/api/dl/(\d{1,12})/delete", "any", "api_dl_delete"),
     ("GET", r"/api/admin/dl", "any", "api_admin_dl"),
+    ("GET", r"/api/books", "any", "api_books"),
+    ("POST", r"/api/books/upload", "any", "api_books_upload"),
+    ("GET", r"/api/books/preview", "any", "api_books_preview"),
+    ("POST", r"/api/books/(\d{1,12})/narrate", "any", "api_books_narrate"),
+    ("POST", r"/api/books/(\d{1,12})/cancel", "any", "api_books_cancel"),
+    ("POST", r"/api/books/(\d{1,12})/delete", "any", "api_books_delete"),
+    ("GET", r"/api/books/(\d{1,12})/cover", "any", "api_books_cover"),
     ("GET", r"/api/admin/integrations", "any", "api_integrations"),
     ("POST", r"/api/admin/integrations/([a-z]{1,10})", "any", "api_integration_set"),
     ("POST", r"/api/admin/integrations/([a-z]{1,10})/reset", "any", "api_integration_reset"),

@@ -234,9 +234,12 @@ def check_containers():
 def _tls_connect(host, port, timeout=10):
     """TLS to our own edge with the real SNI. Connecting to the public IP from
     inside the LAN depends on the router's hairpin NAT; the edge is right
-    here on the compose network."""
+    here on the compose network. ALPN is offered like a browser does: layer4
+    sends turn.* connections without it to LiveKit's TURN, which never answers
+    HTTP, so Life Moments looked down."""
     target = PROXY_HOST if port == 443 else "host.docker.internal"
     ctx = ssl.create_default_context()
+    ctx.set_alpn_protocols(["http/1.1"])
     raw = socket.create_connection((target, port), timeout=timeout)
     return ctx.wrap_socket(raw, server_hostname=host)
 

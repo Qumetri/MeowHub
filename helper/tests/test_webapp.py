@@ -153,6 +153,11 @@ class FakeHelper:
     def owner_id(self):
         return OWNER
 
+    admins = set()
+
+    def is_admin(self, uid):
+        return uid is not None and (uid == OWNER or uid in self.admins)
+
     def notify(self, chat_id, text, reply_markup=None):
         self.sent.append((chat_id, text))
 

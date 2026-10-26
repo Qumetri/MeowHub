@@ -156,6 +156,7 @@ const SVC_STATE = [
   { id: 'matrix', mode: 'grant', enabled: true },
   { id: 'tools', mode: 'grant', enabled: true },
   { id: 'youtube', mode: 'all', enabled: true },
+  { id: 'books', mode: 'all', enabled: true },
 ]
 const effectiveOf = (m) => SVC_STATE.filter((x) => x.enabled && (x.mode === 'all' || m.services.includes(x.id))).map((x) => x.id)
 const SERVICES = [
@@ -163,6 +164,7 @@ const SERVICES = [
   { id: 'matrix', ru: ['Мессенджер', 'Приватный чат Matrix'], en: ['Messenger', 'Private Matrix chat'] },
   { id: 'tools', ru: ['Инструменты бота', 'Проверки, ссылки, скачивание видео'], en: ['Bot tools', 'Checks, links, video downloads'] },
   { id: 'youtube', ru: ['Скачивание видео', 'YouTube, RuTube, VK Видео — файлом на телефон'], en: ['Video downloads', 'YouTube, RuTube and VK Video as a file'] },
+  { id: 'books', ru: ['Аудиокниги (бета)', 'Озвучка книг EPUB и PDF голосом на выбор'], en: ['Audiobooks (beta)', 'EPUB and PDF books read aloud in a voice you pick'] },
 ]
 const adminServices = () => SVC_STATE.map((x) => {
   const sv = SERVICES.find((y) => y.id === x.id)
@@ -351,6 +353,16 @@ export async function handle(method, path, body) {
     }
   }
 
+  if (seg[0] === 'books') {
+    const b = mockBooks()
+    if (path === 'books') return b.view()
+    const bk = b.list.find((x) => x.id === Number(seg[1]))
+    if (!bk) err(404, 'not_found', tr('Книга не найдена.', 'Book not found.'))
+    if (seg[2] === 'narrate') { bk.status = 'queued'; bk.voice = body.voice; bk.wait = { ahead: 1, starts_in: 640, takes: 720 }; return bk }
+    if (seg[2] === 'cancel') { bk.status = 'cancelled'; return bk }
+    if (seg[2] === 'delete') { b.list.splice(b.list.indexOf(bk), 1); return { ok: true } }
+  }
+
   if (seg[0] === 'dl') {
     if (!dlAvailable()) err(403, 'no_access', tr('Скачивание видео выключено', 'Video downloads are switched off'))
     if (path === 'dl/presets') return dlPresets()
@@ -518,4 +530,27 @@ export async function handle(method, path, body) {
     }
   }
   return err(404, 'not_found', tr('Не найдено: ', 'Not found: ') + path)
+}
+
+// ---- audiobooks (beta): three demo books in different states
+let BOOKS = null
+function mockBooks() {
+  if (!BOOKS) {
+    const V = (k, n, g, a) => ({ key: 'kokoro:' + k, engine: 'kokoro', id: k, name: n, gender: g, accent: a })
+    BOOKS = {
+      list: [
+        { id: 3, title: 'The Pragmatic Programmer', author: 'David Thomas, Andrew Hunt', lang: 'en', status: 'ready', voice: null, chapters: 41, listen_s: 9.5 * 3600, has_cover: false, takes: { kokoro: 760 } },
+        { id: 2, title: 'Designing Data-Intensive Applications', author: 'Martin Kleppmann', lang: 'en', status: 'narrating', voice: 'kokoro:bf_emma', chapters: 12, listen_s: 21 * 3600, percent: 38, eta: 1140, has_cover: false },
+        { id: 1, title: 'Clean Architecture', author: 'Robert C. Martin', lang: 'en', status: 'done', voice: 'kokoro:af_heart', chapters: 43, listen_s: 30374, seconds: 30374, size: 262e6, has_cover: false, audio_url: '', save_url: '' },
+      ],
+      voices: { en: [V('af_heart', 'Heart', 'f', 'us'), V('af_bella', 'Bella', 'f', 'us'), V('bf_emma', 'Emma', 'f', 'gb'), V('am_michael', 'Michael', 'm', 'us'), V('am_fenrir', 'Fenrir', 'm', 'us'), V('bm_george', 'George', 'm', 'gb')],
+        ru: [{ key: 'silero:xenia', engine: 'silero', id: 'xenia', name: 'Ксения', gender: 'f', accent: '' }, { key: 'silero:aidar', engine: 'silero', id: 'aidar', name: 'Айдар', gender: 'm', accent: '' }] },
+    }
+    BOOKS.view = () => {
+      const used = BOOKS.list.filter((b) => ['done', 'queued', 'narrating', 'assembling'].includes(b.status)).length
+      return { books: BOOKS.list, voices: BOOKS.voices, queue: { books: 1, wait: 1140 }, limits: { per_user: 3, max_mb: 100 },
+        quota: { per_user: 3, used, left: Math.max(0, 3 - used), max_mb: 100, unlimited: false } }
+    }
+  }
+  return BOOKS
 }

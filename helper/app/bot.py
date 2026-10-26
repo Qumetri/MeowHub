@@ -5,6 +5,10 @@ owner only -- the logins for the hub's services.
 Roles:
   owner     HELPER_OWNER_ID. Everything, including passwords, codes and the
             member list.
+  admin     HELPER_ADMIN_IDS (comma-separated). The owner's controls on the ops
+            bot and in the Mini App (role "owner" there), but not the owner's
+            personal logins (PRIVATE_VAULT) or the bot tokens; alerts and
+            notices still go to the owner only.
   member    anyone who redeemed an access code (or was granted by the owner).
             While the membership is active: the services on it (VPN, Matrix
             account via the Mini App, optionally the bot "tools"). Expired or
@@ -34,6 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from urllib.parse import quote
 
+import books
 import downloads
 import health
 import hub
@@ -50,6 +55,9 @@ from tg import Bot, TelegramError
 log = logging.getLogger("bot")
 
 PASS_TTL = int(os.environ.get("HELPER_PASS_TTL", "60"))     # seconds a password stays visible
+# the owner's personal accounts: listed for the owner only, never for admins
+PRIVATE_VAULT = {x for x in re.split(r"[,\s]+", os.environ.get(
+    "HELPER_PRIVATE_VAULT", "immich,nextcloud,matrix").lower()) if x}
 REPORT_HOUR = os.environ.get("HELPER_REPORT_HOUR", "9").strip()
 HEARTBEAT = "/tmp/heartbeat"
 DAY = 86400
@@ -170,6 +178,8 @@ class Helper:
         path = os.environ.get("BOT_APP_PATH", "").strip().strip("/")
         self.webapp_url = f"https://{base}/{path}/" if base and path else ""
         self.downloads = downloads.Downloads(store, self.members, self.owner_id, lambda: self.webapp_url)
+        self.books = books.Books(store, self.members, self.owner_id, notify=self._notify_in_lang,
+                                 notify_owner=lambda make: self.notify_owner(make(i18n.lang_of(store, self.owner_id()))))
 
     @property
     def core(self):
@@ -186,6 +196,13 @@ class Helper:
         v = os.environ.get("HELPER_OWNER_ID", "").strip() or self.store.get("owner_id")
         return int(v) if v.lstrip("-").isdigit() else None
 
+    def admin_ids(self):
+        return {int(x) for x in re.split(r"[,\s]+", os.environ.get("HELPER_ADMIN_IDS", "")) if x.isdigit()}
+
+    def is_admin(self, uid):
+        """Owner or one of HELPER_ADMIN_IDS."""
+        return uid is not None and (uid == self.owner_id() or uid in self.admin_ids())
+
     def role(self, uid):
         """'owner' | 'member' (a row exists, any status) | None.
 
@@ -195,7 +212,7 @@ class Helper:
         if uid is None:
             return None
         if self.kind == "helper":
-            if uid == self.owner_id():
+            if self.is_admin(uid):
                 return "owner"
             if self.core.member_bot is not None:
                 return None
@@ -204,7 +221,7 @@ class Helper:
     def tools_ok(self, uid, role=None):
         role = role or self.role(uid)
         # the owner keeps the tools on the member bot too, where their role is "member"
-        return role == "owner" or uid == self.owner_id() or (role == "member" and self.members.has(uid, "tools"))
+        return role == "owner" or self.is_admin(uid) or (role == "member" and self.members.has(uid, "tools"))
 
     @staticmethod
     def contact():
@@ -294,6 +311,10 @@ class Helper:
             log.info("notify %s: %s", chat_id, e)
             return None
 
+    def _notify_in_lang(self, uid, make):
+        """Send `make(lang)` to `uid` in their own language (used by the audiobooks watcher)."""
+        self.notify(uid, make(i18n.lang_of(self.store, uid)))
+
     def notify_owner(self, text, reply_markup=None):
         oid = self.owner_id()
         return self.notify(oid, text, reply_markup) if oid else None
@@ -348,6 +369,7 @@ class Helper:
             log.exception("webapp failed to start")
         threading.Thread(target=self.rec.run, daemon=True, name="reconciler").start()
         self.downloads.start()
+        self.books.ensure_watcher()          # picks up books that were in progress before a restart
         self._menu_button()
         if self.member_front is not None:
             self.member_front._menu_button()
@@ -427,13 +449,28 @@ class Helper:
             if self.kind == "helper" and self.core.member_bot is not None:
                 # the ops bot: only the owner's chat gets the app button
                 self.bot.call("setChatMenuButton", menu_button={"type": "commands"})
-                oid = self.owner_id()
-                if oid:
-                    self.bot.call("setChatMenuButton", chat_id=oid, menu_button=web_app)
+                for oid in {self.owner_id(), *self.admin_ids()} - {None}:
+                    self.admin_chat_setup(oid)
             else:
                 self.bot.call("setChatMenuButton", menu_button=web_app)
         except TelegramError as e:
             log.warning("setChatMenuButton (%s): %s", self.kind, e)
+
+    def admin_chat_setup(self, uid):
+        """Ops bot: the app menu button and the full command list in an owner/admin chat.
+        Telegram refuses both until that user has pressed /start, so this runs again on
+        their first message after a restart. Never raises."""
+        ready = self.__dict__.setdefault("_admin_ready", set())
+        if uid in ready or not self.webapp_url:
+            return
+        try:
+            self.bot.call("setChatMenuButton", chat_id=uid, menu_button={
+                "type": "web_app", "text": "MeowHub", "web_app": {"url": self.webapp_url}})
+            self.bot.call("setMyCommands", scope={"type": "chat", "chat_id": uid},
+                          commands=self.command_list(self.lang(uid), owner=True))
+            ready.add(uid)
+        except TelegramError as e:
+            log.info("admin chat %s setup: %s (has it pressed /start yet?)", uid, e)
 
     @staticmethod
     def command_list(lang, owner=False):
@@ -463,20 +500,19 @@ class Helper:
         self.bot.call("setMyCommands", commands=default("en"))
         for code in i18n.RU_CODES:
             self.bot.call("setMyCommands", commands=default("ru"), language_code=code)
-        oid = self.owner_id()
-        if oid:
+        for oid in {self.owner_id(), *self.admin_ids()} - {None}:
             try:
                 self.bot.call("setMyCommands", scope={"type": "chat", "chat_id": oid},
                               commands=self.command_list(self.lang(oid), owner=True))
             except TelegramError as e:
-                log.info("owner commands: %s (has the owner pressed /start yet?)", e)
+                log.info("owner commands for %s: %s (has the chat pressed /start yet?)", oid, e)
 
     def refresh_commands(self, uid):
         """After a language change: this chat's own command list in the user's language
         (the owner's full list; for everybody else an explicit list, or none for `auto`
         so Telegram's language-coded defaults apply)."""
         L = self.lang(uid)
-        owner = self.kind == "helper" and uid == self.owner_id()
+        owner = self.kind == "helper" and self.is_admin(uid)
         scope = {"type": "chat", "chat_id": uid}
         try:
             if owner or i18n.get_pref(self.store, uid) != "auto":
@@ -513,6 +549,8 @@ class Helper:
         role = self.role(uid)
         if role == "member":
             self.members.touch(uid, frm, "message")
+        elif role == "owner" and self.kind == "helper":
+            self.admin_chat_setup(uid)
 
         cmd, _, arg = text.partition(" ")
         cmd = cmd.split("@")[0].lower()
@@ -572,11 +610,11 @@ class Helper:
 
         # ----- owner only below -----
         if cmd == "/pass" or btn == "pass":
-            return self.cmd_pass(cid)
+            return self.cmd_pass(cid, uid)
         if cmd == "/setpass":
-            return self.cmd_setpass(cid, m["message_id"], arg)
+            return self.cmd_setpass(cid, uid, m["message_id"], arg)
         if cmd == "/delpass":
-            return self.cmd_delpass(cid, arg.strip().lower())
+            return self.cmd_delpass(cid, uid, arg.strip().lower())
         if cmd in ("/members", "/users") or btn == "members":
             return self.cmd_members(cid)
         if cmd == "/services" or btn == "svc":
@@ -1150,16 +1188,22 @@ class Helper:
                       reply_markup={"inline_keyboard": [[{"text": tr(L, "btn.open_dl"), "web_app": {"url": link}}]]})
 
     # ------------------------------------------------------------ passwords --
-    def cmd_pass(self, cid):
-        L = self.lang(cid)
+    def vault_for(self, uid):
+        """The logins `uid` may see: all of them for the owner, admins without PRIVATE_VAULT."""
         v = hub.vault(self.store)
+        return v if uid == self.owner_id() else {k: e for k, e in v.items() if k not in PRIVATE_VAULT}
+
+    def cmd_pass(self, cid, uid):
+        L = self.lang(cid)
+        v = self.vault_for(uid)
         if not v:
             return self.bot.send(cid, tr(L, "pass.none"))
         ids = sorted(v, key=lambda k: hub.service_name(k).lower())
         kb = [[{"text": f"🔑 {hub.service_name(k)}", "callback_data": f"pw:{k}"} for k in ids[i:i + 2]]
               for i in range(0, len(ids), 2)]
         known = {s["id"] for s in hub.services()}
-        missing = [s.get("name", s["id"]) for s in hub.services() if s["id"] not in v]
+        missing = [s.get("name", s["id"]) for s in hub.services()
+                   if s["id"] not in v and (uid == self.owner_id() or s["id"] not in PRIVATE_VAULT)]
         t = tr(L, "pass.pick")
         if missing:
             t += "\n<i>" + tr(L, "pass.missing", v=esc(", ".join(missing))) + "</i>"
@@ -1167,9 +1211,9 @@ class Helper:
             t += "\n<i>" + tr(L, "pass.ids", v=esc(", ".join(sorted(known)))) + "</i>"
         self.bot.send(cid, t, reply_markup={"inline_keyboard": kb})
 
-    def show_password(self, cid, vid):
+    def show_password(self, cid, vid, uid):
         L = self.lang(cid)
-        e = hub.vault(self.store).get(vid)
+        e = self.vault_for(uid).get(vid)
         if not e:
             return self.bot.send(cid, tr(L, "pass.nologin"))
         url = hub.service_url(vid)
@@ -1218,7 +1262,7 @@ class Helper:
             return self.bot.send(cid, tr(L, "cb.error"))
         return self.bot.send(cid, tr(L, "ssh.unban_sent", ip=esc(ip)))
 
-    def cmd_setpass(self, cid, mid, arg):
+    def cmd_setpass(self, cid, uid, mid, arg):
         L = self.lang(cid)
         # The command itself contains the password: delete it right away.
         self.bot.delete(cid, mid)
@@ -1226,11 +1270,15 @@ class Helper:
         if len(parts) < 3 or not SERVICE_ID.match(parts[0].lower()):
             return self.bot.send(cid, tr(L, "setpass.usage"))
         vid, login, pw = parts[0].lower(), parts[1], parts[2].strip()
+        if vid in PRIVATE_VAULT and uid != self.owner_id():
+            return self.bot.send(cid, tr(L, "err.owner_only"))
         self.store.vault_set(vid, login, pw)
         self.bot.send(cid, tr(L, "setpass.ok", name=esc(hub.service_name(vid))))
 
-    def cmd_delpass(self, cid, vid):
+    def cmd_delpass(self, cid, uid, vid):
         L = self.lang(cid)
+        if vid in PRIVATE_VAULT and uid != self.owner_id():
+            return self.bot.send(cid, tr(L, "err.owner_only"))
         if self.store.vault_del(vid):
             return self.bot.send(cid, tr(L, "delpass.ok", vid=esc(vid)))
         if vid in hub.vault(self.store):
@@ -1263,7 +1311,7 @@ class Helper:
             if (m.get("chat") or {}).get("type") != "private":
                 return self.bot.answer(q["id"], tr(L, "cb.private_only"), alert=True)
             self.bot.answer(q["id"])
-            return self.show_password(cid, rest)
+            return self.show_password(cid, rest, uid)
         handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound,
                    "svc": self.cb_services, "ssh": self.cb_ssh}.get(kind)
         if handler is None:

@@ -162,6 +162,15 @@ services:
       # "Two bots"). Empty -> single-bot mode; can also be pasted on the Bots page.
       MEMBER_BOT_TOKEN: ${MEMBER_BOT_TOKEN:-}
       HELPER_OWNER_ID: ${HELPER_OWNER_ID:-}
+      # Admins: Telegram ids with the owner's controls, minus the owner's personal logins
+      # (HELPER_PRIVATE_VAULT, default immich,nextcloud,matrix) and the bot tokens (docs/HELPER.md "Admins").
+      HELPER_ADMIN_IDS: ${HELPER_ADMIN_IDS:-}
+      HELPER_PRIVATE_VAULT: ${HELPER_PRIVATE_VAULT:-immich,nextcloud,matrix}
+      # Audiobooks (beta, service `books`, off by default): a book2audio API the helper can reach.
+      # book2audio is not part of this stack; without it the Audiobooks page says it is unavailable.
+      BOOKS_URL: ${BOOKS_URL:-http://book2audio:8098}
+      BOOKS_PER_USER: ${BOOKS_PER_USER:-3}
+      BOOKS_MAX_MB: ${BOOKS_MAX_MB:-100}
       HELPER_REPORT_HOUR: ${HELPER_REPORT_HOUR:-9}
       BASE_DOMAIN: ${BASE_DOMAIN}
       DASHBOARD_PATH: ${DASHBOARD_PATH}

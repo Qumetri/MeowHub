@@ -35,8 +35,11 @@ export default function Home() {
     const s = svcName(id)
     return { id, name: s.name || id, desc: s.description || '' }
   })
-  const SVC_ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download' }
-  const SVC_GO = { vpn: 'vpn', matrix: 'matrix', youtube: 'downloads' }
+  const SVC_ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download', books: 'book' }
+  const SVC_GO = { vpn: 'vpn', matrix: 'matrix', youtube: 'downloads', books: 'books' }
+  // "New" pointer to the audiobooks beta until the person has opened it once.
+  const hasBooks = !inactive && !!me.services.find((s) => s.id === 'books')?.available
+  const booksNew = hasBooks && (() => { try { return !localStorage.getItem('mh_books_seen') } catch { return false } })()
 
   return (
     <div className="page">
@@ -56,6 +59,13 @@ export default function Home() {
             <Button kind="primary" icon="key" block onClick={() => { haptic.impact('light'); go('code') }}>{t('home.enter_code')}</Button>
           </div>
           <ContactCell me={me} label={t('home.contact', contactVars(me))} />
+        </Section>
+      )}
+
+      {booksNew && (
+        <Section>
+          <Cell icon="book" tone="accent" title={t('home.books_new')} sub={t('home.books_new_sub')} chevron
+            onClick={() => { haptic.impact('light'); go('books') }} />
         </Section>
       )}
 
