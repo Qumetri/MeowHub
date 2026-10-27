@@ -16,7 +16,7 @@ One `docker compose up`. One `.env`. One reverse proxy.
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
 ![Languages](https://img.shields.io/badge/bot_%26_app-RU_%C2%B7_EN-229ED9?logo=telegram&logoColor=white)
 
-<img src="docs/img/hub.png" alt="The MeowHub dashboard: service cards and live host metrics" width="100%">
+<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, live host metrics and service cards (one hovered, with a duck peeking over it)" width="100%">
 
 </div>
 
@@ -128,6 +128,11 @@ Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
 
 The dashboard is responsive, so the hub works from a phone as well as a desk.
+It is a night pond: the water ripples under the pointer, a cat-eared duck
+leads her ducklings round the edge of the window (tap the big duck to add
+one), and a duck peeks over whichever card you hover. All of it switches off
+under *reduce motion*, and the fonts are self-hosted, so the page makes no
+third-party requests.
 
 </td><td width="42%" valign="top">
 
