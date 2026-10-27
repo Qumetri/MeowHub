@@ -1,12 +1,6 @@
 @import '@fontsource-variable/fredoka';
 @import '@fontsource-variable/nunito';
 
-@property --spin {
-  syntax: '<angle>';
-  inherits: true;
-  initial-value: 0deg;
-}
-
 * {
   margin: 0;
   padding: 0;
@@ -17,7 +11,7 @@
   color-scheme: dark;
   --ink: #060a15;
   --deep: #0c1830;
-  --panel: rgba(13, 20, 38, 0.72);
+  --card: rgba(12, 19, 36, 0.86);
   --line: rgba(255, 255, 255, 0.09);
   --text: #eaedf6;
   --muted: #98a2bb;
@@ -71,35 +65,36 @@ body {
 .blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.42;
+  opacity: 0.7;
   will-change: transform;
 }
 
+/* soft light on the water. Pre-blurred radial gradients: blurring a moving
+   layer with a filter is redone by the compositor on every frame. */
 .blob--1 {
-  width: 480px;
-  height: 480px;
-  left: -120px;
-  top: -80px;
-  background: linear-gradient(135deg, var(--violet), #2563eb);
+  width: 760px;
+  height: 760px;
+  left: -330px;
+  top: -300px;
+  background: radial-gradient(closest-side, rgb(139 61 255 / 0.85), rgb(37 99 235 / 0.4) 55%, transparent);
   animation: drift1 26s ease-in-out infinite alternate;
 }
 
 .blob--2 {
-  width: 420px;
-  height: 420px;
-  right: -100px;
-  top: 30%;
-  background: linear-gradient(135deg, var(--pink), #ff8a00);
+  width: 680px;
+  height: 680px;
+  right: -310px;
+  top: calc(30% - 130px);
+  background: radial-gradient(closest-side, rgb(255 79 154 / 0.8), rgb(255 138 0 / 0.35) 55%, transparent);
   animation: drift2 32s ease-in-out infinite alternate;
 }
 
 .blob--3 {
-  width: 380px;
-  height: 380px;
-  left: 30%;
-  bottom: -160px;
-  background: linear-gradient(135deg, #00c6fb, #10b981);
+  width: 640px;
+  height: 640px;
+  left: calc(30% - 130px);
+  bottom: -290px;
+  background: radial-gradient(closest-side, rgb(0 198 251 / 0.75), rgb(16 185 129 / 0.35) 55%, transparent);
   animation: drift3 38s ease-in-out infinite alternate;
 }
 
@@ -110,7 +105,6 @@ body {
 .pad {
   position: absolute;
   opacity: 0.2;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
 }
 .pad--1 { width: 150px; left: 4%; top: 58%; animation: pad 40s ease-in-out infinite alternate; }
 .pad--2 { width: 96px; right: 7%; top: 12%; animation: pad 33s ease-in-out -9s infinite alternate-reverse; }
@@ -124,24 +118,69 @@ body {
 .ripples {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
 }
 
-/* the animated edge: a thin rainbow current running round the window */
+.ripple {
+  position: absolute;
+}
+
+.ripple i {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.4px solid rgb(170 205 255);
+  animation: ripple var(--life) cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes ripple {
+  from { transform: scale(0.06); opacity: var(--a); }
+  to { transform: scale(1); opacity: 0; }
+}
+
+/* the animated edge: a thin rainbow current running round the window, the
+   same way the ducks swim. Four 2px strips, each twice as long as its edge
+   with the gradient repeated, slide by half their length on the compositor
+   and loop seamlessly. */
 .frame {
   position: absolute;
   inset: 0;
-  padding: 2px;
-  background: conic-gradient(from var(--spin), var(--duck), var(--pink), var(--violet), var(--cyan), #10b981, var(--duck));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0.5;
-  animation: spin 16s linear infinite;
+  overflow: hidden;
+  opacity: 0.55;
 }
 
-@keyframes spin { to { --spin: 360deg; } }
+.frame i {
+  position: absolute;
+  --rainbow: var(--duck), var(--pink), var(--violet), var(--cyan), #10b981, var(--duck);
+}
+
+.frame i:nth-child(odd) {
+  left: 0;
+  width: 200%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--rainbow)) 0 0 / 50% 100% repeat-x;
+}
+
+.frame i:nth-child(even) {
+  top: 0;
+  width: 2px;
+  height: 200%;
+  background: linear-gradient(180deg, var(--rainbow)) 0 0 / 100% 50% repeat-y;
+}
+
+.frame i:nth-child(1) { top: 0; animation: flow-x 16s linear infinite reverse; }
+.frame i:nth-child(2) { right: 0; animation: flow-y 16s linear infinite reverse; }
+.frame i:nth-child(3) { bottom: 0; animation: flow-x 16s linear infinite; }
+.frame i:nth-child(4) { left: 0; animation: flow-y 16s linear infinite; }
+
+@keyframes flow-x {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes flow-y {
+  from { transform: translateY(-50%); }
+  to { transform: translateY(0); }
+}
 
 /* ---------- the parade along the edges ---------- */
 .parade {
@@ -161,11 +200,35 @@ body {
   will-change: transform;
   pointer-events: auto;
   cursor: pointer;
-  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
+}
+
+.parade__hop,
+.parade__waddle {
+  position: relative;
+  display: block;
+}
+
+/* rock on the feet and bob away from the edge */
+.parade__waddle {
+  transform-origin: 50% 100%;
+  animation: waddle 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes waddle {
+  from { transform: translateY(0) rotate(-6deg); }
+  to { transform: translateY(-2.5px) rotate(6deg); }
+}
+
+@media (pointer: coarse) {
+  .parade__duck {
+    pointer-events: none;
+  }
 }
 
 .parade__duck .duck {
   display: block;
+  /* on the still svg, not the moving parent: rasterised once, then just moved */
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
   width: 100%;
   height: auto;
 }
@@ -239,11 +302,11 @@ header {
   margin-left: -56px;
   transform-origin: 50% 90%;
   animation: float 3.8s ease-in-out infinite;
-  filter: drop-shadow(0 10px 16px rgba(255, 178, 30, 0.25));
 }
 
 .mascot__duck .duck {
   display: block;
+  filter: drop-shadow(0 10px 16px rgba(255, 178, 30, 0.25));
 }
 
 @keyframes float {
@@ -326,9 +389,11 @@ header {
   transition: color 0.2s;
 }
 
-.title span:hover {
-  color: var(--duck);
-  animation: hop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+@media (hover: hover) {
+  .title span:hover {
+    color: var(--duck);
+    animation: hop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
 }
 
 @keyframes bob {
@@ -357,9 +422,8 @@ header {
   margin-bottom: clamp(1.75rem, 4vw, 2.75rem);
   padding: 1.1rem 1.25rem;
   border-radius: 22px;
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--line);
-  backdrop-filter: blur(14px);
 }
 
 .stats--load,
@@ -401,12 +465,18 @@ header {
   overflow: hidden;
 }
 
+.stat__track {
+  position: relative;
+}
+
+/* full width, slid left by transform (see Stats.jsx) so updates never relayout */
 .stat__fill {
   position: relative;
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--from), var(--to));
   overflow: hidden;
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* a glint travelling along each bar, like light on moving water */
@@ -414,14 +484,13 @@ header {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
-  background-size: 220% 100%;
+  background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, 0.45) 50%, transparent 65%);
+  transform: translateX(-100%);
   animation: glint 3.6s ease-in-out infinite;
 }
 
 @keyframes glint {
-  from { background-position: 160% 0; }
-  to { background-position: -60% 0; }
+  to { transform: translateX(100%); }
 }
 
 .stat__detail {
@@ -467,13 +536,15 @@ header {
   text-decoration: none;
   color: inherit;
   border: 1px solid transparent;
+  /* opaque enough to read without backdrop-filter: blurring the moving pond
+     behind sixteen cards was the costliest thing on the page */
   background:
-    linear-gradient(var(--panel), var(--panel)) padding-box,
+    linear-gradient(var(--card), var(--card)) padding-box,
     linear-gradient(var(--line), var(--line)) border-box;
-  backdrop-filter: blur(14px);
   overflow: hidden;
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform: var(--tilt, none);
   transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* the service's own gradient, washed over the card on hover */
@@ -510,9 +581,8 @@ header {
 @media (hover: hover) {
   .tile:hover .card {
     background:
-      linear-gradient(var(--panel), var(--panel)) padding-box,
-      conic-gradient(from var(--spin), var(--from), var(--to), var(--duck), var(--from)) border-box;
-    animation: spin 3.5s linear infinite;
+      linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(135deg, var(--from), var(--duck) 55%, var(--to)) border-box;
     box-shadow: 0 18px 44px -14px color-mix(in srgb, var(--from) 60%, transparent);
   }
   .tile:hover .card::before { opacity: 0.09; }
@@ -527,6 +597,13 @@ header {
   }
   .tile:hover .card__icon {
     transform: translateY(-2px) rotate(-6deg) scale(1.06);
+  }
+}
+
+@media (hover: none) {
+  .card:active {
+    transform: scale(0.97);
+    transition-duration: 0.12s;
   }
 }
 
@@ -619,16 +696,25 @@ header {
 }
 
 .dot {
+  position: relative;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--live);
-  animation: pulse 2s ease-in-out infinite;
+}
+
+.dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--live);
+  animation: pulse 2s ease-out infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
-  50% { box-shadow: 0 0 0 5px rgba(74, 222, 128, 0); }
+  from { transform: scale(1); opacity: 0.6; }
+  to { transform: scale(2.6); opacity: 0; }
 }
 
 .badge--soon {
@@ -676,11 +762,11 @@ footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .blob, .pad, .frame, .dot, .title span, .mascot__duck, .mascot__water::before,
-  .mascot__water::after, .stat__fill::after, .tile:hover .card {
+  .blob, .pad, .frame i, .dot::after, .parade__waddle, .title span, .mascot__duck, .mascot__water::before,
+  .mascot__water::after, .stat__fill::after {
     animation: none !important;
   }
   .card {
-    transform: none;
+    transform: none !important;
   }
 }

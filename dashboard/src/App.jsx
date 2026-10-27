@@ -51,16 +51,16 @@ function Card({ service }) {
     el.style.setProperty('--px', x.toFixed(3))
     el.style.setProperty('--py', y.toFixed(3))
     if (!still) {
-      el.style.setProperty('--rx', `${(-y * 6).toFixed(2)}deg`)
-      el.style.setProperty('--ry', `${(x * 7).toFixed(2)}deg`)
+      el.style.setProperty('--tilt', `perspective(900px) rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 7).toFixed(2)}deg)`)
     }
   }
   const onLeave = () => {
     const el = ref.current
-    ;['--rx', '--ry', '--px', '--py'].forEach((v) => el.style.removeProperty(v))
+    ;['--tilt', '--px', '--py'].forEach((v) => el.style.removeProperty(v))
   }
-  // A splash from where the card was pressed.
-  const onDown = (e) => {
+  // A splash from where the card was tapped (on click, so starting a scroll on
+  // a card doesn't splash).
+  const onTap = (e) => {
     const el = ref.current.querySelector('.card')
     const r = el.getBoundingClientRect()
     const s = document.createElement('span')
@@ -79,7 +79,7 @@ function Card({ service }) {
       style={{ '--from': from, '--to': to }}
       onPointerMove={onMove}
       onPointerLeave={onLeave}
-      onPointerDown={live ? onDown : undefined}
+      onClick={live ? onTap : undefined}
     >
       <span className="peek" aria-hidden="true">
         <Duck body={false} size={40} />
@@ -166,7 +166,7 @@ function Hero() {
       <p className="tagline">
         {quacks === 0
           ? 'Everything we host at home, in one pond'
-          : `${Math.min(quacks + 4, 13)} ducklings are following mum around the edge`}
+          : `${Math.min(quacks + 4, 13)} ducklings in the parade`}
       </p>
     </motion.header>
   )

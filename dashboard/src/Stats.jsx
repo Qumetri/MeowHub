@@ -23,11 +23,9 @@ function Gauge({ label, percent, detail, from, to }) {
         <span className="stat__pct">{p.toFixed(0)}%</span>
       </div>
       <div className="stat__track">
-        <motion.div
+        <div
           className="stat__fill"
-          style={{ '--from': from, '--to': to }}
-          animate={{ width: `${p}%` }}
-          transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+          style={{ '--from': from, '--to': to, transform: `translateX(${p - 100}%)` }}
         />
       </div>
       <div className="stat__detail">{detail}</div>

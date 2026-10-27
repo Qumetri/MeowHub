@@ -3,15 +3,18 @@ import Duck from './Duck.jsx'
 
 // A mother duck and her ducklings swim around the inside of the window frame,
 // feet always towards the nearest edge (so they ride the top edge upside down).
-// Positions are written straight into each element's transform from one rAF
-// loop; React only renders when the brood grows.
+//
+// Each lap is precomputed as transform keyframes and handed to the Web
+// Animations API, so the compositor moves the ducks on its own and no script
+// runs per frame. The waddle is a CSS animation on an inner element, and a
+// quack is a one-off hop on another; three nested transforms, all GPU-only.
 
 const SPEED = 38 // px per second along the frame
 const MAX_DUCKS = 14
+const STEP = 8 // px between keyframes
 
 // Rounded rectangle traced counter-clockwise on screen: bottom edge left→right,
-// up the right edge, top edge right→left, down the left edge. Returns a sampler
-// d ↦ {x, y, a} where a is the heading in degrees (0 = moving right).
+// up the right edge, top edge right→left, down the left edge.
 function frame(w, h, m, r) {
   const pts = []
   const arc = (cx, cy, a0, a1) => {
@@ -29,33 +32,43 @@ function frame(w, h, m, r) {
   arc(m + r, m + r, -90, -180)
   pts.push([m, h - m - r])
   arc(m + r, h - m - r, 180, 90)
+  pts.push(pts[0])
+  return pts
+}
 
-  const cum = [0]
+// One lap as keyframes for a duck of size s: its feet ride the path, heading
+// unwrapped so rotation never spins the long way round between keyframes.
+function lap(pts, s) {
+  const frames = []
+  let heading = 0
+  let prev = null
+  const push = (x, y, a) => {
+    if (prev !== null) {
+      let d = a - prev
+      while (d > 180) d -= 360
+      while (d <= -180) d += 360
+      heading += d
+    } else heading = a
+    prev = a
+    frames.push({ x, y, a: heading })
+  }
   for (let i = 1; i < pts.length; i++) {
-    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]))
+    const [x0, y0] = pts[i - 1]
+    const [x1, y1] = pts[i]
+    const len = Math.hypot(x1 - x0, y1 - y0)
+    if (!len) continue
+    const a = (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI
+    const n = Math.max(1, Math.round(len / STEP))
+    for (let k = 0; k < n; k++) push(x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n, a)
   }
-  const total = cum[cum.length - 1]
-
-  const at = (d) => {
-    d = ((d % total) + total) % total
-    let lo = 0
-    let hi = cum.length - 1
-    while (hi - lo > 1) {
-      const mid = (lo + hi) >> 1
-      if (cum[mid] <= d) lo = mid
-      else hi = mid
-    }
-    const [x0, y0] = pts[lo]
-    const [x1, y1] = pts[hi]
-    const seg = cum[hi] - cum[lo] || 1
-    const t = (d - cum[lo]) / seg
-    return {
-      x: x0 + (x1 - x0) * t,
-      y: y0 + (y1 - y0) * t,
-      a: (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI,
-    }
+  const total = frames.length * STEP
+  frames.push({ ...frames[0], a: frames[0].a + Math.round((heading - frames[0].a) / 360) * 360 })
+  return {
+    total,
+    keyframes: frames.map((f) => ({
+      transform: `translate(${(f.x - s / 2).toFixed(1)}px, ${(f.y - s * 0.81).toFixed(1)}px) rotate(${f.a.toFixed(1)}deg)`,
+    })),
   }
-  return { at, total }
 }
 
 function makeBrood(n) {
@@ -65,7 +78,8 @@ function makeBrood(n) {
 export default function Parade() {
   const [brood, setBrood] = useState(() => makeBrood(5))
   const refs = useRef([])
-  const quacks = useRef(new Map())
+  // Shared clock so a new duckling, or a resize, slots into the same parade.
+  const origin = useRef(performance.now())
 
   // The hero duck adds ducklings (see Hero in App.jsx).
   useEffect(() => {
@@ -76,52 +90,65 @@ export default function Parade() {
 
   useEffect(() => {
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let path = null
-    let size = 0
-    const layout = () => {
-      const w = window.innerWidth
-      const h = window.innerHeight
-      size = w < 640 ? 22 : 30
-      path = frame(w, h, w < 640 ? 3 : 6, 34)
-    }
-    layout()
-    window.addEventListener('resize', layout)
+    const box = refs.current[0]?.parentElement
+    let anims = []
 
-    let raf = 0
-    const start = performance.now()
-    const tick = (now) => {
-      const t = (now - start) / 1000
-      const head = still ? path.total * 0.12 : t * SPEED
+    const layout = () => {
+      anims.forEach((a) => a.cancel())
+      anims = []
+      const w = box.clientWidth
+      const h = box.clientHeight
+      const size = w < 640 ? 22 : 30
+      const pts = frame(w, h, w < 640 ? 3 : 6, 34)
+      const laps = {}
       refs.current.forEach((el, i) => {
         if (!el) return
-        const mother = i === 0
-        const s = mother ? size : size * 0.68
+        const s = i === 0 ? size : Math.round(size * 0.68)
+        const { keyframes, total } = (laps[s] ??= lap(pts, s))
         const gap = i === 0 ? 0 : size * 1.25 + (i - 1) * size * 0.92
-        const p = path.at(head - gap)
-        // Waddle: a small rock around the feet plus a bob away from the edge.
-        const rock = still ? 0 : Math.sin(t * 7 + i * 1.7) * 6
-        const bob = still ? 0 : Math.abs(Math.sin(t * 3.5 + i)) * -2.5
-        const hop = quacks.current.get(i)
-        const jump = hop ? Math.max(0, 1 - (now - hop) / 450) : 0
-        const lift = bob - Math.sin(jump * Math.PI) * s * 0.9
+        const duration = (total / SPEED) * 1000
+        const behind = (gap / SPEED) * 1000
         el.style.width = `${s}px`
-        el.style.transform =
-          `translate(${p.x - s / 2}px, ${p.y - s * 0.81}px) rotate(${p.a}deg) ` +
-          `translateY(${lift}px) rotate(${rock}deg)`
+        if (still) {
+          el.style.transform = keyframes[Math.floor(((0.12 * total - gap + total) % total) / STEP)].transform
+          return
+        }
+        const a = el.animate(keyframes, { duration, iterations: Infinity, easing: 'linear' })
+        a.currentTime = (((performance.now() - origin.current - behind) % duration) + duration) % duration
+        anims.push(a)
       })
-      raf = requestAnimationFrame(tick)
     }
-    raf = requestAnimationFrame(tick)
+    layout()
+
+    // Phones resize on every toolbar show/hide while scrolling; coalesce, and
+    // ignore height-only nudges smaller than the toolbar itself.
+    let pending = 0
+    let lastW = box.clientWidth
+    let lastH = box.clientHeight
+    const onResize = () => {
+      clearTimeout(pending)
+      pending = setTimeout(() => {
+        if (box.clientWidth === lastW && Math.abs(box.clientHeight - lastH) < 4) return
+        lastW = box.clientWidth
+        lastH = box.clientHeight
+        layout()
+      }, 200)
+    }
+    window.addEventListener('resize', onResize)
     return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', layout)
+      clearTimeout(pending)
+      window.removeEventListener('resize', onResize)
+      anims.forEach((a) => a.cancel())
     }
-  }, [])
+  }, [brood.length])
 
   const quack = (i) => {
-    quacks.current.set(i, performance.now())
     const el = refs.current[i]
     if (!el) return
+    el.firstChild.animate(
+      [{ transform: 'translateY(0)' }, { transform: 'translateY(-90%)' }, { transform: 'translateY(0)' }],
+      { duration: 450, easing: 'ease-out' },
+    )
     el.classList.remove('parade__duck--quack')
     void el.offsetWidth
     el.classList.add('parade__duck--quack')
@@ -136,8 +163,12 @@ export default function Parade() {
           className={`parade__duck ${d.mother ? 'parade__duck--mother' : ''}`}
           onPointerDown={() => quack(i)}
         >
-          <Duck ears={d.mother} size={64} />
-          <span className="parade__quack">quack</span>
+          <span className="parade__hop">
+            <span className="parade__waddle" style={{ animationDelay: `${i * -0.37}s` }}>
+              <Duck ears={d.mother} size={64} />
+            </span>
+            <span className="parade__quack">quack</span>
+          </span>
         </span>
       ))}
     </div>
