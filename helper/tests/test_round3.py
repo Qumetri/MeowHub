@@ -166,7 +166,7 @@ class TestServiceSwitches(tm.Base):
         self.m.grant(3, tm.FRM, 30, ["vpn"])
         self.m.suspend(3)
         st = {s["id"]: s for s in self.m.services_state()}
-        self.assertEqual(list(st), ["vpn", "matrix", "tools", "youtube", "books"])
+        self.assertEqual(list(st), ["vpn", "matrix", "tools", "youtube", "books", "upscale"])
         self.assertEqual(set(st["vpn"]), {"id", "name", "description", "mode", "enabled", "members_with_access"})
         self.assertEqual((st["vpn"]["members_with_access"], st["matrix"]["members_with_access"]), (2, 1))
         self.assertEqual((st["youtube"]["enabled"], st["youtube"]["members_with_access"]), (False, 0))
@@ -331,7 +331,7 @@ class TestApiServices(Web3):
     def test_get_and_toggle(self):
         st, d = self.j("GET", "/api/admin/services", headers=self.admin())
         self.assertEqual(st, 200)
-        self.assertEqual([s["id"] for s in d], ["vpn", "matrix", "tools", "youtube", "books"])
+        self.assertEqual([s["id"] for s in d], ["vpn", "matrix", "tools", "youtube", "books", "upscale"])
         self.assertEqual(d[3], {"id": "youtube", "name": "YouTube и видео", "description": "Скачивание видео и музыки по ссылке",
                                 "mode": "all", "enabled": False, "members_with_access": 0})
         self.make_member(200)
@@ -562,7 +562,7 @@ class TestServicesBot(Bot3):
         btns = {b["callback_data"]: b["text"] for b in self.buttons(out)}
         self.assertEqual(btns["svc:t:youtube"], "⬜ YouTube и видео — для всех участников")
         self.assertTrue(btns["svc:t:vpn"].startswith("✅ VPN"))
-        self.assertEqual(list(btns), ["svc:t:vpn", "svc:t:matrix", "svc:t:tools", "svc:t:youtube", "svc:t:books"])
+        self.assertEqual(list(btns), ["svc:t:vpn", "svc:t:matrix", "svc:t:tools", "svc:t:youtube", "svc:t:books", "svc:t:upscale"])
         self.assertIn("Вкл = доступно всем активным участникам", out[2])
         self.assertIn("Главный выключатель: выключишь — пропадёт у всех", out[2])
 

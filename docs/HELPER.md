@@ -561,6 +561,30 @@ says the narration service is unavailable and nothing else is affected.
 - API: `GET /api/books`, `POST /api/books/upload`, `GET /api/books/preview`,
   `POST /api/books/<id>/narrate|cancel|delete`, `GET /api/books/<id>/cover`. Tests: `tests/test_books.py`.
 
+## Photo upscaling
+
+Service `upscale` (mode `all`, **off by default**). Mini App page "Улучшение фото"
+(`?p=upscale`, a "Новое: улучшение фото" cell on Home until opened once, `localStorage mh_up_seen`) in front of
+the `upscaler` service (profile `upscaler`, see [UPSCALER.md](UPSCALER.md)), reached over the compose network (`UPSCALE_URL`).
+
+- **Flow:** pick a mode (presets `photo` / `detail` / `soft` / `art` → upscayl models, `upscale.PRESETS`), scale
+  2/3/4×, format same/JPG/PNG (remembered per device) → "Выбрать фото" (several at once, uploaded one by one
+  with progress, raw body to `POST /api/upscale/upload?preset=&scale=&format=`, streamed through) → the card
+  shows progress and "готово примерно через …" from the upscaler's queue → a before/after slider (pointer
+  drag, `touch-action: pan-y`; hidden range input for keyboard) + "Сохранить" (signed `updl` link, 30 min,
+  attachment) / "Открыть" (`upview`, 1 h, inline) / "Удалить". No bot message: pictures take seconds, the page
+  polls every 1.5 s while something is in line.
+- **Limits** (owner exempt): `UPSCALE_PER_DAY`=20 pictures in any 24 h (failed/cancelled don't count),
+  `UPSCALE_ACTIVE`=3 in line at once, `UPSCALE_MAX_MB`=25. Errors `limit`, `busy`, `too_large`, `bad_type`,
+  `bad_preset`, plus the upscaler's `bad_image`, `too_many_pixels`, `already_large`.
+- **State:** table `upscales` in `helper.db` (owner of each upscaler job id, status mirror for the limits).
+  Results expire on the upscaler after 24 h; a row whose job is gone is hidden on the next listing.
+- **Files:** `UPSCALE_DATA/work:/upscale:ro` (`UPSCALE_FILES`) for thumbnails (`GET /api/upscale/<id>/before|after`,
+  auth header, fetched as blobs) and results (signed links).
+- **API:** `GET /api/upscale`, `POST /api/upscale/upload` (Content-Type must be `image/*` or octet-stream — the CSRF
+  guard for this non-JSON route), `POST /api/upscale/<id>/cancel`, `…/delete`, `GET /api/upscale/<id>/before|after`.
+  Tests: `tests/test_upscale.py`.
+
 ## Logins
 
 **🔑 Logins** shows a button per service; a press sends login and password:

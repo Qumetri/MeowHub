@@ -38,6 +38,7 @@ on hardware you control.
 | 🔁 | **n8n** — workflow automation, optional local LLM | `yourdomain/<secret>` |
 | 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
+| 🔍 | **Photo upscaler** — enlarge photos and pictures 2–4× on your GPU (Upscayl's models), before/after slider, for you and your members | `yourdomain/<secret>` + Mini App |
 | 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people, with a Telegram Mini App in Russian or English | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
@@ -163,7 +164,7 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH`, `UPSCALE_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
 | Secrets | 12 passwords and shared secrets, all generated |
@@ -295,6 +296,9 @@ Wallet-style Telegram Mini App:
 - **Audiobooks (beta)** — upload an EPUB or PDF, pick a voice, and the server reads
   it aloud into an M4B with chapters, with a visible queue and an in-app player. It
   fronts a separate [book2audio](docs/HELPER.md#audiobooks-beta) server and starts off.
+- **Photo upscaling** — send one or more photos, pick Photo / More detail / Portraits /
+  Drawings, 2–4×, and compare before and after with a slider; 20 a day per member,
+  results kept for a day. Runs on the [upscaler](docs/UPSCALER.md) and starts off.
 
 The bot reminds members 24 hours before their time runs out. When it does, the
 VPN client is switched off and the Matrix accounts are locked (rooms and history
@@ -372,6 +376,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, host safety (reboot on a kernel crash, Docker waits for the data disk), and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
+| 🔍 **[UPSCALER.md](docs/UPSCALER.md)** | The GPU photo upscaler — setup, models, Vulkan in Docker, limits |
 | 🌡️ **[SENSOR.md](docs/SENSOR.md)** | The ESP32 room sensor — posting from another network, token, certificate check, importing old readings |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, admins, VPN by app, downloader, audiobooks, Russian/English |

@@ -157,6 +157,7 @@ const SVC_STATE = [
   { id: 'tools', mode: 'grant', enabled: true },
   { id: 'youtube', mode: 'all', enabled: true },
   { id: 'books', mode: 'all', enabled: true },
+  { id: 'upscale', mode: 'all', enabled: true },
 ]
 const effectiveOf = (m) => SVC_STATE.filter((x) => x.enabled && (x.mode === 'all' || m.services.includes(x.id))).map((x) => x.id)
 const SERVICES = [
@@ -165,6 +166,7 @@ const SERVICES = [
   { id: 'tools', ru: ['Инструменты бота', 'Проверки, ссылки, скачивание видео'], en: ['Bot tools', 'Checks, links, video downloads'] },
   { id: 'youtube', ru: ['Скачивание видео', 'YouTube, RuTube, VK Видео — файлом на телефон'], en: ['Video downloads', 'YouTube, RuTube and VK Video as a file'] },
   { id: 'books', ru: ['Аудиокниги (бета)', 'Озвучка книг EPUB и PDF голосом на выбор'], en: ['Audiobooks (beta)', 'EPUB and PDF books read aloud in a voice you pick'] },
+  { id: 'upscale', ru: ['Улучшение фото', 'Увеличение фото и картинок в 2–4 раза нейросетью'], en: ['Photo upscaling', 'Enlarge photos and pictures 2–4× with AI'] },
 ]
 const adminServices = () => SVC_STATE.map((x) => {
   const sv = SERVICES.find((y) => y.id === x.id)
@@ -363,6 +365,15 @@ export async function handle(method, path, body) {
     if (seg[2] === 'delete') { b.list.splice(b.list.indexOf(bk), 1); return { ok: true } }
   }
 
+  if (seg[0] === 'upscale') {
+    const u = mockUpscale()
+    if (path === 'upscale') return u.view()
+    const j = u.list.find((x) => x.id === Number(seg[1]))
+    if (!j) err(404, 'not_found', tr('Картинка не найдена.', 'Picture not found.'))
+    if (seg[2] === 'cancel') { j.status = 'cancelled'; return { ok: true } }
+    if (seg[2] === 'delete') { u.list.splice(u.list.indexOf(j), 1); return { ok: true } }
+  }
+
   if (seg[0] === 'dl') {
     if (!dlAvailable()) err(403, 'no_access', tr('Скачивание видео выключено', 'Video downloads are switched off'))
     if (path === 'dl/presets') return dlPresets()
@@ -530,6 +541,27 @@ export async function handle(method, path, body) {
     }
   }
   return err(404, 'not_found', tr('Не найдено: ', 'Not found: ') + path)
+}
+
+// ---- photo upscaling: a finished picture (drawn SVGs: blocky "before", smooth "after") and one in line
+let UPSCALE = null
+const svgPic = (smooth) => 'data:image/svg+xml,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48" ${smooth ? '' : 'shape-rendering="crispEdges"'}>` +
+  '<rect width="64" height="48" fill="#8fc6e8"/><circle cx="50" cy="11" r="6" fill="#ffd23f"/>' +
+  '<path d="M0 34 18 18l12 10 10-8 24 18v10H0z" fill="#3e7d5a"/><ellipse cx="24" cy="38" rx="9" ry="5" fill="#f6d26b"/>' +
+  `<circle cx="30" cy="31" r="4" fill="#f6d26b"/><path d="M33 31h4l-4 1.6z" fill="#ff9a3d"/></svg>`)
+function mockUpscale() {
+  if (!UPSCALE) {
+    UPSCALE = {
+      list: [
+        { id: 2, name: 'IMG_2041', preset: 'photo', status: 'running', progress: 46, scale: 4, scale_asked: 4, format: 'jpg', in_w: 1024, in_h: 768, out_w: 4096, out_h: 3072, wait: { ahead: 0, ready_in: 9 }, demo: { before: svgPic(false) } },
+        { id: 1, name: 'pond-at-dusk', preset: 'detail', status: 'done', progress: 100, scale: 4, scale_asked: 4, format: 'jpg', in_w: 640, in_h: 480, out_w: 2560, out_h: 1920, out_size: 1.9e6, took: 6, view_url: '', save_url: '', demo: { before: svgPic(false), after: svgPic(true) } },
+      ],
+    }
+    UPSCALE.view = () => ({ jobs: UPSCALE.list, presets: ['photo', 'detail', 'soft', 'art'], queue: { jobs: 1, wait: 9 }, online: true,
+      limits: { per_day: 20, active: 3, max_mb: 25 }, quota: { per_day: 20, used: 2, left: 18, next_in: null, max_mb: 25, unlimited: false } })
+  }
+  return UPSCALE
 }
 
 // ---- audiobooks (beta): three demo books in different states

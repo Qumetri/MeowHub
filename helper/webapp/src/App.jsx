@@ -14,7 +14,7 @@ import Members from './admin/Members.jsx'
 import Codes from './admin/Codes.jsx'
 import Overview from './admin/Overview.jsx'
 
-const PAGES = ['vpn', 'matrix', 'admin', 'code', 'downloads', 'books']
+const PAGES = ['vpn', 'matrix', 'admin', 'code', 'downloads', 'books', 'upscale']
 const TAB_META = {
   members: { icon: 'users', label: 'nav.members' },
   codes: { icon: 'ticket', label: 'nav.codes' },

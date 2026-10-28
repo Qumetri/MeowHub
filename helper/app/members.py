@@ -41,11 +41,14 @@ SERVICES = {
     "books": {"mode": "all", "name_ru": "Аудиокниги (бета)", "name_en": "Audiobooks (beta)",
               "desc_ru": "Озвучка книг EPUB и PDF голосом на выбор",
               "desc_en": "EPUB and PDF books read aloud in a voice you pick"},
+    "upscale": {"mode": "all", "name_ru": "Улучшение фото", "name_en": "Photo upscaling",
+                "desc_ru": "Увеличение фото и картинок в 2–4 раза нейросетью",
+                "desc_en": "Enlarge photos and pictures 2–4× with AI"},
 }
 GRANTABLE = [k for k, v in SERVICES.items() if v["mode"] == "grant"]
 DEFAULT_SERVICES = ["vpn", "matrix"]
 # Global switches (settings `svc_enabled`, JSON); a missing key uses these.
-SERVICE_DEFAULTS = {"vpn": True, "matrix": True, "tools": True, "youtube": False, "books": False}
+SERVICE_DEFAULTS = {"vpn": True, "matrix": True, "tools": True, "youtube": False, "books": False, "upscale": False}
 
 DAY = 86400
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

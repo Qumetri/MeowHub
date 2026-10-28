@@ -684,6 +684,25 @@ _("api.books_busy_delete", "Сначала останови озвучку.", "S
 _("api.books_done", "Эта книга уже озвучена.", "This book is already narrated.")
 _("api.books_not_running", "Озвучка не идёт.", "Nothing is being narrated.")
 _("api.books_upload_type", "Отправь файл как есть (EPUB или PDF).", "Send the file as is (EPUB or PDF).")
+_("api.up_down", "Сервис улучшения фото сейчас недоступен. Попробуй через пару минут.",
+  "The photo upscaler is unavailable right now. Try again in a couple of minutes.")
+_("api.up_engine", "Сервис улучшения фото не принял картинку. Попробуй ещё раз.",
+  "The photo upscaler rejected the picture. Try again.")
+_("api.up_upload_cut", "Загрузка оборвалась. Попробуй ещё раз.", "The upload was cut off. Try again.")
+_("api.up_upload_type", "Отправь картинку как есть (JPG, PNG, WebP).", "Send the picture as is (JPG, PNG, WebP).")
+_("api.up_bad_type", "Подходят картинки JPG, PNG, WebP, BMP, TIFF и GIF.", "JPG, PNG, WebP, BMP, TIFF and GIF pictures work.")
+_("api.up_bad_preset", "Неизвестный режим улучшения.", "Unknown enhancement mode.")
+_("api.up_bad_image", "Не получилось прочитать файл как картинку.", "Couldn't read the file as a picture.")
+_("api.up_too_large", "Файл больше {mb} МБ.", "The file is over {mb} MB.")
+_("api.up_too_many_pixels", "Картинка слишком большая: больше {mp} Мп.", "The picture is too large: over {mp} MP.")
+_("api.up_already_large", "Фото уже большое: даже увеличенное в 2 раза, оно выйдет больше {mp} Мп.",
+  "The photo is already large: even at 2× it would be over {mp} MP.")
+_("api.up_limit", "Лимит — {n} картинок за сутки, и он исчерпан. Попробуй позже.",
+  "The limit is {n} pictures a day, and you've used it. Try again later.")
+_("api.up_active", "В очереди уже {n} твоих картинки. Дождись, пока они будут готовы.",
+  "{n} of your pictures are already in line. Wait until they're done.")
+_("api.up_not_found", "Картинка не найдена: результаты хранятся сутки.", "Picture not found: results are kept for a day.")
+_("api.up_not_running", "Картинка уже не в очереди.", "The picture is no longer in line.")
 _("books.err_gone", "Книга пропала с сервера. Удали её и загрузи заново.",
   "The book is gone from the server. Delete it and upload it again.")
 _("books.err_failed", "Озвучка не удалась. Попробуй ещё раз или выбери другой голос.",

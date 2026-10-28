@@ -1360,6 +1360,78 @@ class App:
         path, name = b.audio_path(uid, int(ident))
         return self.stream_file(path, name, req, "audio/mp4", attachment)
 
+    # ------------------------------------------------------- photo upscaling --
+    def need_upscale(self, ctx):
+        """Photo upscaling: the owner always, a member while `upscale` is on."""
+        u = getattr(self.h, "upscale", None)
+        if u is None:
+            raise ApiError(503, "bot_not_ready", "api.up_down")
+        if ctx.role != "owner" and not (ctx.uid is not None and self.h.members.has(ctx.uid, "upscale")):
+            raise ApiError(403, "no_access", "api.no_access")
+        return u
+
+    def api_upscale(self, req, ctx):
+        data = self.need_upscale(ctx).list_for(ctx.uid)
+        base = getattr(self.h, "webapp_url", "")
+        for j in data["jobs"]:
+            if j["status"] == "done":
+                j["view_url"] = signed.absolute(signed.sign("upview", j["id"], ctx.uid, ttl=3600, store=self.h.store), base)
+                j["save_url"] = signed.absolute(signed.sign("updl", j["id"], ctx.uid, ttl=1800, store=self.h.store), base)
+        return jr(data)
+
+    def api_upscale_upload(self, req, ctx):
+        """Raw body (the picture itself), streamed to the upscaler. Content-Type must be an image or
+        octet-stream: a cross-site form can't send those, which is this route's CSRF guard."""
+        u = self.need_upscale(ctx)
+        ctype = (req.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if not (ctype.startswith("image/") or ctype == "application/octet-stream"):
+            raise ApiError(400, "bad_content_type", "api.up_upload_type")
+        try:
+            n = int(req.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ApiError(400, "bad_request") from None
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(req.path).query)
+        try:
+            scale = int((q.get("scale") or ["4"])[0])
+        except ValueError:
+            scale = 0
+        name = urllib.parse.unquote(req.headers.get("X-Filename") or "")
+        m = self.h.members.get(ctx.uid) if ctx.uid is not None else None
+        who = name_of(m) if m else " ".join(x for x in (ctx.user.get("first_name"), ctx.user.get("last_name")) if x)
+        if ctx.user.get("username"):
+            who += f" (@{ctx.user['username']})"
+        req._body_read = True                   # from here on the body is ours (read or connection closed)
+        req.close_connection = True
+        rid = u.upload(ctx.uid, name, req.rfile, n, (q.get("preset") or ["photo"])[0], scale,
+                       (q.get("format") or ["auto"])[0], who.strip() or str(ctx.uid))
+        return jr({"id": rid})
+
+    def api_upscale_cancel(self, req, ctx, rid):
+        return jr(self.need_upscale(ctx).cancel(ctx.uid, int(rid)))
+
+    def api_upscale_delete(self, req, ctx, rid):
+        return jr(self.need_upscale(ctx).delete(ctx.uid, int(rid)))
+
+    def api_upscale_thumb(self, req, ctx, rid, which):
+        path = self.need_upscale(ctx).thumb_path(ctx.uid, int(rid), which)
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            raise ApiError(404, "not_found") from None
+        return Resp(data, "image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+    def dl_upscale(self, uid, ident, req, attachment):
+        """An upscaled picture through a signed link: inline to view, attachment to save.
+        Access is re-checked now (the service may have been switched off since)."""
+        if uid != self.h.owner_id() and not self.h.members.has(uid, "upscale"):
+            raise ApiError(403, "no_access", "api.no_access")
+        u = getattr(self.h, "upscale", None)
+        if u is None:
+            raise ApiError(503, "bot_not_ready", "api.up_down")
+        path, name = u.result_path(uid, int(ident))
+        return self.stream_file(path, name, req, None, attachment)
+
     # -------------------------------------------------------- /dl download --
     def dl(self, tok, req=None):
         """Signed link: the token is the auth (no header can be sent). What the
@@ -1378,6 +1450,8 @@ class App:
             return self.dl_file(uid, _ident, req)
         if kind in ("book", "bookdl"):
             return self.dl_book(uid, _ident, req, kind == "bookdl")
+        if kind in ("upview", "updl"):
+            return self.dl_upscale(uid, _ident, req, kind == "updl")
         raise ApiError(404, "not_found")
 
     def dl_file(self, uid, ident, req):
@@ -1607,6 +1681,11 @@ ROUTES = [
     ("POST", r"/api/books/(\d{1,12})/cancel", "any", "api_books_cancel"),
     ("POST", r"/api/books/(\d{1,12})/delete", "any", "api_books_delete"),
     ("GET", r"/api/books/(\d{1,12})/cover", "any", "api_books_cover"),
+    ("GET", r"/api/upscale", "any", "api_upscale"),
+    ("POST", r"/api/upscale/upload", "any", "api_upscale_upload"),
+    ("POST", r"/api/upscale/(\d{1,12})/cancel", "any", "api_upscale_cancel"),
+    ("POST", r"/api/upscale/(\d{1,12})/delete", "any", "api_upscale_delete"),
+    ("GET", r"/api/upscale/(\d{1,12})/(before|after)", "any", "api_upscale_thumb"),
     ("GET", r"/api/admin/integrations", "any", "api_integrations"),
     ("POST", r"/api/admin/integrations/([a-z]{1,10})", "any", "api_integration_set"),
     ("POST", r"/api/admin/integrations/([a-z]{1,10})/reset", "any", "api_integration_reset"),

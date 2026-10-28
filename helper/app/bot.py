@@ -45,6 +45,7 @@ import hub
 import i18n
 import links
 import tokens
+import upscale
 import webapp
 from i18n import tr
 from members import AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, Members, Reconciler, norm_code, owner_contact, ru_date
@@ -180,6 +181,7 @@ class Helper:
         self.downloads = downloads.Downloads(store, self.members, self.owner_id, lambda: self.webapp_url)
         self.books = books.Books(store, self.members, self.owner_id, notify=self._notify_in_lang,
                                  notify_owner=lambda make: self.notify_owner(make(i18n.lang_of(store, self.owner_id()))))
+        self.upscale = upscale.Upscale(store, self.owner_id)
 
     @property
     def core(self):

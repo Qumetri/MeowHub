@@ -6,7 +6,7 @@ import { confirmDialog, haptic } from '../tg.js'
 import { t } from '../i18n.js'
 import { plural } from '../util.js'
 
-const ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download', books: 'book' }
+const ICON = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download', books: 'book', upscale: 'image' }
 const modeNote = (m) => (m === 'all' || m === 'grant' ? t('sv.mode.' + m) : m)
 const people = (n) => t('sv.people', { n, unit: plural(n, t('sv.unit_person').split('|')) })
 
