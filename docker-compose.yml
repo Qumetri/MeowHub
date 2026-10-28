@@ -167,6 +167,11 @@ services:
       # (HELPER_PRIVATE_VAULT, default immich,nextcloud,matrix) and the bot tokens (docs/HELPER.md "Admins").
       HELPER_ADMIN_IDS: ${HELPER_ADMIN_IDS:-}
       HELPER_PRIVATE_VAULT: ${HELPER_PRIVATE_VAULT:-immich,nextcloud,matrix}
+      # Free trial for newcomers: the member bot's first message offers TRIAL_DAYS of access, once per
+      # Telegram id, at most TRIAL_PER_DAY a day. Off on a fresh install; the owner flips it in /services.
+      TRIAL_ENABLED: ${TRIAL_ENABLED:-0}
+      TRIAL_DAYS: ${TRIAL_DAYS:-1}
+      TRIAL_PER_DAY: ${TRIAL_PER_DAY:-20}
       # Audiobooks (beta, service `books`, off by default): a book2audio API the helper can reach.
       # book2audio is not part of this stack; without it the Audiobooks page says it is unavailable.
       BOOKS_URL: ${BOOKS_URL:-http://book2audio:8098}
@@ -203,6 +208,10 @@ services:
       # the downloader page (MeTube) shares the bot admin login; listed in 🔑 as its own entry
       VAULT_METUBE_USER: ${BOT_ADMIN_USER:-botadmin}
       VAULT_METUBE_PASS_FILE: /secrets/bot-admin-password
+      VAULT_UPSCALE_USER: ${BOT_ADMIN_USER:-botadmin}
+      VAULT_UPSCALE_PASS_FILE: /secrets/bot-admin-password
+      VAULT_BOOKS_USER: ${BOT_ADMIN_USER:-botadmin}
+      VAULT_BOOKS_PASS_FILE: /secrets/bot-admin-password
       # ---- memberships (docs/HELPER.md "Members") ----
       # Telegram @handle shown to strangers and members ("contact the owner").
       # Empty -> the bot just says "contact the owner".
