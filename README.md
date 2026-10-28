@@ -303,7 +303,9 @@ Wallet-style Telegram Mini App:
 The bot reminds members 24 hours before their time runs out. When it does, the
 VPN client is switched off and the Matrix accounts are locked (rooms and history
 kept); a new code brings it all back. Every service has an **owner switch**, and a
-new one starts off until you turn it on.
+new one starts off until you turn it on. You and your admins can get a **usage
+notice** for each thing a member does (who, and exactly what), switchable per
+service with `/notify`.
 
 Everything — both bots and the app, your admin screens included — speaks
 **Russian or English**: Auto follows each person's Telegram language, and `/lang`

@@ -585,6 +585,25 @@ the `upscaler` service (profile `upscaler`, see [UPSCALER.md](UPSCALER.md)), rea
   guard for this non-JSON route), `POST /api/upscale/<id>/cancel`, `…/delete`, `GET /api/upscale/<id>/before|after`.
   Tests: `tests/test_upscale.py`.
 
+## Usage notifications
+
+The owner and admins hear, through the helper bot, when someone uses a member service — **who**
+(name, @username, id) and **what exactly** they did (`app/usage.py`):
+
+| Service | Notice |
+|---|---|
+| `youtube` | a finished download: title, format, size, link |
+| `books` | a book sent to narration: title, author, voice, chapters, length, place in line, the member's limit |
+| `upscale` | a photo sent: name, mode, scale, input → output size, today's count of the limit |
+
+- Recipients: the owner + `HELPER_ADMIN_IDS`, minus whoever acted; the owner's own actions are never reported.
+- Each recipient switches each service on/off **for themselves**: `/notify` in the helper bot, or
+  "🔔 Usage notifications" under `/services`. Default on. Stored in settings `usage_notify`.
+- Sent on a background thread, so a stalled Telegram call never slows the member's request.
+- **Convention:** every new member service calls `Usage.report(service, uid, make)` for each meaningful
+  action, is added to `usage.SERVICES`, and gets ru/en texts (`usage.<service>`) in `i18n.py`.
+  Tests: `tests/test_usage.py`.
+
 ## Logins
 
 **🔑 Logins** shows a button per service; a press sends login and password:

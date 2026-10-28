@@ -562,7 +562,7 @@ class TestServicesBot(Bot3):
         btns = {b["callback_data"]: b["text"] for b in self.buttons(out)}
         self.assertEqual(btns["svc:t:youtube"], "⬜ YouTube и видео — для всех участников")
         self.assertTrue(btns["svc:t:vpn"].startswith("✅ VPN"))
-        self.assertEqual(list(btns), ["svc:t:vpn", "svc:t:matrix", "svc:t:tools", "svc:t:youtube", "svc:t:books", "svc:t:upscale"])
+        self.assertEqual(list(btns), ["svc:t:vpn", "svc:t:matrix", "svc:t:tools", "svc:t:youtube", "svc:t:books", "svc:t:upscale", "ntf:v"])
         self.assertIn("Вкл = доступно всем активным участникам", out[2])
         self.assertIn("Главный выключатель: выключишь — пропадёт у всех", out[2])
 

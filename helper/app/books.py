@@ -261,7 +261,8 @@ CREATE INDEX IF NOT EXISTS books_uid ON books(uid, created_ts);
 
     def _tell_owner_queued(self, row, view, who, n_chapters):
         """The owner hears about every book a member sends to the GPU: who, what, how long, the queue."""
-        if self.notify_owner is None:
+        u = getattr(self, "usage", None)
+        if u is None and self.notify_owner is None:
             return
         voice = next((v["name"] for v in self.voices(row["lang"]) if v["key"] == view.get("voice")), view.get("voice"))
         w = view.get("wait") or {}
@@ -270,9 +271,12 @@ CREATE INDEX IF NOT EXISTS books_uid ON books(uid, created_ts);
                 "author": html.escape(view["author"] or "—"), "voice": html.escape(voice or ""),
                 "chapters": n_chapters, "used": q["used"], "total": q["per_user"]}
         listen_h, ready_s, ahead = view["listen_s"] / 3600, w.get("starts_in", 0) + w.get("takes", 0), w.get("ahead", 0)
+        make = lambda lang, actor=args["who"]: i18n.tr(lang, "books.owner_queued", listen=_dur(listen_h, lang),  # noqa: E731
+                                                       ahead=ahead, ready=_dur(ready_s / 3600, lang), **dict(args, who=actor))
+        if u is not None:
+            return u.report("books", row["uid"], make)
         try:
-            self.notify_owner(lambda lang: i18n.tr(lang, "books.owner_queued", listen=_dur(listen_h, lang),
-                                                   ahead=ahead, ready=_dur(ready_s / 3600, lang), **args))
+            self.notify_owner(make)
         except Exception:                                   # noqa: BLE001 - a notice never breaks the request
             log.warning("owner notice for book %s failed", row["id"])
 

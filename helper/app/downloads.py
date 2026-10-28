@@ -22,6 +22,7 @@ Presets are defined once here (presets_payload) and used by the Mini App API
 and by both bots (which only hand the link over to the Mini App). MeTube URLs
 are never handed out -- files are served by webapp's /dl/<token>.
 """
+import html
 import json
 import logging
 import os
@@ -550,6 +551,19 @@ class Downloads:
         total = sum(f["size"] for f in files if f["kind"] != "subs")
         self._upd_group(lead["id"], status="done", files=files, size=total, percent=100.0, eta=None,
                         error="", finished_ts=int(self.clock()))
+        self._report(lead, kind, total)
+
+    def _report(self, lead, kind, size):
+        """Usage notice to the owner/admins (usage.py): who downloaded what."""
+        u = getattr(self, "usage", None)
+        if u is None:
+            return
+        title = html.escape(lead.get("title") or lead["url"])
+        preset = PRESETS.get(lead["preset"], {}).get("label", lead["preset"])
+        url = html.escape(lead["url"])
+        u.report("youtube", lead["uid"], lambda lang, who: i18n.tr(
+            lang, "usage.youtube", who=who, kind=i18n.tr(lang, "usage.kind_" + kind), title=title,
+            preset=html.escape(preset), size=f"{size / 1048576:.0f} MB", url=url))
 
     def _fail(self, lead, msg):
         self._upd_group(lead["id"], status="error", error=msg, eta=None, finished_ts=int(self.clock()))

@@ -564,6 +564,24 @@ _("cmd.yt", "Скачать видео: /yt <ссылка>", "Download a video: 
 _("cmd.code", "/code [дней] [vpn,matrix,tools]", "/code [days] [vpn,matrix,tools]")
 _("cmd.members", "Участники", "Members")
 _("cmd.services", "Включить/выключить сервисы", "Turn services on/off")
+_("cmd.notify", "Уведомления об использовании сервисов", "Service usage notifications")
+_("ntf.open", "🔔 Уведомления об использовании", "🔔 Usage notifications")
+_("ntf.head", "🔔 <b>Уведомления об использовании</b>\nКто и что сделал в сервисах. Нажми, чтобы включить или выключить для себя.",
+  "🔔 <b>Usage notifications</b>\nWho did what in the services. Tap to switch them on or off for yourself.")
+_("ntf.foot", "Свои действия не присылаются. Настройки у каждого админа свои.",
+  "Your own actions aren't reported. Each admin has their own settings.")
+_("ntf.on", "уведомления включены", "notifications on")
+_("ntf.off", "уведомления выключены", "notifications off")
+_("usage.youtube", "▶️ {who} скачал(а) {kind}\n<b>{title}</b>\n{preset} · {size}\n{url}",
+  "▶️ {who} downloaded {kind}\n<b>{title}</b>\n{preset} · {size}\n{url}")
+_("usage.kind_video", "видео", "a video")
+_("usage.kind_audio", "аудио", "audio")
+_("usage.upscale", "🖼 {who} улучшает фото\n<b>{name}</b>\nРежим: {preset} · {scale}× · {in_w}×{in_h} → {out_w}×{out_h}\nСегодня: {used} из {total}",
+  "🖼 {who} is upscaling a photo\n<b>{name}</b>\nMode: {preset} · {scale}× · {in_w}×{in_h} → {out_w}×{out_h}\nToday: {used} of {total}")
+_("usage.preset.photo", "Фото", "Photo")
+_("usage.preset.detail", "Больше деталей", "More detail")
+_("usage.preset.soft", "Портреты", "Portraits")
+_("usage.preset.art", "Рисунки и аниме", "Drawings and anime")
 _("cmd.pass", "Пароли к сервисам", "Service passwords")
 _("cmd.setpass", "/setpass <сервис> <логин> <пароль>", "/setpass <service> <login> <password>")
 _("cmd.delpass", "/delpass <сервис>", "/delpass <service>")

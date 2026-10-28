@@ -46,6 +46,7 @@ import i18n
 import links
 import tokens
 import upscale
+import usage
 import webapp
 from i18n import tr
 from members import AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, Members, Reconciler, norm_code, owner_contact, ru_date
@@ -82,7 +83,7 @@ URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
 OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
-              "/sshalerts", "/sshunban")
+              "/sshalerts", "/sshunban", "/notify")
 SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
 
 
@@ -182,6 +183,10 @@ class Helper:
         self.books = books.Books(store, self.members, self.owner_id, notify=self._notify_in_lang,
                                  notify_owner=lambda make: self.notify_owner(make(i18n.lang_of(store, self.owner_id()))))
         self.upscale = upscale.Upscale(store, self.owner_id)
+        # usage notices to the owner + admins (usage.py); each service module reports through it
+        self.usage = usage.Usage(store, self.members, self.owner_id, self.admin_ids,
+                                 send=lambda chat, text: self.bot.send(chat, text))
+        self.downloads.usage = self.books.usage = self.upscale.usage = self.usage
 
     @property
     def core(self):
@@ -481,7 +486,7 @@ class Helper:
         base = [d("start"), d("help"), d("vpn"), d("matrix"), d("sub"), d("lang")]
         if not owner:
             return base
-        return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"),
+        return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"), d("notify"),
                        d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban")]
 
     def _commands(self):
@@ -621,6 +626,8 @@ class Helper:
             return self.cmd_members(cid)
         if cmd == "/services" or btn == "svc":
             return self.cmd_services(cid)
+        if cmd == "/notify":
+            return self.cmd_notify(cid)
         if cmd == "/code":
             return self.cmd_code(cid, arg)
         if btn == "code":
@@ -841,6 +848,7 @@ class Helper:
             t.append(tr(L, "svc.line", mark=mark, name=esc(st["name"]), n=st["members_with_access"]))
             kb.append([{"text": f"{mark} {st['name']} — {who}", "callback_data": f"svc:t:{st['id']}"}])
         t += ["", tr(L, "svc.foot1"), tr(L, "svc.foot2")]
+        kb.append([{"text": tr(L, "ntf.open"), "callback_data": "ntf:v"}])
         return "\n".join(t), {"inline_keyboard": kb}
 
     def cmd_services(self, cid):
@@ -856,6 +864,38 @@ class Helper:
         self.members.set_service_enabled(svc, on)
         self._edit(cid, mid, *self.services_view(L))
         return tr(L, "svc.toast", name=SERVICES[svc]["name_" + L], state=tr(L, "svc.on" if on else "svc.off"))
+
+    # ------------------------------------------------- owner/admins: usage notices --
+    def notify_view(self, uid):
+        """This person's usage-notice switches, one per service (usage.py)."""
+        L = self.lang(uid)
+        u = self.core.usage
+        t, kb = [tr(L, "ntf.head"), ""], []
+        for svc in usage.SERVICES:
+            on = u.enabled(uid, svc)
+            mark = "🔔" if on else "🔕"
+            name = SERVICES[svc]["name_" + L]
+            t.append(f"{mark} {esc(name)}")
+            kb.append([{"text": f"{mark} {name}", "callback_data": f"ntf:t:{svc}"}])
+        t += ["", tr(L, "ntf.foot")]
+        return "\n".join(t), {"inline_keyboard": kb}
+
+    def cmd_notify(self, cid):
+        text, kb = self.notify_view(cid)
+        self.bot.send(cid, text, reply_markup=kb)
+
+    def cb_notify(self, cid, mid, rest):
+        """`cid` is the presser's private chat, so the switches are theirs."""
+        L = self.lang(cid)
+        act, _, svc = rest.partition(":")
+        if act == "v":
+            self.cmd_notify(cid)
+            return None
+        if act != "t" or svc not in usage.SERVICES:
+            return None
+        on = self.core.usage.toggle(cid, svc)
+        self._edit(cid, mid, *self.notify_view(cid))
+        return tr(L, "svc.toast", name=SERVICES[svc]["name_" + L], state=tr(L, "ntf.on" if on else "ntf.off"))
 
     # ------------------------------------------------------------ owner: codes --
     def code_card(self, code, days, svcs, lang="ru"):
@@ -1315,7 +1355,7 @@ class Helper:
             self.bot.answer(q["id"])
             return self.show_password(cid, rest, uid)
         handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound,
-                   "svc": self.cb_services, "ssh": self.cb_ssh}.get(kind)
+                   "svc": self.cb_services, "ssh": self.cb_ssh, "ntf": self.cb_notify}.get(kind)
         if handler is None:
             return self.bot.answer(q["id"], tr(L, "cb.stale"), alert=True)
         try:
