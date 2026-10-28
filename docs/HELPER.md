@@ -604,6 +604,13 @@ The owner and admins hear, through the helper bot, when someone uses a member se
   action, is added to `usage.SERVICES`, and gets ru/en texts (`usage.<service>`) in `i18n.py`.
   Tests: `tests/test_usage.py`.
 
+## One-off announcements
+
+`app/announce.py <i18n key> [service] [--dry-run] [--force]` sends an i18n text to every active member who has
+`service` (default `vpn`), each in their own language (`{contact}` becomes `OWNER_CONTACT`), through the member bot. A key goes out once
+(settings `announced_<key>`); the owner gets a summary through the helper bot; event `broadcast` is logged.
+Run it as `docker compose exec helper python3 /app/app/announce.py …` (schedule with `systemd-run --on-calendar`).
+
 ## Logins
 
 **🔑 Logins** shows a button per service; a press sends login and password:
