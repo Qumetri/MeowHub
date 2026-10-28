@@ -64,13 +64,21 @@ def mask_token(tok):
 def _stamp_assets(html):
     """Append ?v=<mtime> to the page's own script/stylesheet references."""
     out = html.decode("utf-8", "replace")
-    for name in ("app.js", "style.css"):
+    for name in ("app.js", "style.css", "demo.js"):
         try:
             v = int(os.stat(os.path.join(WEB_DIR, name)).st_mtime)
         except OSError:
             continue
         out = out.replace(f'"{name}"', f'"{name}?v={v}"')
     return out.encode()
+
+
+def _demo_page(html):
+    """index.html as the public preview: demo.js (fake API, banner) loads before the app.
+    Caddy serves this to visitors without the password (docs/CRYPTO.md "Preview")."""
+    out = html.replace(b'<script src="vendor/lightweight-charts.js">',
+                       b'<script src="demo.js"></script>\n<script src="vendor/lightweight-charts.js">', 1)
+    return out.replace(b"<title>Crypto Tracker</title>", b"<title>Crypto Tracker \xe2\x80\x94 demo</title>", 1)
 
 
 def _news_settings(b):
@@ -252,6 +260,9 @@ def make_handler(app):
 
         def _static(self, p):
             rel = "index.html" if p in ("/", "") else p.lstrip("/")
+            demo = rel == "demo.html"              # not a file: index.html + demo.js
+            if demo:
+                rel = "index.html"
             full = os.path.normpath(os.path.join(WEB_DIR, rel))
             if not full.startswith(os.path.realpath(WEB_DIR)) and not full.startswith(WEB_DIR):
                 return self._err(403, "forbidden")
@@ -264,7 +275,7 @@ def make_handler(app):
                 ctype += "; charset=utf-8"
 
             st = os.stat(full)
-            etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+            etag = '"%s%x-%x"' % ("d" if demo else "", int(st.st_mtime), st.st_size)
 
             # The page's own code must revalidate on every load. Serving app.js
             # with a plain max-age and no validator means a UI change stays
@@ -292,7 +303,7 @@ def make_handler(app):
             # older copy it thinks is fresh -- otherwise a UI change is invisible
             # until that entry expires, and the user has to know to hard-refresh.
             if rel == "index.html":
-                data = _stamp_assets(data)
+                data = _stamp_assets(_demo_page(data) if demo else data)
 
             self._send(200, data, ctype,
                        {"Cache-Control": cache, "ETag": etag,

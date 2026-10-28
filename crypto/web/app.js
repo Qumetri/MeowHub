@@ -9,6 +9,8 @@ const COLORS = {
 const colorFor = t => COLORS[t] || '#7928ca';
 
 let state = { coins: [], targets: [], settings: {}, events: [], feed: {}, icons: [] };
+// The demo page's "Log in" link lands on ./?login (it makes Caddy ask for the password); tidy the URL.
+if (/[?&]login\b/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash);
 let iconSet = new Set();
 let selected = null, rangeMin = 1440, chart = null, series = null, lastPx = {};
 
@@ -45,6 +47,11 @@ function ago(ts) {
   return Math.floor(d/86400) + 'd ago';
 }
 
+// '15-minute' etc. from the spacing of the first two candles (the server sends one-minute ones).
+function candleWord(rows) {
+  const m = rows.length > 1 ? Math.round((rows[1].time - rows[0].time) / 60) : 1;
+  return m <= 1 ? 'one-minute' : m % 60 ? `${m}-minute` : m === 60 ? 'one-hour' : `${m / 60}-hour`;
+}
 async function api(path, opts) {
   const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
   const t = await r.text();
@@ -154,7 +161,7 @@ async function loadChart() {
     series.applyOptions({priceFormat:{type:'price', precision:dec, minMove:Math.pow(10,-dec)}});
     chart.timeScale().fitContent();
     document.getElementById('chartHint').textContent =
-      rows.length ? `${rows.length} one-minute candles` : 'No data yet — backfilling from Binance.';
+      rows.length ? `${rows.length} ${candleWord(rows)} candles` : 'No data yet — backfilling from Binance.';
   } catch (e) {
     document.getElementById('chartHint').textContent = 'Chart failed: ' + e.message;
   }
@@ -445,7 +452,7 @@ function connectStream() {
     if (m.type === 'prices') {
       for (const [sym, d] of Object.entries(m.prices)) updatePrice(sym, d.price, d.change24h);
     } else if (m.type === 'status') {
-      state.feed = {connected:m.connected, error:m.error};
+      state.feed = Object.assign({}, state.feed, {connected:m.connected, error:m.error});  // keep `sources`
       renderFeed();
     }
   };

@@ -139,11 +139,33 @@
 	# interpolation both mangle.
 	redir /{$CRYPTO_PATH} /{$CRYPTO_PATH}/ 308
 	handle_path /{$CRYPTO_PATH}/* {
-		basic_auth {
-			{$CRYPTO_ADMIN_USER} @@CRYPTO_ADMIN_HASH@@
+		# Public preview (docs/CRYPTO.md "Preview"): a visitor without the password gets demo.html
+		# (the real UI + demo.js: live Binance prices, example data, no writes) and the static files
+		# it needs. Everything else, the API above all, stays behind basic_auth; the demo's
+		# "Log in" link is ./?login, which skips the preview and makes the browser ask.
+		@guestPage {
+			not header Authorization *
+			path / /index.html
+			expression {query} == ""
 		}
-		reverse_proxy crypto:9102 {
-			flush_interval -1
+		handle @guestPage {
+			rewrite * /demo.html
+			reverse_proxy crypto:9102
+		}
+		@guestAsset {
+			not header Authorization *
+			path /demo.js /app.js /style.css /icons/* /vendor/*
+		}
+		handle @guestAsset {
+			reverse_proxy crypto:9102
+		}
+		handle {
+			basic_auth {
+				{$CRYPTO_ADMIN_USER} @@CRYPTO_ADMIN_HASH@@
+			}
+			reverse_proxy crypto:9102 {
+				flush_interval -1
+			}
 		}
 	}
 #ENDIF

@@ -12,7 +12,7 @@ remove them yourself, no restart and no config file.
 
 | | |
 |---|---|
-| Web UI | `https://<domain>/${CRYPTO_PATH}/` — basic auth, user `CRYPTO_ADMIN_USER` |
+| Web UI | `https://<domain>/${CRYPTO_PATH}/` — basic auth, user `CRYPTO_ADMIN_USER`; without it, a demo (see Preview) |
 | Loopback | `http://127.0.0.1:${CRYPTO_LOCAL_PORT}/` — no auth, for local debugging |
 | Code | `crypto/app/` (backend), `crypto/web/` (page) |
 | Database | `crypto/data/crypto.db` (sqlite — small, so it sits with the code rather than in `DATA_ROOT`) |
@@ -30,6 +30,23 @@ docker compose exec caddy caddy hash-password --plaintext '<new>' \
 
 Unlike the hub page and MeTube, this one is **not** secret-path-only. It stores a
 Telegram bot token and can send messages as you, so it sits behind basic auth.
+
+### Preview (visitors without the password)
+
+A visitor without the password sees a **demo of the real UI** instead of a bare password prompt:
+
+- **Caddy** (crypto route in `caddy/Caddyfile.l4.template`): a request with **no `Authorization`
+  header** for `/` or `/index.html` **with no query** is rewritten to `/demo.html`, and the static
+  files it needs (`demo.js`, `app.js`, `style.css`, `icons/*`, `vendor/*`) are served. **Everything
+  else, the whole API included, still goes through basic auth**, so a guest can't read targets,
+  settings or the token.
+- **Server** (`crypto/app/server.py` `_demo_page`): `demo.html` is not a file; it is `index.html` with
+  `<script src="demo.js">` added before the app.
+- **`crypto/web/demo.js`** answers the app's own `api/...` calls in the browser. Prices and candles are
+  **live from Binance's public API** (every 5 s, a random walk if Binance is unreachable). Targets, the
+  alert log, news and Telegram settings are **examples**, and any change shows "log in". The banner
+  (ru/en by browser language) has **Log in** → `./?login`. That query skips the preview, so Caddy asks
+  for the password; after that the browser sends it with every request and the real app loads.
 
 ## Managing coins
 
