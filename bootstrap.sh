@@ -120,6 +120,7 @@ PY
 }
 randomise_path DASHBOARD_PATH  hub
 randomise_path METUBE_PATH     dl
+randomise_path UPSCALE_PATH    upscale
 randomise_path MATRIXRTC_PATH  call
 randomise_path AWG_ADMIN_PATH  awg
 randomise_path XHTTP_PATH      xhttp
@@ -316,6 +317,10 @@ mk "$IMMICH_UPLOAD"
 mk "$MATRIX_MEDIA"
 mk "$MATRIX_DB_DATA"
 mk "$METUBE_DOWNLOADS"
+mk "${UPSCALE_DATA:-./upscaler/data}/work"
+if [[ $COMPOSE_PROFILES == *upscaler* ]]; then
+  ./upscaler/fetch-models.sh "${UPSCALE_DATA:-./upscaler/data}" && c_ok "upscaler models (checksums verified)"
+fi
 mk "$PHOTOS_EXTERNAL"
 mk "$PLEX_MEDIA"; mk "$PLEX_MEDIA/Movies"; mk "$PLEX_MEDIA/TV Shows"; mk "$PLEX_MEDIA/Anime"
 mk ./caddy/data
@@ -346,6 +351,8 @@ if [[ $(id -u) -eq 0 ]]; then
   chown -R 1000:1000 ./sensor/data                            && c_ok "chown ./sensor/data -> 1000"
   # n8n runs as uid 1000 (node) and owns its sqlite db the same way.
   chown -R 1000:1000 ./n8n/data                               && c_ok "chown ./n8n/data -> 1000"
+  # The upscaler runs as uid 1000 and writes its jobs there.
+  chown -R 1000:1000 "${UPSCALE_DATA:-./upscaler/data}"        && c_ok "chown ${UPSCALE_DATA:-./upscaler/data} -> 1000"
   # The helper bot (uid 1000) keeps its token in ./helper/data and reads the
   # generated UI passwords from ./secrets to hand them to the owner.
   chown -R 1000:1000 ./helper/data && chmod 700 ./helper/data && c_ok "chown ./helper/data -> 1000"
@@ -386,6 +393,7 @@ VITE_PHOTOS_HOST=${PHOTOS_HOST}
 VITE_MATRIX_HOST=${MATRIX_HOST}
 VITE_AWG_ADMIN_PATH=${AWG_ADMIN_PATH}
 VITE_METUBE_PATH=${METUBE_PATH}
+VITE_UPSCALE_PATH=$([[ $COMPOSE_PROFILES == *upscaler* ]] && echo "${UPSCALE_PATH}")
 VITE_CRYPTO_PATH=${CRYPTO_PATH}
 VITE_N8N_PATH=${N8N_PUBLIC_PATH}
 VITE_SENSOR_PATH=${SENSOR_PATH}
@@ -429,6 +437,7 @@ echo "   hub         https://${BASE_DOMAIN}/${DASHBOARD_PATH}/"
 [[ $COMPOSE_PROFILES == *immich*    ]] && echo "   photos      https://${PHOTOS_HOST}/"
 [[ $COMPOSE_PROFILES == *matrix*    ]] && echo "   chat        https://${MATRIX_HOST}/"
 [[ $COMPOSE_PROFILES == *metube*    ]] && echo "   downloader  https://${BASE_DOMAIN}/${METUBE_PATH}/"
+[[ $COMPOSE_PROFILES == *upscaler*  ]] && echo "   upscaler    https://${BASE_DOMAIN}/${UPSCALE_PATH}/   (${BOT_ADMIN_USER:-botadmin})"
 [[ $COMPOSE_PROFILES == *crypto*    ]] && echo "   crypto      https://${BASE_DOMAIN}/${CRYPTO_PATH}/"
 [[ $COMPOSE_PROFILES == *n8n*       ]] && echo "   automation  https://${BASE_DOMAIN}/${N8N_PUBLIC_PATH}/"
 [[ ${ENABLE_HOMEASSISTANT:-false} == true ]] && echo "   home        https://${BASE_DOMAIN}/${HA_PATH}/   (cd homeassistant && docker compose up -d; create the owner account at once)"

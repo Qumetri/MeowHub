@@ -81,6 +81,13 @@ const paths = {
       <path d="M5 19h14" />
     </>
   ),
+  upscale: (
+    <>
+      <rect x="3.5" y="9.5" width="11" height="11" rx="1.5" />
+      <path d="m5.5 18 3-3 2 2 1.5-1.5 2.5 2.5" />
+      <path d="M13 4h7v7M20 4l-6.5 6.5" />
+    </>
+  ),
 }
 
 export default function Icon({ name }) {

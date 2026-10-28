@@ -17,6 +17,7 @@ const CRYPTO  = E.VITE_CRYPTO_PATH   || ''
 const N8N     = E.VITE_N8N_PATH      || ''
 const SENSOR  = E.VITE_SENSOR_PATH   || ''
 const BOTS    = E.VITE_BOT_ADMIN_PATH || ''
+const UPSCALE = E.VITE_UPSCALE_PATH  || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -110,6 +111,15 @@ export const services = [
     icon: 'download',
     gradient: ['#ff0000', '#ff6d6d'],
     status: 'live',
+  },
+  {
+    id: 'upscale',
+    name: 'Photo Upscaler',
+    description: 'Enlarge photos and pictures 2–4× with AI, compare before and after',
+    url: `https://${BASE}/${UPSCALE}/`,
+    icon: 'upscale',
+    gradient: ['#1b5e8a', '#ffd23f'],
+    status: UPSCALE ? 'live' : 'soon',
   },
   {
     id: 'bots',

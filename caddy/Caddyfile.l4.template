@@ -115,6 +115,20 @@
 		reverse_proxy metube:8081
 	}
 #ENDIF
+#IF:upscaler
+	# Photo upscaler page (docs/UPSCALER.md): the same login as the bot admin page,
+	# because it starts GPU jobs. handle_path strips the prefix; relative URLs.
+	redir /{$UPSCALE_PATH} /{$UPSCALE_PATH}/ 308
+	handle_path /{$UPSCALE_PATH}/* {
+		basic_auth {
+			{$BOT_ADMIN_USER} @@BOT_ADMIN_HASH@@
+		}
+		request_body {
+			max_size 26MB
+		}
+		reverse_proxy upscaler:8099
+	}
+#ENDIF
 #IF:crypto
 	# Crypto tracker, behind basic_auth — the page holds a Telegram bot token, so
 	# a secret URL alone is not enough. handle_path strips the prefix; the page

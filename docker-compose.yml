@@ -55,6 +55,7 @@ services:
       # domain, so each carries a non-empty fallback rather than defaulting
       # to the empty string.
       CRYPTO_PATH: ${CRYPTO_PATH:-crypto-unset}
+      UPSCALE_PATH: ${UPSCALE_PATH:-upscale-unset}
       CRYPTO_ADMIN_USER: ${CRYPTO_ADMIN_USER:-cryptoadmin}
       N8N_PUBLIC_PATH: ${N8N_PUBLIC_PATH:-n8n-unset}
       SENSOR_PATH: ${SENSOR_PATH:-sensor-unset}
@@ -171,6 +172,11 @@ services:
       BOOKS_URL: ${BOOKS_URL:-http://book2audio:8098}
       BOOKS_PER_USER: ${BOOKS_PER_USER:-3}
       BOOKS_MAX_MB: ${BOOKS_MAX_MB:-100}
+      # Photo upscaling (service `upscale`, off by default): the upscaler (profile `upscaler`) + limits.
+      UPSCALE_URL: ${UPSCALE_URL:-http://upscaler:8099}
+      UPSCALE_PER_DAY: ${UPSCALE_PER_DAY:-20}
+      UPSCALE_ACTIVE: ${UPSCALE_ACTIVE:-3}
+      UPSCALE_MAX_MB: ${UPSCALE_MAX_MB:-25}
       HELPER_REPORT_HOUR: ${HELPER_REPORT_HOUR:-9}
       BASE_DOMAIN: ${BASE_DOMAIN}
       DASHBOARD_PATH: ${DASHBOARD_PATH}
@@ -230,6 +236,8 @@ services:
       - ./secrets:/secrets:ro
       - /proc:/host/proc:ro
       - ${METUBE_DOWNLOADS}:/downloads:ro
+      # upscaler results + previews, handed to members through signed links
+      - ${UPSCALE_DATA:-./upscaler/data}/work:/upscale:ro
     # Mini App / admin API, loopback only for local debugging.
     ports:
       - '${BIND_LOCAL:-127.0.0.1}:${HELPER_LOCAL_PORT:-8086}:8095'
@@ -248,6 +256,26 @@ services:
       - /sys:/host/sys:ro
       - /:/host/root:ro
       - ${DATA_ROOT}:/host/media:ro
+
+  # ---------- Photo upscaler (docs/UPSCALER.md) ----------
+  # upscayl-bin (the Upscayl app's engine) behind a stdlib API, one job at a time.
+  # Needs an NVIDIA GPU: enable docker-compose.gpu.yml. Models are fetched into
+  # UPSCALE_DATA/models by bootstrap.sh (./upscaler/fetch-models.sh).
+  upscaler:
+    container_name: ${STACK_NAME:-meowstack}_upscaler
+    build: ./upscaler
+    image: ${UPSCALER_IMAGE:-meowstack-upscaler:local}
+    profiles: [upscaler]
+    <<: [*restart, *logging]
+    environment:
+      MAX_MB: ${UPSCALE_MAX_MB:-25}
+      MAX_IN_MP: ${UPSCALE_MAX_IN_MP:-24}
+      MAX_OUT_MP: ${UPSCALE_MAX_OUT_MP:-64}
+      KEEP_HOURS: ${UPSCALE_KEEP_HOURS:-24}
+    ports:
+      - '${BIND_LOCAL:-127.0.0.1}:${UPSCALER_LOCAL_PORT:-8099}:8099'
+    volumes:
+      - ${UPSCALE_DATA:-./upscaler/data}:/data
 
   # ---------- Nextcloud ----------
   nextcloud:
