@@ -102,6 +102,15 @@ def fmt_when(lang, ts):
     return f"{ru_date(ts)} в {hm}"
 
 
+def days_word(lang, n):
+    """'1 день' / '3 дня' / '5 дней' -- '1 day' / '3 days'."""
+    if lang == "en":
+        return f"{n} day" + ("" if n == 1 else "s")
+    w = "день" if n % 10 == 1 and n % 100 != 11 else \
+        "дня" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "дней"
+    return f"{n} {w}"
+
+
 # ---------------------------------------------------------------- catalog --
 T = {}
 
@@ -338,6 +347,45 @@ _("stranger.welcome",
   "👋 Hi, {name}! This is MeowHub — a private VPN, messenger and video downloader for friends.\n\n"
   "🔑 Have an invitation code (MEOW-XXXX-XXXX)? Send it here and access opens right away.\n"
   "🙋 No code? The owner has already been notified about you; you can also message {c}.")
+
+_("stranger.welcome_trial",
+  "👋 Привет, {name}! Это MeowHub — частный VPN, мессенджер, загрузка видео, аудиокниги и улучшение фото.\n\n"
+  "🎁 <b>Попробуй бесплатно: {period} полного доступа.</b> Нажми кнопку ниже — всё откроется сразу, код не нужен.\n"
+  "Чтобы продлить после пробного периода, напиши {c}.\n\n"
+  "🔑 Уже есть код приглашения (MEOW-XXXX-XXXX)? Просто пришли его сюда.",
+  "👋 Hi, {name}! This is MeowHub — a private VPN, messenger, video downloads, audiobooks and photo upscaling.\n\n"
+  "🎁 <b>Try it free: {period} of full access.</b> Tap the button below and everything opens right away, no code needed.\n"
+  "To continue after the trial, message {c}.\n\n"
+  "🔑 Already have an invitation code (MEOW-XXXX-XXXX)? Just send it here.")
+_("stranger.text_trial",
+  "🔒 MeowHub — закрытый сервис.\n🎁 Его можно попробовать бесплатно {period} — кнопка ниже.\n"
+  "Есть код приглашения — пришли его сюда. Вопросы — {c}.",
+  "🔒 MeowHub is an invite-only service.\n🎁 You can try it free for {period} — tap the button below.\n"
+  "Have an invitation code? Send it here. Questions — {c}.")
+_("btn.trial", "🎁 Попробовать бесплатно {period}", "🎁 Try it free for {period}")
+_("trial.started",
+  "🎁 <b>Пробный доступ до {when}.</b> Чтобы продлить его потом, напиши {c}.",
+  "🎁 <b>Your trial runs until {when}.</b> To continue afterwards, message {c}.")
+_("trial.t_started", "🎁 Пробный доступ открыт", "🎁 Trial started")
+_("trial.used", "Пробный период уже использован. Чтобы получить доступ, напиши {c}.",
+  "The free trial has already been used. To get access, message {c}.")
+_("trial.off", "Пробный доступ сейчас выключен. Напиши {c}.",
+  "The free trial is switched off right now. Message {c}.")
+_("trial.full", "Пробные места на сегодня закончились — загляни завтра или напиши {c}.",
+  "Today's free trials have run out — come back tomorrow or message {c}.")
+_("member.why_trial", "пробный период закончился {date}", "your free trial ended {date}")
+_("rem.trial_expired",
+  "⏸ Пробный период MeowHub закончился. Сервисы приостановлены, аккаунты сохранены.\n"
+  "Понравилось? Напиши {c}, чтобы продлить доступ.",
+  "⏸ Your MeowHub free trial has ended. Services are paused and your accounts are kept.\n"
+  "Liked it? Message {c} to continue.")
+_("usage.trial", "🎁 {who} взял(а) пробный доступ на {period}, до {when}.",
+  "🎁 {who} started a free trial for {period}, until {when}.")
+_("usage.svc.trial", "Пробный доступ", "Free trial")
+_("svc.trial_btn", "{mark} 🎁 Пробный доступ новичкам — {period}", "{mark} 🎁 Free trial for newcomers — {period}")
+_("svc.trial_line", "{mark} Пробный доступ новичкам ({period}, не больше {cap} в сутки)",
+  "{mark} Free trial for newcomers ({period}, at most {cap} a day)")
+_("svc.trial_name", "Пробный доступ", "Free trial")
 
 # -- VPN / Matrix in chat ----------------------------------------------------------
 _("vpn.owner_none", "У владельца нет подписки — конфиги в панели 3x-ui.",

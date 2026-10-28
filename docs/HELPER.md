@@ -130,6 +130,18 @@ Matrix.
   the last 2 hours (e.g. a 1-day code), so nobody is told "expires in 24 h" right
   after joining.
 
+**Free trial** (for showing the project to new people; off until you enable it): the member bot's first
+message to a newcomer offers **🎁 Try it free for 1 day** (also a button on the Mini App's stranger
+screen). It makes a normal membership with the default services (vpn + matrix, plus every switched-on
+`all` service) for `TRIAL_DAYS` (1).
+- **Once per Telegram id, ever**: no offer if the id has a member row or any `trial`/`redeem`/`grant`
+  event, so deleting the member doesn't give a second trial. At most `TRIAL_PER_DAY` (20) start in 24 h.
+- Switch: `TRIAL_ENABLED` (compose, default `0`) until the owner flips it in `/services` → "🎁 Free trial
+  for newcomers" or on the Bots page → Services → Free trial; the switch is stored in the bot's database.
+- While the trial is the newest access event, expiry texts say "your free trial ended — message the
+  owner"; the owner's usual expiry notice with "+30 days" is the one-tap extension. The owner and admins
+  get a usage notice (`trial`) when someone starts one. Tests: `tests/test_trial.py`.
+
 ### Setting it up
 
 The bot, codes and Mini App work as soon as the profile runs. The VPN and
@@ -595,6 +607,7 @@ The owner and admins hear, through the helper bot, when someone uses a member se
 | `youtube` | a finished download: title, format, size, link |
 | `books` | a book sent to narration: title, author, voice, chapters, length, place in line, the member's limit |
 | `upscale` | a photo sent: name, mode, scale, input → output size, today's count of the limit |
+| `trial` | a newcomer started the free trial, until when |
 
 - Recipients: the owner + `HELPER_ADMIN_IDS`, minus whoever acted; the owner's own actions are never reported.
 - Each recipient switches each service on/off **for themselves**: `/notify` in the helper bot, or
@@ -623,7 +636,7 @@ Where the logins come from:
 
 | Source | What | Edit with |
 |---|---|---|
-| `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI, bots admin page, downloader (same login as the bots page) — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
+| `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI, bots admin page, and the downloader, photo upscaler and audiobooks pages (same login as the bots page) — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
 | the bot | accounts that store only a hash: 3x-ui, Immich, n8n, Matrix users… | `/setpass <id> <login> <password>` |
 
 `<id>` is the card id from `services.js` (`immich`, `3xui`, `n8n`, …); `/pass`

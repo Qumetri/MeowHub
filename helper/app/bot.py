@@ -49,7 +49,8 @@ import upscale
 import usage
 import webapp
 from i18n import tr
-from members import AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, Members, Reconciler, norm_code, owner_contact, ru_date
+from members import (AWG_PROTOCOLS, DEFAULT_SERVICES, GRANTABLE, SERVICES, TRIAL_DAYS, TRIAL_PER_DAY,
+                     Members, Reconciler, norm_code, owner_contact, ru_date)
 from store import Store
 from synapse import Synapse
 from tg import Bot, TelegramError
@@ -709,7 +710,8 @@ class Helper:
         L = self.lang(uid)
         st = self.members.status(m)
         why = (tr(L, "member.why_susp") if st == "suspended"
-               else tr(L, "member.why_exp", date=i18n.fmt_date(L, m["expires_ts"])))
+               else tr(L, "member.why_trial" if self.members.on_trial(uid) else "member.why_exp",
+                       date=i18n.fmt_date(L, m["expires_ts"])))
         self.bot.send(cid, tr(L, "member.paused", why=why, c=esc(self.contact())),
                       reply_markup=self.keyboard(uid))
 
@@ -767,11 +769,17 @@ class Helper:
         if len(self.seen_from) > SEEN_MAX:
             self.seen_from.pop(next(iter(self.seen_from)))
         first = text.split(" ")[0].split("@")[0].lower() == "/start" and uid != self.owner_id()
-        key = "stranger.welcome" if first else "stranger.text"
-        text_ = tr(L, key, name=esc(frm.get("first_name") or name), c=esc(self.contact()))
+        # a newcomer is offered the free trial with a button (an inline keyboard replaces the
+        # language keyboard for this one message; the welcome after the trial brings it back)
+        trial = self.members.trial_state(uid) == "ok"
+        key = ("stranger.welcome" if first else "stranger.text") + ("_trial" if trial else "")
+        period = i18n.days_word(L, TRIAL_DAYS)
+        text_ = tr(L, key, name=esc(frm.get("first_name") or name), c=esc(self.contact()), period=period)
         if self.webapp_url:
             text_ += "\n\n" + tr(L, "stranger.blue")
-        self.bot.send(cid, text_, reply_markup=self.keyboard(uid))
+        markup = {"inline_keyboard": [[{"text": tr(L, "btn.trial", period=period), "callback_data": "trial:go"}]]} \
+            if trial else self.keyboard(uid)
+        self.bot.send(cid, text_, reply_markup=markup)
         # tell the owner once per STRANGER_RENOTIFY, and only mark it once the notice got through
         now = time.time()
         if uid != self.owner_id() and now - self.nagged.get(uid, 0) >= STRANGER_RENOTIFY:
@@ -784,6 +792,39 @@ class Helper:
                                      {"text": tr(OL, "btn.give30"), "callback_data": f"g:{uid}:30"},
                                      {"text": tr(OL, "btn.ignore"), "callback_data": f"g:{uid}:x"}]]}):
                 self.nagged[uid] = now
+
+    # ------------------------------------------------------------------ trial --
+    def begin_trial(self, uid, frm=None):
+        """Start the newcomer's free trial; (state, member) as Members.start_trial. On success
+        the owner and admins hear about it as a usage notice (service `trial`)."""
+        state, m = self.members.start_trial(uid, frm)
+        if m is not None:
+            exp = m["expires_ts"]
+            self.core.usage.report("trial", uid, lambda L, who: tr(
+                L, "usage.trial", who=who, period=i18n.days_word(L, TRIAL_DAYS), when=i18n.fmt_when(L, exp)),
+                user=frm)
+        return state, m
+
+    def trial_note(self, m, L):
+        return tr(L, "trial.started", when=i18n.fmt_when(L, m["expires_ts"]), c=esc(self.contact()))
+
+    def cb_trial(self, q, frm, cid, mid):
+        uid = frm.get("id")
+        L = self.lang(uid, frm)
+        if uid is None or cid != uid:
+            return self.bot.answer(q["id"], tr(L, "cb.private_only"), alert=True)
+        state, m = self.begin_trial(uid, frm)
+        try:                                                # the offer is spent either way
+            self.bot.call("editMessageReplyMarkup", chat_id=cid, message_id=mid, reply_markup={"inline_keyboard": []})
+        except TelegramError as e:
+            log.info("trial markup %s: %s", cid, e)
+        if m is None:
+            if state == "used" and self.role(uid) is not None:
+                self.bot.answer(q["id"])
+                return self.member_start(cid, uid)
+            return self.bot.answer(q["id"], tr(L, "trial." + state, c=self.contact()), alert=True)
+        self.bot.answer(q["id"], tr(L, "trial.t_started"))
+        self.send_menu(cid, uid, self.welcome(m) + "\n\n" + self.trial_note(m, L))
 
     # --------------------------------------------------------- member features --
     def cmd_vpn(self, cid, uid):
@@ -847,6 +888,10 @@ class Helper:
             mark = "✅" if st["enabled"] else "⬜"
             t.append(tr(L, "svc.line", mark=mark, name=esc(st["name"]), n=st["members_with_access"]))
             kb.append([{"text": f"{mark} {st['name']} — {who}", "callback_data": f"svc:t:{st['id']}"}])
+        mark = "✅" if self.members.trial_enabled() else "⬜"
+        period = i18n.days_word(L, TRIAL_DAYS)
+        t.append(tr(L, "svc.trial_line", mark=mark, period=period, cap=TRIAL_PER_DAY))
+        kb.append([{"text": tr(L, "svc.trial_btn", mark=mark, period=period), "callback_data": "svc:trial"}])
         t += ["", tr(L, "svc.foot1"), tr(L, "svc.foot2")]
         kb.append([{"text": tr(L, "ntf.open"), "callback_data": "ntf:v"}])
         return "\n".join(t), {"inline_keyboard": kb}
@@ -858,6 +903,11 @@ class Helper:
     def cb_services(self, cid, mid, rest):
         L = self.lang(cid)
         act, _, svc = rest.partition(":")
+        if act == "trial":
+            on = not self.members.trial_enabled()
+            self.members.set_trial_enabled(on)
+            self._edit(cid, mid, *self.services_view(L))
+            return tr(L, "svc.toast", name=tr(L, "svc.trial_name"), state=tr(L, "svc.on" if on else "svc.off"))
         if act != "t" or svc not in SERVICES:
             return None
         on = not self.members.service_enabled(svc)
@@ -874,7 +924,7 @@ class Helper:
         for svc in usage.SERVICES:
             on = u.enabled(uid, svc)
             mark = "🔔" if on else "🔕"
-            name = SERVICES[svc]["name_" + L]
+            name = usage.label(svc, L)
             t.append(f"{mark} {esc(name)}")
             kb.append([{"text": f"{mark} {name}", "callback_data": f"ntf:t:{svc}"}])
         t += ["", tr(L, "ntf.foot")]
@@ -895,7 +945,7 @@ class Helper:
             return None
         on = self.core.usage.toggle(cid, svc)
         self._edit(cid, mid, *self.notify_view(cid))
-        return tr(L, "svc.toast", name=SERVICES[svc]["name_" + L], state=tr(L, "ntf.on" if on else "ntf.off"))
+        return tr(L, "svc.toast", name=usage.label(svc, L), state=tr(L, "ntf.on" if on else "ntf.off"))
 
     # ------------------------------------------------------------ owner: codes --
     def code_card(self, code, days, svcs, lang="ru"):
@@ -1339,6 +1389,8 @@ class Helper:
         kind, _, rest = data.partition(":")
         if kind == "lang":                                  # everybody may pick a language
             return self.cb_lang(q, frm, cid, rest)
+        if kind == "trial":                                 # the newcomer's free-trial button
+            return self.cb_trial(q, frm, cid, mid)
         role = self.role(uid)
         if role is None:
             return self.bot.answer(q["id"], tr(L, "cb.no_access"), alert=True)

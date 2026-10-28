@@ -145,6 +145,8 @@ html[data-mode='browser'] .page--wide { max-width: 1200px; }
 .brandmark.ok { background: linear-gradient(150deg, #22a559, #0e8a80); }
 
 .codebox { width: 100%; max-width: 420px; margin: 24px 0 8px; }
+.trial-after { font-size: 14px; }
+.trial-or { margin: 20px 0 -16px; color: var(--hint); font-size: 14px; }
 .codeinput {
   width: 100%; padding: 16px 12px; text-align: center; border-radius: 14px;
   font: 600 24px/1.2 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.06em;

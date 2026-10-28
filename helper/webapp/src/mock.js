@@ -273,6 +273,7 @@ export async function handle(method, path, body) {
       via: viaMember ? 'member' : P.get('mode') === 'tg' ? 'helper' : 'browser',
       member_bot_username: state.keys.member.bot?.username || '',
       can_preview: ROLE === 'owner',
+      trial: { state: !m && P.get('trial') !== 'used' ? 'ok' : 'used', days: 1 },
       // Only switched-on services; `available` = what this person can actually use right now.
       services: SERVICES.filter((s) => SVC_STATE.find((x) => x.id === s.id).enabled).map((s) => ({
         id: s.id, name: s[L()][0], description: s[L()][1],
@@ -285,6 +286,18 @@ export async function handle(method, path, body) {
     if (!['auto', 'ru', 'en'].includes(body?.lang)) err(400, 'bad_request', tr('Неверный язык', 'Invalid language'))
     langPref = body.lang
     return { lang: L(), lang_pref: langPref }
+  }
+
+  if (path === 'trial' && method === 'POST') {
+    if (selfMember()) return { result: 'used', message: tr('Пробный период уже использован.', 'The free trial has already been used.'), member: null }
+    const m = U(TG_USER.id, TG_USER.first_name, TG_USER.last_name, TG_USER.username, 1, ['vpn', 'matrix'], 0, 0)
+    state.members.unshift(m)
+    return { result: 'new', member: view(m) }
+  }
+  if (path === 'admin/trial') {
+    ownerOnly()
+    if (method === 'POST') state.trialOn = !!body.enabled
+    return { enabled: state.trialOn !== false, days: 1, per_day: 20, started: 7 }
   }
 
   if (path === 'redeem') {

@@ -40,6 +40,7 @@ export default function Services() {
   }
 
   return (
+    <>
     <Section title={t('sv.title')} footer={t('sv.foot')}>
       {list.map((s) => (
         <Cell key={s.id} icon={ICON[s.id] || 'info'} tone={s.enabled ? 'accent' : 'mute'} title={s.name} sub={s.description}
@@ -51,6 +52,39 @@ export default function Services() {
           </span>
         </Cell>
       ))}
+    </Section>
+    <Trial />
+    </>
+  )
+}
+
+// Owner: the newcomers' free trial (GET/POST /api/admin/trial).
+function Trial() {
+  const { data, setData } = useApi('admin/trial')
+  const [busy, setBusy] = useState(false)
+  if (!data) return null
+  const period = `${data.days} ${plural(data.days, t('stranger.day_forms').split('|'))}`
+
+  async function toggle(enabled) {
+    if (busy) return
+    const prev = data
+    setBusy(true)
+    setData({ ...data, enabled })
+    try {
+      setData(await api('admin/trial', { method: 'POST', body: { enabled } }))
+      haptic.notify('success')
+    } catch (e) {
+      setData(prev)
+      haptic.notify('error'); toast(e.message, 'bad')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Section title={t('sv.trial_title')} footer={t('sv.trial_foot', { per_day: data.per_day })}>
+      <Cell icon="gift" tone={data.enabled ? 'accent' : 'mute'} title={t('sv.trial_name', { period })}
+        sub={t('sv.trial_started', { n: data.started })}
+        right={<Switch checked={!!data.enabled} disabled={busy} label={t('sv.trial_title')} onChange={toggle} />}
+        onClick={() => toggle(!data.enabled)} />
     </Section>
   )
 }

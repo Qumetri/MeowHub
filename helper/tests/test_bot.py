@@ -97,6 +97,7 @@ class BotTest(unittest.TestCase):
 
     # ------------------------------------------------------------ strangers --
     def test_stranger_gets_lock_and_owner_one_notice(self):
+        self.mm.set_trial_enabled(False)                        # the plain lock text (trial: test_trial.py)
         self.h.on_message(msg(77, "привет"))
         self.h.on_message(msg(77, "ещё раз"))
         out = self.b.sent(77)
@@ -133,6 +134,7 @@ class BotTest(unittest.TestCase):
         self.assertEqual(len(self.b.sent(OWNER)), 2)
 
     def test_no_webapp_url_omits_buttons(self):
+        self.mm.set_trial_enabled(False)                        # the plain lock text (trial: test_trial.py)
         self.h.webapp_url = ""
         self.h.on_message(msg(77, "hi"))
         out = self.b.sent(77)[0]

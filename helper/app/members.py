@@ -51,6 +51,10 @@ DEFAULT_SERVICES = ["vpn", "matrix"]
 SERVICE_DEFAULTS = {"vpn": True, "matrix": True, "tools": True, "youtube": False, "books": False, "upscale": False}
 
 DAY = 86400
+# Free trial for newcomers (the member bot's first message offers it): once per Telegram id,
+# never for anyone who already was a member; TRIAL_PER_DAY caps how many start in 24 h.
+TRIAL_DAYS = max(1, int(os.environ.get("TRIAL_DAYS", "1") or 1))
+TRIAL_PER_DAY = max(0, int(os.environ.get("TRIAL_PER_DAY", "20") or 0))
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 SUB_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 RATE_MAX, RATE_WINDOW = 5, 3600
@@ -356,6 +360,67 @@ class Members:
                 raise
         self.changed.set()
         return member
+
+    # ----------------------------------------------------------------- trial --
+    def trial_enabled(self):
+        """The owner's switch (settings `trial_enabled`); until first flipped, env TRIAL_ENABLED (default on)."""
+        return (self.s.get("trial_enabled", "") or os.environ.get("TRIAL_ENABLED", "1")).strip() != "0"
+
+    def set_trial_enabled(self, on):
+        self.s.set("trial_enabled", "1" if on else "0")
+        self.log(None, "trial_toggle", "on" if on else "off")
+
+    @staticmethod
+    def _trial_check(db, uid, now):
+        """None when `uid` may start a trial now, else why not: used | full."""
+        if db.execute("SELECT 1 FROM members WHERE id=?", (uid,)).fetchone() or db.execute(
+                "SELECT 1 FROM events WHERE uid=? AND kind IN ('trial','redeem','grant') LIMIT 1", (uid,)).fetchone():
+            return "used"
+        n = db.execute("SELECT COUNT(*) FROM events WHERE kind='trial' AND ts>?", (now - DAY,)).fetchone()[0]
+        return "full" if n >= TRIAL_PER_DAY else None
+
+    def trial_state(self, uid):
+        """ok | off | used | full -- whether the trial button is offered to `uid`."""
+        if uid is None:
+            return "used"
+        if not self.trial_enabled():
+            return "off"
+        with self.s.lock:
+            return self._trial_check(self.s.db, int(uid), int(time.time())) or "ok"
+
+    def start_trial(self, uid, frm=None):
+        """(state, member): ('new', row) on success, else (off|used|full, None)."""
+        uid = int(uid)
+        if not self.trial_enabled():
+            return "off", None
+        now = int(time.time())
+        with self.s.lock:
+            db = self.s.db
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                why = self._trial_check(db, uid, now)
+                member = None
+                if why is None:
+                    self._apply(db, uid, frm, TRIAL_DAYS, DEFAULT_SERVICES, now)
+                    self._log_db(db, uid, "trial", f"+{TRIAL_DAYS}d {','.join(_services(DEFAULT_SERVICES))}")
+                    member = self._row(db.execute("SELECT * FROM members WHERE id=?", (uid,)).fetchone())
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        if member is None:
+            return why, None
+        self.changed.set()
+        return "new", member
+
+    def on_trial(self, uid):
+        """True while the newest access event of `uid` is the trial (no code or grant since)."""
+        for e in self.events(uid, 50):
+            if e["kind"] in ("redeem", "grant", "extend", "expire") and e["detail"] != "reminder":
+                return False
+            if e["kind"] == "trial":
+                return True
+        return False
 
     def extend(self, uid, days):
         now = int(time.time())
@@ -708,7 +773,7 @@ class Reconciler:
         for e in self.m.events(uid, 20):                 # newest first
             if e["kind"] == "expire" and e["detail"] != "reminder":
                 return False
-            if e["kind"] in ("redeem", "grant", "extend"):
+            if e["kind"] in ("redeem", "grant", "extend", "trial"):
                 return now - e["ts"] < window
         return False
 
@@ -728,7 +793,8 @@ class Reconciler:
             if left <= 0:
                 if flag == -1:
                     continue
-                text = i18n.tr(L, "rem.expired", c=esc(self._contact()))
+                text = i18n.tr(L, "rem.trial_expired" if self.m.on_trial(uid) else "rem.expired",
+                               c=esc(self._contact()))
                 self.m.set_reminded(uid, -1)
                 self.m.log(uid, "expire", "reminder")
                 self.send(uid, text)

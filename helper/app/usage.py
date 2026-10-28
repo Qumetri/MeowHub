@@ -16,12 +16,28 @@ import logging
 import threading
 
 import i18n
+from members import SERVICES as MEMBER_SERVICES
 
 log = logging.getLogger("usage")
 
-# Services that report usage, in the order /notify lists them (ids from members.SERVICES).
-SERVICES = ("youtube", "books", "upscale")
+# Services that report usage, in the order /notify lists them (ids from members.SERVICES, plus
+# "trial": a newcomer starting the free trial).
+SERVICES = ("youtube", "books", "upscale", "trial")
 KEY = "usage_notify"
+
+
+def label(service, lang):
+    """Display name of a notice switch: the member service's own name, else `usage.svc.<id>`."""
+    m = MEMBER_SERVICES.get(service)
+    return m["name_" + lang] if m else i18n.tr(lang, "usage.svc." + service)
+
+
+def who(m, uid, user=None):
+    """'<b>Name</b> (@user, <code>id</code>)' from a member row, else from Telegram's user dict."""
+    src = m or user or {}
+    name = f"{src.get('first_name', '')} {src.get('last_name', '')}".strip() or str(uid)
+    tail = (f"@{html.escape(src['username'])}, " if src.get("username") else "") + f"<code>{uid}</code>"
+    return f"<b>{html.escape(name)}</b> ({tail})"
 
 
 def who(m, uid, user=None):

@@ -689,7 +689,10 @@ class App:
                          for k, v in mem.SERVICES.items() if self.h.members.service_enabled(k)],
             "bot_username": self.h.bot_username or "",
             "via": ctx.via, "member_bot_username": self.member_username(),
-            "can_preview": ctx.role == "owner" and ctx.via in ("helper", "browser")})
+            "can_preview": ctx.role == "owner" and ctx.via in ("helper", "browser"),
+            # the newcomer's free trial: offered on the stranger screen while state is "ok"
+            "trial": {"state": self.h.members.trial_state(ctx.uid) if ctx.mode == "tg" and m is None else "used",
+                      "days": mem.TRIAL_DAYS}})
 
     def api_lang(self, req, ctx):
         """Save the caller's language preference (browser admin = the owner's)."""
@@ -724,6 +727,30 @@ class App:
         cur = self.h.members.get(ctx.uid)
         return jr({"result": res, "message": i18n.tr(ctx.lang, "result." + res) if i18n.has("result." + res) else "",
                    "member": self.h.members.view(cur) if cur else None})
+
+    def api_trial(self, req, ctx):
+        """Start the caller's free trial (same as the bot's button)."""
+        if ctx.mode != "tg" or ctx.uid is None:
+            raise ApiError(403, "tg_only", "api.tg_only")
+        state, row = self.h.begin_trial(ctx.uid, ctx.user)
+        cur = self.h.members.get(ctx.uid)
+        return jr({"result": state,
+                   "message": i18n.tr(ctx.lang, "trial." + state, c=env("OWNER_CONTACT"))
+                   if i18n.has("trial." + state) else "",
+                   "until": row["expires_ts"] if row else None,
+                   "member": self.h.members.view(cur) if cur else None})
+
+    def api_trial_admin(self, req, ctx):
+        """GET: the trial switch and its limits; POST {enabled}: flip it (owner)."""
+        self.need_owner(ctx)
+        if req.command == "POST":
+            on = req.json().get("enabled")
+            if not isinstance(on, bool):
+                raise ApiError(400, "bad_request", "api.bad_enabled")
+            self.h.members.set_trial_enabled(on)
+        n = self.h.store.q("SELECT COUNT(*) AS n FROM events WHERE kind='trial'")[0]["n"]
+        return jr({"enabled": self.h.members.trial_enabled(), "days": mem.TRIAL_DAYS,
+                   "per_day": mem.TRIAL_PER_DAY, "started": n})
 
     def _announce_redeem(self, ctx, row, res):
         if ctx.uid == self.h.owner_id():
@@ -1649,6 +1676,7 @@ ROUTES = [
     ("GET", r"/api/me", "any", "api_me"),
     ("POST", r"/api/lang", "any", "api_lang"),
     ("POST", r"/api/redeem", "any", "api_redeem"),
+    ("POST", r"/api/trial", "any", "api_trial"),
     ("GET", r"/api/vpn", "any", "api_vpn"),
     ("GET", r"/api/matrix", "any", "api_matrix"),
     ("POST", r"/api/matrix/create", "any", "api_matrix_create"),
@@ -1666,6 +1694,8 @@ ROUTES = [
     ("GET", r"/api/admin/inbounds", "any", "api_inbounds"),
     ("POST", r"/api/admin/inbounds", "any", "api_inbounds_set"),
     ("GET", r"/api/admin/services", "any", "api_services"),
+    ("GET", r"/api/admin/trial", "any", "api_trial_admin"),
+    ("POST", r"/api/admin/trial", "any", "api_trial_admin"),
     ("POST", r"/api/admin/services/([a-z0-9_]{1,20})", "any", "api_service_set"),
     ("POST", r"/api/admin/sync", "any", "api_sync"),
     ("GET", r"/api/dl/presets", "any", "api_dl_presets"),

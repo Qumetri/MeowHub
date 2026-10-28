@@ -568,7 +568,10 @@ class TestBotTextsInEnglish(BotCase):
         i18n.set_pref(self.h.store, tb.OWNER, "en")
         self.h.on_message(self.msg(77, "hi", "en"))
         self.assertIn("invite-only service", self.b.sent(77)[0][2])
-        self.assertIn("Contact @boss", self.b.sent(77)[0][2])
+        self.assertIn("Questions — @boss", self.b.sent(77)[0][2])
+        self.assertIn("try it free for 1 day", self.b.sent(77)[0][2])
+        self.assertEqual(self.b.sent(77)[0][3]["reply_markup"]["inline_keyboard"][0][0]["text"],
+                         "🎁 Try it free for 1 day")
         note = self.b.sent(tb.OWNER)[0]
         self.assertIn("is writing to the bot", note[2])
         self.assertEqual([b["text"] for r in note[3]["reply_markup"]["inline_keyboard"] for b in r],

@@ -164,6 +164,9 @@ class FakeHelper:
     def notify_owner(self, text, reply_markup=None):
         self.sent.append((OWNER, text))
 
+    def begin_trial(self, uid, frm=None):
+        return self.members.start_trial(uid, frm)
+
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -294,6 +297,29 @@ class TestAuth(Base):
         self.make_member(200)
         st, d = self.j("GET", "/api/admin/members", headers=self.tgh(200))
         self.assertEqual((st, d["error"]), (403, "forbidden"))
+
+
+class TestTrial(Base):
+    def test_stranger_sees_offer_and_starts_once(self):
+        _, me = self.j("GET", "/api/me", headers=self.tgh(556))
+        self.assertEqual(me["trial"], {"state": "ok", "days": 1})
+        st, d = self.j("POST", "/api/trial", headers=self.tgh(556))
+        self.assertEqual((st, d["result"], d["member"]["status"]), (200, "new", "active"))
+        _, me = self.j("GET", "/api/me", headers=self.tgh(556))
+        self.assertEqual((me["role"], me["trial"]["state"]), ("member", "used"))
+        _, d = self.j("POST", "/api/trial", headers=self.tgh(556))
+        self.assertEqual(d["result"], "used")
+        self.assertIn("@owner", d["message"])
+
+    def test_browser_rejected_and_admin_switch(self):
+        st, d = self.j("POST", "/api/trial", headers=self.admin())
+        self.assertEqual((st, d["error"]), (403, "tg_only"))
+        st, d = self.j("POST", "/api/admin/trial", {"enabled": False}, self.admin())
+        self.assertEqual((st, d["enabled"], d["days"]), (200, False, 1))
+        _, me = self.j("GET", "/api/me", headers=self.tgh(557))
+        self.assertEqual(me["trial"]["state"], "off")
+        st, _ = self.j("GET", "/api/admin/trial", headers=self.tgh(557))
+        self.assertEqual(st, 403)
 
 
 class TestRedeem(Base):
