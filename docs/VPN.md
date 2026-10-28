@@ -181,6 +181,29 @@ route does nothing until you create the matching inbound in the panel:
 If you use a free shared DNS domain, a domain you own is safer. Check from a network
 outside your own: a request made on the server hairpins through the router.
 
+### Reality self-steal on extra ports (TCP+Vision, gRPC)
+
+Reality whose SNI is **your own domain** and whose `target` is your own Caddy, so an active
+probe gets your real site and certificate. Field reports from Sept–Oct 2026 (see the
+[research notes](research/russia-2026-10.md)) say this is what still works in Russia, while
+borrowed SNIs (apple, google, icloud…), the uTLS `chrome` fingerprint and port 443 are policed.
+It can't ride `:443` through the layer4 router (the SNI is the same as the web site's), so it
+needs its own public port; alternative HTTPS ports such as `8443` and `2053` look ordinary.
+
+1. **Add inbound**: VLESS, transport **TCP** (flow `xtls-rprx-vision` on the clients) or
+   **gRPC** (multiplexed: stays under the "more than 3 parallel handshakes" freeze), security
+   **reality**, port e.g. `8443` / `2053`.
+2. Reality: `serverNames` = `<your domain>`, `target` = `127.0.0.1:443`, `xver` 0 (Caddy's
+   layer4 front adds the PROXY header itself), fresh keys from `xray x25519` and new shortIds,
+   **fingerprint `firefox`**, `minClientVer` empty.
+3. `sockopt`: `tcpKeepAliveIdle` 60, `tcpKeepAliveInterval` 15 (reaps dead mobile clients).
+4. Attach clients (and add the inbound to the helper bot's member inbounds); test with a real
+   Xray client built from the share link, not with openssl.
+
+Server-side Xray 26.9.8+ accepts only `chrome`, `firefox`, `safari` and `randomized` client
+fingerprints for Reality; `edge`, `ios`, `qq` and `random` silently get the target's real
+certificate (XTLS/Xray-core#7259).
+
 ### Upgrading
 
 The panel's own Update button does not work in Docker. Xray is bundled in the
