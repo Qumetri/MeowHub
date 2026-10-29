@@ -187,6 +187,24 @@ It only sends and never calls `getUpdates`, so it can share a bot with something
 polls it, like the 3x-ui panel's notification bot. Uploads to Telegram from a home link
 can stall for a couple of minutes, so the timeout is 300 s.
 
+## Dynamic DNS (a home IP that changes)
+
+`scripts/ddns-update.py` keeps FreeDNS A records on the current public IPv4. Put
+`FREEDNS_UPDATE_URLS` (or `FREEDNS_SHA`) in `.env`, then add it to the crontab of the
+user that owns `.env`:
+
+```bash
+*/5 * * * * /usr/bin/python3 /path/to/meowstack/scripts/ddns-update.py >> /path/to/meowstack/scripts/ddns-update.log 2>&1
+scripts/ddns-update.py --check    # what it sees, changes nothing
+scripts/ddns-update.py --force    # push every record now
+```
+
+It trusts an address only when two echo services agree, passes it to FreeDNS explicitly
+(a host with IPv6 would otherwise be recorded by its v6 source address), re-sends once a
+day, restarts LiveKit (`DDNS_RESTART`; it reads the external IP only at startup) and
+reports through `scripts/tg-report.py` when the IP changes or an update fails. Clients
+still see the old address until the record's TTL runs out.
+
 ## Health checks
 
 ```bash
