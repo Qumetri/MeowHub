@@ -39,6 +39,7 @@ on hardware you control.
 | 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
 | 🔍 | **Photo upscaler** — enlarge photos and pictures 2–4× on your GPU (Upscayl's models), before/after slider, for you and your members | `yourdomain/<secret>` + Mini App |
+| 📄 | **PDF tools** — your own iLovePDF: merge, split, compress, OCR, Office ↔ PDF, passwords, redaction — 30 tools, on an engine with no internet access | `yourdomain/<secret>` |
 | 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people, with a Telegram Mini App in Russian or English | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
@@ -164,7 +165,7 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH`, `UPSCALE_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH`, `UPSCALE_PATH`, `PDF_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
 | Secrets | 12 passwords and shared secrets, all generated |
@@ -244,6 +245,21 @@ to a coloured ticker badge.
 Setup is four steps in the Telegram tab, including a **Detect chat** button so
 you never hunt for a numeric chat ID. Full details in
 **[docs/CRYPTO.md](docs/CRYPTO.md)**.
+
+## Documents without someone else's cloud
+
+The `pdftools` profile is an iLovePDF for documents you would rather not upload anywhere: merge, split,
+compress, OCR into searchable PDFs, Word/Excel/PowerPoint ↔ PDF, page numbers, watermarks, passwords,
+and redaction of passport numbers before you send a scan. Thirty tools, page thumbnails to pick pages
+by clicking, and "continue with this file" to chain them.
+
+<img src="docs/img/pdftools.png" alt="The PDF tools page: a round stamp reading 'never leaves the server', a search box and tool cards grouped by task" width="100%">
+
+The engine is [Stirling-PDF](https://github.com/Stirling-Tools/Stirling-PDF) with LibreOffice,
+Tesseract and Ghostscript, behind a page of our own. It sits on a Docker network with **no route to the
+internet**, keeps work files **in RAM only**, and Caddy lets through **only the thirty endpoints the
+page uses**. Two tools (organize pages, images) run entirely in the browser. Full details in
+**[docs/PDFTOOLS.md](docs/PDFTOOLS.md)**.
 
 ## Automating things
 
@@ -379,6 +395,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
 | 🔍 **[UPSCALER.md](docs/UPSCALER.md)** | The GPU photo upscaler — setup, models, Vulkan in Docker, limits |
+| 📄 **[PDFTOOLS.md](docs/PDFTOOLS.md)** | The PDF tools — enabling it, the offline engine, the endpoint allowlist, OCR languages, pitfalls |
 | 🌡️ **[SENSOR.md](docs/SENSOR.md)** | The ESP32 room sensor — posting from another network, token, certificate check, importing old readings |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, admins, VPN by app, downloader, audiobooks, Russian/English |

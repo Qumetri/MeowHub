@@ -121,6 +121,7 @@ PY
 randomise_path DASHBOARD_PATH  hub
 randomise_path METUBE_PATH     dl
 randomise_path UPSCALE_PATH    upscale
+randomise_path PDF_PATH        docs
 randomise_path MATRIXRTC_PATH  call
 randomise_path AWG_ADMIN_PATH  awg
 randomise_path XHTTP_PATH      xhttp
@@ -321,6 +322,12 @@ mk "${UPSCALE_DATA:-./upscaler/data}/work"
 if [[ $COMPOSE_PROFILES == *upscaler* ]]; then
   ./upscaler/fetch-models.sh "${UPSCALE_DATA:-./upscaler/data}" && c_ok "upscaler models (checksums verified)"
 fi
+mk ./pdftools/configs
+mk ./pdftools/web/dist
+if [[ $COMPOSE_PROFILES == *pdftools* ]]; then
+  ./pdftools/fetch-tessdata.sh "${PDFTOOLS_DATA:-./pdftools/data}/tessdata" "${PDF_OCR_LANGS:-eng}" \
+    && c_ok "pdftools OCR languages" || c_skip "pdftools OCR languages failed — re-run ./pdftools/fetch-tessdata.sh"
+fi
 mk "$PHOTOS_EXTERNAL"
 mk "$PLEX_MEDIA"; mk "$PLEX_MEDIA/Movies"; mk "$PLEX_MEDIA/TV Shows"; mk "$PLEX_MEDIA/Anime"
 mk ./caddy/data
@@ -394,6 +401,7 @@ VITE_MATRIX_HOST=${MATRIX_HOST}
 VITE_AWG_ADMIN_PATH=${AWG_ADMIN_PATH}
 VITE_METUBE_PATH=${METUBE_PATH}
 VITE_UPSCALE_PATH=$([[ $COMPOSE_PROFILES == *upscaler* ]] && echo "${UPSCALE_PATH}")
+VITE_PDF_PATH=$([[ $COMPOSE_PROFILES == *pdftools* ]] && echo "${PDF_PATH}")
 VITE_CRYPTO_PATH=${CRYPTO_PATH}
 VITE_N8N_PATH=${N8N_PUBLIC_PATH}
 VITE_SENSOR_PATH=${SENSOR_PATH}
@@ -410,6 +418,19 @@ elif command -v npm >/dev/null; then
     && c_new "dashboard built" || c_skip "dashboard build failed — run it by hand in ./dashboard"
 else
   c_skip "npm not found — hub page will 404 until you build ./dashboard"
+fi
+
+# The PDF tools page (profile `pdftools`). Relative asset paths, so the secret path
+# can change without a rebuild. Vite 8 needs Node 20.19+.
+if [[ ${COMPOSE_PROFILES:-} == *pdftools* ]]; then
+  if [[ -f pdftools/web/dist/index.html ]]; then
+    c_skip "pdftools page already built (rebuild: cd pdftools/web && npm run build)"
+  elif command -v npm >/dev/null; then
+    ( cd pdftools/web && npm install --silent && npm run build --silent ) >/dev/null 2>&1 \
+      && c_new "pdftools page built" || c_skip "pdftools page build failed — run it by hand in ./pdftools/web (Node 20.19+)"
+  else
+    c_skip "npm not found — the PDF tools page will 404 until you build ./pdftools/web"
+  fi
 fi
 
 # The helper bot's Mini App (members) and admin page. Built with relative asset

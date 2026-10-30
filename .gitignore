@@ -6,6 +6,10 @@ dashboard/dist/
 dashboard/node_modules/
 helper/webapp/dist/
 helper/webapp/node_modules/
+pdftools/web/dist/
+pdftools/web/node_modules/
+pdftools/configs/
+pdftools/data/
 
 # Rendered from *.template by bootstrap.sh
 caddy/Caddyfile.l4

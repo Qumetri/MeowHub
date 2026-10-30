@@ -129,6 +129,50 @@
 		reverse_proxy upscaler:8099
 	}
 #ENDIF
+#IF:pdftools
+	# PDF tools page (docs/PDFTOOLS.md): static page + the engine's API. ONLY the endpoints the
+	# page uses get through — Stirling also has url/html-to-pdf (server-side fetches), pipelines
+	# and an admin UI. Keep this list in sync with pdftools/web/src/tools.js (adding a tool =
+	# adding its endpoint here). No login: the engine is offline and keeps nothing.
+	redir /{$PDF_PATH} /{$PDF_PATH}/ 308
+	handle_path /{$PDF_PATH}/* {
+		@api path /api/*
+		handle @api {
+			@tool {
+				method POST
+				path /api/v1/convert/ebook/pdf /api/v1/convert/eml/pdf /api/v1/convert/file/pdf /api/v1/convert/img/pdf /api/v1/convert/pdf/img /api/v1/convert/pdf/markdown /api/v1/convert/pdf/pdfa /api/v1/convert/pdf/presentation /api/v1/convert/pdf/text /api/v1/convert/pdf/word /api/v1/convert/pdf/xlsx /api/v1/general/merge-pdfs /api/v1/general/rearrange-pages /api/v1/general/remove-pages /api/v1/general/rotate-pdf /api/v1/general/split-by-size-or-count /api/v1/general/split-pages /api/v1/misc/add-page-numbers /api/v1/misc/compress-pdf /api/v1/misc/flatten /api/v1/misc/ocr-pdf /api/v1/misc/remove-blanks /api/v1/misc/repair /api/v1/misc/scanner-effect /api/v1/misc/update-metadata /api/v1/security/add-password /api/v1/security/add-watermark /api/v1/security/auto-redact /api/v1/security/remove-password /api/v1/security/sanitize-pdf
+			}
+			@status {
+				method GET
+				path /api/v1/info/status
+			}
+			handle @tool {
+				request_body {
+					max_size 200MB
+				}
+				header Cache-Control "no-store"
+				reverse_proxy pdftools:8080
+			}
+			handle @status {
+				reverse_proxy pdftools:8080
+			}
+			respond 404
+		}
+		handle {
+			encode zstd gzip
+			@hashed path /assets/*
+			header @hashed Cache-Control "public, max-age=31536000, immutable"
+			header {
+				Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+				Referrer-Policy "no-referrer"
+				X-Content-Type-Options "nosniff"
+				X-Robots-Tag "noindex, nofollow"
+			}
+			root * /srv/pdftools
+			file_server
+		}
+	}
+#ENDIF
 #IF:crypto
 	# Crypto tracker, behind basic_auth — the page holds a Telegram bot token, so
 	# a secret URL alone is not enough. handle_path strips the prefix; the page

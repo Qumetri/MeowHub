@@ -18,6 +18,7 @@ const N8N     = E.VITE_N8N_PATH      || ''
 const SENSOR  = E.VITE_SENSOR_PATH   || ''
 const BOTS    = E.VITE_BOT_ADMIN_PATH || ''
 const UPSCALE = E.VITE_UPSCALE_PATH  || ''
+const PDF     = E.VITE_PDF_PATH      || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -120,6 +121,15 @@ export const services = [
     icon: 'upscale',
     gradient: ['#1b5e8a', '#ffd23f'],
     status: UPSCALE ? 'live' : 'soon',
+  },
+  {
+    id: 'pdftools',
+    name: 'PDF & Docs',
+    description: 'Merge, compress, convert, OCR and redact documents — files never leave the server',
+    url: `https://${BASE}/${PDF}/`,
+    icon: 'docs',
+    gradient: ['#3a2fc7', '#ffe45c'],
+    status: PDF ? 'live' : 'soon',
   },
   {
     id: 'bots',

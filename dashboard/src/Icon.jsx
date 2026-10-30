@@ -81,6 +81,13 @@ const paths = {
       <path d="M5 19h14" />
     </>
   ),
+  docs: (
+    <>
+      <path d="M6 3.5h8l4 4v13H6z" />
+      <path d="M14 3.5v4h4" />
+      <circle cx="12" cy="14" r="3.2" />
+    </>
+  ),
   upscale: (
     <>
       <rect x="3.5" y="9.5" width="11" height="11" rx="1.5" />

@@ -37,6 +37,7 @@ services:
       - ./caddy/data:/data
       - ./caddy/config:/config
       - ./dashboard/dist:/srv/dashboard:ro
+      - ./pdftools/web/dist:/srv/pdftools:ro
     environment:
       BASE_DOMAIN: ${BASE_DOMAIN}
       CLOUD_HOST: ${CLOUD_HOST}
@@ -56,6 +57,7 @@ services:
       # to the empty string.
       CRYPTO_PATH: ${CRYPTO_PATH:-crypto-unset}
       UPSCALE_PATH: ${UPSCALE_PATH:-upscale-unset}
+      PDF_PATH: ${PDF_PATH:-pdf-unset}
       CRYPTO_ADMIN_USER: ${CRYPTO_ADMIN_USER:-cryptoadmin}
       N8N_PUBLIC_PATH: ${N8N_PUBLIC_PATH:-n8n-unset}
       SENSOR_PATH: ${SENSOR_PATH:-sensor-unset}
@@ -78,7 +80,7 @@ services:
     # container. Without this the layer4 passthrough routes cannot resolve.
     extra_hosts:
       - 'host.docker.internal:host-gateway'
-    networks: [default, proxy]
+    networks: [default, proxy, pdf-internal]
 
   # ---------- Hub page backend ----------
   # Live host metrics for the dashboard. Reads the HOST, not the container:
@@ -285,6 +287,36 @@ services:
       - '${BIND_LOCAL:-127.0.0.1}:${UPSCALER_LOCAL_PORT:-8099}:8099'
     volumes:
       - ${UPSCALE_DATA:-./upscaler/data}:/data
+
+  # ---------- PDF tools ----------
+  # Stirling-PDF as a headless engine behind our own page (pdftools/web, docs/PDFTOOLS.md).
+  # It sits ONLY on the internal network pdf-internal: no route to the internet and no host
+  # port, so a document cannot leave the server. Work files live in tmpfs (RAM).
+  # Caddy lets through only the endpoints the page uses (Caddyfile.l4.template).
+  pdftools:
+    container_name: ${STACK_NAME:-meowstack}_pdftools
+    image: ${PDFTOOLS_IMAGE:-docker.stirlingpdf.com/stirlingtools/stirling-pdf:3.2.2}
+    profiles: [pdftools]
+    <<: [*restart, *logging]
+    environment:
+      SECURITY_ENABLELOGIN: 'false'
+      SYSTEM_ENABLEANALYTICS: 'false'
+      SYSTEM_ENABLEPOSTHOG: 'false'
+      SYSTEM_ENABLESCARF: 'false'
+      SYSTEM_DEFAULTLOCALE: ${PDFTOOLS_LOCALE:-en-GB}
+      SYSTEM_FILEUPLOADLIMIT: 200MB
+      PUID: '1000'
+      PGID: '1000'
+    volumes:
+      - ./pdftools/configs:/configs
+      # OCR languages + pdf.ttf/configs, fetched by bootstrap.sh (pdftools/fetch-tessdata.sh)
+      - ${PDFTOOLS_DATA:-./pdftools/data}/tessdata:/usr/share/tesseract-ocr/5/tessdata:ro
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+      - /logs:size=64m,mode=1777
+      - /storage:size=16m,mode=1777
+    mem_limit: 4g
+    networks: [pdf-internal]
 
   # ---------- Nextcloud ----------
   nextcloud:
@@ -610,4 +642,7 @@ networks:
     name: ${PROXY_NETWORK:-meowstack-proxy}
   # docker-proxy <-> helper only; internal: no route to the outside.
   helper-docker:
+    internal: true
+  # caddy <-> the PDF engine only; internal: the engine cannot reach the internet.
+  pdf-internal:
     internal: true
