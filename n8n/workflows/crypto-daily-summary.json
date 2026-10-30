@@ -71,7 +71,7 @@
         "nodeCredentialType": "openRouterApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'nvidia/nemotron-3-super-120b-a12b:free', temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: $json.system_json }, { role: 'user', content: $json.user } ] }) }}",
+        "jsonBody": "={{ JSON.stringify({ models: ['nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3.5-super-vl:free', 'google/gemma-4-31b-it:free'], temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: $json.system_json }, { role: 'user', content: $json.user } ] }) }}",
         "options": {
           "timeout": 300000
         }
@@ -89,7 +89,7 @@
       "waitBetweenTries": 5000,
       "onError": "continueErrorOutput",
       "notesInFlow": true,
-      "notes": "Primary. Free models hit 429s: 3 tries, then the error output falls back to Ollama."
+      "notes": "Primary: OpenRouter free models, tried in order (models array; a removed or busy model falls through to the next). 3 tries, then the error output falls back to Ollama."
     },
     {
       "parameters": {

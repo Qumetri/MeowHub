@@ -111,7 +111,7 @@ become hundreds of gigabytes.
 09:00 / Test manually
    → Get digest            GET crypto:9102/api/digest — 24h stats + last-24h news
    → Build prompt          numbered headlines, per-coin facts, JSON shape
-   → OpenRouter            hosted model, 3 tries
+   → OpenRouter            free models in order (models array), 3 tries
         ├ ok   → Valid answer? → Use it ─┬ true  → Compose message
         │                                └ false ─┐
         └ error ─────────────────────────────────┴→ Ollama qwen3:8b (fallback) → Compose
@@ -151,6 +151,13 @@ weaker summary beats none. The footer names the model that wrote it.
    can discover it).
 3. Pull the fallback model: `docker compose exec ollama ollama pull qwen3:8b`.
 4. **Test manually → Execute workflow**, then **Publish**.
+
+**Which models.** The node sends a `models` array — `nemotron-3-ultra-550b-a55b:free` →
+`nemotron-3.5-super-vl:free` → `gemma-4-31b-it:free` — and OpenRouter routes to the first one
+that is available. Free models get withdrawn without notice (`nemotron-3-super-120b:free`
+disappeared in October 2026 and every run quietly fell back to the local model), so with a
+list a removed model just falls through to the next one. Check the footer of the summary:
+if it names the local model day after day, refresh the list from openrouter.ai/models.
 
 OpenRouter free-model limits: 20 requests/minute, **50/day**; after buying
 **≥ $10** of credits, **1,000/day**. Free models do not spend the credits. The
