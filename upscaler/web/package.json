@@ -1,0 +1,14 @@
+{
+  "name": "upscaler-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Owner page of the photo upscaler. TypeScript source, compiled by tsc into ../app/static/app.js (the image stays Python-only).",
+  "scripts": {
+    "build": "tsc -p .",
+    "check": "tsc -p . --noEmit",
+    "watch": "tsc -p . --watch"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

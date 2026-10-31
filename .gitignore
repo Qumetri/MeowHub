@@ -8,6 +8,8 @@ helper/webapp/dist/
 helper/webapp/node_modules/
 pdftools/web/dist/
 pdftools/web/node_modules/
+crypto/web-src/node_modules/
+upscaler/web/node_modules/
 pdftools/configs/
 pdftools/data/
 

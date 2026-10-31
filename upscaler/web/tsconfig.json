@@ -1,0 +1,17 @@
+{
+  // A classic <script>, not a module: no imports, so tsc emits src/app.ts as one plain static/app.js the stdlib server serves as is.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "module": "preserve",
+    "removeComments": false,
+    "rootDir": "src",
+    "outDir": "../app/static"
+  },
+  "include": ["src"]
+}

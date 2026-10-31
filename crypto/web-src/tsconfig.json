@@ -1,0 +1,18 @@
+{
+  // Two classic <script>s, not modules: tsc emits src/*.ts as plain ../web/*.js that the stdlib server serves as is.
+  // lightweight-charts is installed only for its types; the page loads the vendored standalone build (web/vendor/).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "removeComments": false,
+    "rootDir": "src",
+    "outDir": "../web"
+  },
+  "include": ["src"]
+}
