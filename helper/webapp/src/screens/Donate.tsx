@@ -38,7 +38,8 @@ export default function Donate({ amounts }: { amounts: number[] }) {
         onClick={() => { haptic.select(); setOpen(!open) }} />
       {open && (
         <div className="donate">
-          <Chips items={[...amounts.map((a) => ({ id: String(a), label: `⭐ ${a}` })), { id: CUSTOM, label: t('donate.custom') }]}
+          {/* the custom amount first, then the presets from small to large */}
+          <Chips items={[{ id: CUSTOM, label: t('donate.custom') }, ...[...amounts].sort((x, y) => x - y).map((a) => ({ id: String(a), label: `⭐ ${a}` }))]}
             value={pick} onChange={setPick} />
           {pick === CUSTOM && (
             <input className="input input--num" type="number" inputMode="numeric" min={1} max={10000} value={custom}
