@@ -1,0 +1,132 @@
+import { getLang, t } from './i18n'
+import type { Me, Member, Person, UiState } from './types'
+
+export const nowSec = () => Math.floor(Date.now() / 1000)
+const loc = () => (getLang() === 'ru' ? 'ru-RU' : 'en-GB')
+
+export function fmtDate(ts: number, withYear?: boolean): string {
+  const d = new Date(ts * 1000)
+  const y = withYear ?? d.getFullYear() !== new Date().getFullYear()
+  return new Intl.DateTimeFormat(loc(), { day: 'numeric', month: 'long', ...(y ? { year: 'numeric' } : {}) }).format(d)
+}
+export function fmtShortDay(iso: string): string {
+  const [y = 1970, m = 1, d = 1] = iso.split('-').map(Number)
+  return new Intl.DateTimeFormat(loc(), { day: 'numeric', month: 'short' }).format(new Date(y, m - 1, d))
+}
+export function fmtDateTime(ts: number): string {
+  return new Intl.DateTimeFormat(loc(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ts * 1000))
+}
+
+// forms: ru [one, few, many]; en [one, other] (a 3-form list works for both).
+export function plural(count: number, forms: string[]): string {
+  const n = Math.abs(count)
+  const [one = '', few = one, many = few] = forms
+  if (getLang() === 'ru') {
+    const a = n % 10, b = n % 100
+    if (a === 1 && b !== 11) return one
+    if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few
+    return many
+  }
+  return n === 1 ? one : few
+}
+export const daysWord = (n: number): string => plural(n, t('unit.day').split('|'))
+
+// 1.5 -> "1,5" (ru) / "1.5" (en)
+export const fmtDec = (n: number, digits = 1): string => n.toFixed(digits).replace('.', getLang() === 'ru' ? ',' : '.')
+
+export function fmtBytes(bytes: number | null | undefined): string {
+  if (bytes == null) return '—'
+  let n = bytes
+  const u = t('unit.bytes').split('|')
+  let i = 0
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
+  const v = i === 0 || n >= 100 ? Math.round(n) : fmtDec(n)
+  return `${v} ${u[i]}`
+}
+
+// "12 min ago" without the "seen" wrapper (for places that add their own context).
+export function agoShort(ts: number): string {
+  const s = Math.max(0, nowSec() - ts)
+  if (s < 90) return t('ago.now')
+  if (s < 3600) return t('ago.min', { n: Math.round(s / 60) })
+  if (s < 86400) return t('ago.h', { n: Math.round(s / 3600) })
+  if (s < 86400 * 60) return t('ago.d', { n: Math.round(s / 86400) })
+  return fmtDate(ts, true)
+}
+export function ago(ts: number | null | undefined): string {
+  if (!ts) return t('ago.never')
+  return t('ago.seen', { v: agoShort(ts) })
+}
+
+export function personName(m: Person | null | undefined): string {
+  if (!m) return ''
+  const n = [m.first_name, m.last_name].filter(Boolean).join(' ')
+  return n || (m.username ? '@' + m.username : String(m.id))
+}
+export function initials(m: Person): string {
+  const base = [m.first_name, m.last_name].filter((s): s is string => !!s).map((s) => s.charAt(0))
+  const s = (base.length ? base.join('') : (m.username || '?').charAt(0)).slice(0, 2)
+  return s.toUpperCase()
+}
+export const hueOf = (id: number | string): number => (Number(id) * 137.508) % 360
+
+// Effective state for UI: 'active' | 'soon' (<=3 d) | 'expired' | 'suspended'
+export function uiState(m: Pick<Member, 'status' | 'days_left'> | null | undefined): UiState {
+  if (!m) return 'expired'
+  if (m.status === 'suspended') return 'suspended'
+  if (m.status === 'expired') return 'expired'
+  if (m.days_left != null && m.days_left <= 3) return 'soon'
+  return 'active'
+}
+export const statusLabel = (m: Pick<Member, 'status' | 'days_left'> | null | undefined): string => {
+  const s = uiState(m)
+  return s === 'soon' ? t('status.soon') : t('status.' + s)
+}
+
+// Server-side effective_services (grant + switched-on "all" services) wins over the raw grants.
+export const svcList = (m: Pick<Member, 'services' | 'effective_services'> | null | undefined): string[] => m?.effective_services ?? m?.services ?? []
+export function hasService(m: Member | null | undefined, id: string): boolean {
+  return !!m && m.status === 'active' && svcList(m).includes(id)
+}
+// Downloads: the owner always has them, a member when /api/me marks youtube available.
+export function canDownload(me: Me | null | undefined): boolean {
+  return !!me && (me.role === 'owner' || !!me.services?.find((s) => s.id === 'youtube')?.available)
+}
+
+// Seconds -> "45 s" / "3 min" / "1 h 05 min".
+export function fmtDur(seconds: number): string {
+  const sec = Math.max(0, Math.round(seconds))
+  if (sec < 60) return t('dur.s', { n: sec })
+  if (sec < 3600) return t('dur.min', { n: Math.round(sec / 60) })
+  return t('dur.hm', { h: Math.floor(sec / 3600), m: String(Math.round((sec % 3600) / 60)).padStart(2, '0') })
+}
+// "1:23" / "83" / "1:02:03" -> seconds; '' -> null; garbage -> NaN.
+export function parseClock(raw: string | null | undefined): number | null {
+  const s = (raw || '').trim()
+  if (!s) return null
+  if (!/^\d{1,3}(:\d{1,2}){0,2}$/.test(s)) return NaN
+  return s.split(':').reduce((a, p) => a * 60 + Number(p), 0)
+}
+
+export function shortUrl(u: string, n = 34): string {
+  return u.length <= n ? u : u.slice(0, Math.ceil(n * 0.62)) + '…' + u.slice(-Math.floor(n * 0.3))
+}
+
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'
+    document.body.appendChild(ta)
+    ta.focus(); ta.select()
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch { return false }
+}
+
+export const normCode = (s: string | null | undefined): string => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')

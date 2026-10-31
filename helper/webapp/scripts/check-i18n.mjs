@@ -6,7 +6,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
-const { ru, en } = await import(join(root, 'i18n.js'))
+// Node 22 strips the types itself, so the dictionary is read straight from the .ts source.
+const { ru, en } = await import(join(root, 'i18n.ts'))
 
 const problems = []
 const vars = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',')
@@ -22,7 +23,7 @@ function* walk(dir) {
   for (const f of readdirSync(dir)) {
     const p = join(dir, f)
     if (statSync(p).isDirectory()) yield* walk(p)
-    else if (/\.(jsx?|mjs)$/.test(f) && f !== 'i18n.js') yield p
+    else if (/\.(tsx?|mjs)$/.test(f) && f !== 'i18n.ts') yield p
   }
 }
 for (const file of walk(root)) {
