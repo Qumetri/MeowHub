@@ -1,27 +1,37 @@
 // Talks to the engine through Caddy at ./api/v1/<endpoint> (same origin, relative to the page).
 // XHR rather than fetch: fetch cannot report upload progress, and big scans take a while to send.
 
+export type ErrorCode = 'password'
+
 export class ToolError extends Error {
-  constructor(message, code) { super(message); this.code = code }
+  code?: ErrorCode
+  constructor(message: string, code?: ErrorCode) { super(message); this.code = code }
 }
 
-function filenameFrom(header, fallback) {
+export type ProgressEvent =
+  | { phase: 'upload'; ratio: number }
+  | { phase: 'work' }
+  | { phase: 'download'; ratio: number | null }
+
+export interface ToolResult { blob: Blob; name: string; type: string }
+
+function filenameFrom(header: string | null, fallback: string): string {
   if (!header) return fallback
   const star = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(header)
-  if (star) {
+  if (star?.[1]) {
     try { return decodeURIComponent(star[1].trim().replace(/^"|"$/g, '')) } catch { /* fall through */ }
   }
   const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(header)
-  return plain ? plain[1].trim() : fallback
+  return plain?.[1] ? plain[1].trim() : fallback
 }
 
 // The engine answers errors as JSON ({error} or problem+json {detail}); turn them into one line.
-async function errorText(blob, status) {
+async function errorText(blob: Blob | null, status: number): Promise<string | { text: string; code: ErrorCode }> {
   let raw = ''
-  try { raw = await blob.text() } catch { /* ignore */ }
+  try { raw = blob ? await blob.text() : '' } catch { /* ignore */ }
   let msg = ''
   try {
-    const j = JSON.parse(raw)
+    const j = JSON.parse(raw) as { detail?: string; message?: string; error?: string }
     msg = j.detail || j.message || j.error || ''
   } catch { msg = '' }
   if (/password/i.test(msg) && /(incorrect|invalid|wrong|encrypted|required)/i.test(msg)) {
@@ -31,11 +41,17 @@ async function errorText(blob, status) {
   if (status === 413) return 'Файл слишком большой: не больше 200 МБ за раз.'
   if (status === 404) return 'Этот инструмент сейчас недоступен на сервере.'
   if (status === 502 || status === 503 || status === 504) return 'Движок не ответил — возможно, он перезапускается. Попробуйте через минуту.'
-  const short = msg.replace(/^Job failed:\s*/i, '').split('\n')[0].slice(0, 220)
+  const short = (msg.replace(/^Job failed:\s*/i, '').split('\n')[0] ?? '').slice(0, 220)
   return short ? `Не получилось: ${short}` : `Не получилось (код ${status}).`
 }
 
-export function runTool(endpoint, formData, { onProgress, signal, fallbackName = 'result' } = {}) {
+interface RunOptions {
+  onProgress?: (p: ProgressEvent) => void
+  signal?: AbortSignal
+  fallbackName?: string
+}
+
+export function runTool(endpoint: string, formData: FormData, { onProgress, signal, fallbackName = 'result' }: RunOptions = {}): Promise<ToolResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `api/v1/${endpoint}`)
@@ -48,14 +64,15 @@ export function runTool(endpoint, formData, { onProgress, signal, fallbackName =
       if (onProgress) onProgress({ phase: 'download', ratio: e.lengthComputable ? e.loaded / e.total : null })
     }
     xhr.onload = async () => {
+      const body = xhr.response as Blob | null
       // 204: the engine found nothing to save (e.g. no tables for PDF → Excel).
-      if (xhr.status === 204 || (xhr.status === 200 && xhr.response && xhr.response.size === 0)) {
+      if (xhr.status === 204 || (xhr.status === 200 && body && body.size === 0)) {
         reject(new ToolError('Сохранять нечего: в документе не нашлось подходящего содержимого (например, таблиц).'))
-      } else if (xhr.status >= 200 && xhr.status < 300) {
+      } else if (xhr.status >= 200 && xhr.status < 300 && body) {
         const name = filenameFrom(xhr.getResponseHeader('Content-Disposition'), fallbackName)
-        resolve({ blob: xhr.response, name, type: xhr.response.type })
+        resolve({ blob: body, name, type: body.type })
       } else {
-        const e = await errorText(xhr.response, xhr.status)
+        const e = await errorText(body, xhr.status)
         reject(typeof e === 'string' ? new ToolError(e) : new ToolError(e.text, e.code))
       }
     }

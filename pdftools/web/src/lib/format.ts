@@ -1,4 +1,4 @@
-export function bytes(n) {
+export function bytes(n: number | null | undefined): string {
   if (n == null) return ''
   if (n < 1024) return `${n} Б`
   const units = ['КБ', 'МБ', 'ГБ']
@@ -9,7 +9,7 @@ export function bytes(n) {
 }
 
 // Russian plural: plural(3, ['файл', 'файла', 'файлов'])
-export function plural(n, forms) {
+export function plural(n: number, forms: [one: string, few: string, many: string]): string {
   const a = Math.abs(n) % 100
   const b = a % 10
   if (a > 10 && a < 20) return forms[2]
@@ -19,31 +19,31 @@ export function plural(n, forms) {
 }
 
 // {1,2,3,5,7,8} -> "1-3,5,7-8"
-export function toRanges(set) {
+export function toRanges(set: Iterable<number>): string {
   const n = [...set].sort((a, b) => a - b)
-  const out = []
+  const out: string[] = []
   for (let i = 0; i < n.length; i++) {
-    const start = n[i]
-    while (i + 1 < n.length && n[i + 1] === n[i] + 1) i++
+    const start = n[i]!
+    while (i + 1 < n.length && n[i + 1] === n[i]! + 1) i++
     out.push(start === n[i] ? `${start}` : `${start}-${n[i]}`)
   }
   return out.join(',')
 }
 
 // "1-3,5" -> Set{1,2,3,5}; silently ignores what it cannot read, clamps to max.
-export function fromRanges(text, max = Infinity) {
-  const s = new Set()
+export function fromRanges(text: string | null | undefined, max = Infinity): Set<number> {
+  const s = new Set<number>()
   for (const part of String(text || '').split(',')) {
     const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(part)
     if (!m) continue
-    const a = +m[1]
+    const a = Number(m[1])
     const b = m[2] ? +m[2] : a
     for (let i = Math.min(a, b); i <= Math.min(Math.max(a, b), max); i++) if (i >= 1) s.add(i)
   }
   return s
 }
 
-export function download(blob, name) {
+export function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -54,14 +54,15 @@ export function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
-export function baseName(name) {
+export function baseName(name: string): string {
   return name.replace(/\.[^.]+$/, '')
 }
 
-export function isPdf(file) {
-  return file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
+export function isPdf(file: { name: string; type: string } | null | undefined): boolean {
+  return !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
 }
 
 let seq = 0
 // Files get a stable id so lists can be reordered and keyed.
-export const wrap = (files) => files.map((file) => ({ id: `f${++seq}`, file }))
+export interface FileItem { id: string; file: File }
+export const wrap = (files: File[]): FileItem[] => files.map((file) => ({ id: `f${++seq}`, file }))

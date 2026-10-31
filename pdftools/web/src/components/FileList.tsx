@@ -1,10 +1,19 @@
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import Icon from './Icon.jsx'
-import { bytes } from '../lib/format.js'
+import Icon from './Icon'
+import { bytes, type FileItem } from '../lib/format'
 
-function Row({ item, index, total, sortable, onMove, onRemove }) {
+interface RowProps {
+  item: FileItem
+  index: number
+  total: number
+  sortable: boolean
+  onMove: (from: number, to: number) => void
+  onRemove: (id: string) => void
+}
+
+function Row({ item, index, total, sortable, onMove, onRemove }: RowProps) {
   const s = useSortable({ id: item.id, disabled: !sortable })
   const style = { transform: CSS.Transform.toString(s.transform), transition: s.transition }
   return (
@@ -36,14 +45,14 @@ function Row({ item, index, total, sortable, onMove, onRemove }) {
 
 // Selected files. For tools that combine files ('many') the order matters, so rows can be
 // dragged (mouse, touch, keyboard) or moved with the arrow buttons.
-export default function FileList({ items, sortable, onChange }) {
+export default function FileList({ items, sortable, onChange }: { items: FileItem[]; sortable: boolean; onChange: (items: FileItem[]) => void }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  const move = (from, to) => onChange(arrayMove(items, from, to))
-  const remove = (id) => onChange(items.filter((i) => i.id !== id))
-  const onDragEnd = ({ active, over }) => {
+  const move = (from: number, to: number) => onChange(arrayMove(items, from, to))
+  const remove = (id: string) => onChange(items.filter((i) => i.id !== id))
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return
     move(items.findIndex((i) => i.id === active.id), items.findIndex((i) => i.id === over.id))
   }

@@ -1,6 +1,8 @@
 // The round rubber stamp: on the front page it states the promise, on a result it marks it done.
 // Text runs along a circle (SVG textPath), the way a real office seal reads.
-export default function Seal({ ring, center, sub, size = 132, className = '' }) {
+interface Props { ring: string; center: string; sub?: string; size?: number; className?: string }
+
+export default function Seal({ ring, center, sub, size = 132, className = '' }: Props) {
   const id = `seal-${ring.length}-${center.length}`
   return (
     <svg className={`seal ${className}`} width={size} height={size} viewBox="0 0 200 200" role="img" aria-label={`${center}. ${ring}`}>

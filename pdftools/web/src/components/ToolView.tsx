@@ -1,22 +1,24 @@
 import { Suspense, lazy, useRef, useState } from 'react'
-import { CATEGORIES, buildForm, defaults, endpointOf, validate, visibleFields } from '../tools.js'
-import { runTool } from '../lib/api.js'
-import { baseName, isPdf, plural, wrap } from '../lib/format.js'
-import Icon from './Icon.jsx'
-import Dropzone from './Dropzone.jsx'
-import FileList from './FileList.jsx'
-import Field from './Field.jsx'
-import Result from './Result.jsx'
-import ImageTool from './ImageTool.jsx'
+import { CATEGORIES, buildForm, defaults, endpointOf, validate, visibleFields, type FieldValue, type Tool, type Values } from '../tools'
+import { ToolError, runTool, type ProgressEvent } from '../lib/api'
+import type { OpenTool } from '../App'
+import type { ToolBodyProps } from './ImageTool'
+import { baseName, isPdf, plural, wrap } from '../lib/format'
+import Icon from './Icon'
+import Dropzone from './Dropzone'
+import FileList from './FileList'
+import Field from './Field'
+import Result, { type ResultItem } from './Result'
+import ImageTool from './ImageTool'
 
 // pdf.js is ~1.5 MB: load it only on screens that show pages.
 const PagePicker = lazy(() => import('./PagePicker.jsx'))
 const Organizer = lazy(() => import('./Organizer.jsx'))
 
-export function ToolHeader({ tool, onOpen }) {
+export function ToolHeader({ tool, onOpen }: { tool: Tool; onOpen: OpenTool }) {
   const cat = CATEGORIES.find((c) => c.id === tool.cat)
   return (
-    <header className={`tool-head hue-${cat.hue}`}>
+    <header className={`tool-head hue-${cat?.hue ?? 'ink'}`}>
       <a className="back" href="#" onClick={(e) => { e.preventDefault(); onOpen(null) }}>
         <Icon name="ArrowLeft" size={18} />Все инструменты
       </a>
@@ -31,8 +33,12 @@ export function ToolHeader({ tool, onOpen }) {
   )
 }
 
-function Progress({ state, slow, onCancel }) {
-  const { i, n, phase, ratio } = state
+// Which request of how many, and where it is: the network phases come from runTool's progress.
+type BusyState = { i: number; n: number } & (ProgressEvent | { phase: 'upload'; ratio: number })
+
+function Progress({ state, slow, onCancel }: { state: BusyState; slow?: boolean; onCancel: () => void }) {
+  const { i, n, phase } = state
+  const ratio = 'ratio' in state ? state.ratio : null
   const what = phase === 'upload' ? `Отправляю на сервер${ratio != null ? ` — ${Math.round(ratio * 100)}%` : ''}`
     : phase === 'download' ? 'Забираю результат' : 'Обрабатываю'
   return (
@@ -47,22 +53,23 @@ function Progress({ state, slow, onCancel }) {
   )
 }
 
-function ServerTool({ tool, initialFiles, onOpen }) {
+function ServerTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
   const [items, setItems] = useState(() => wrap(initialFiles || []))
-  const [values, setValues] = useState(() => defaults(tool))
-  const [busy, setBusy] = useState(null)
-  const [error, setError] = useState(null)
-  const [results, setResults] = useState(null)
-  const ctl = useRef(null)
+  const [values, setValues] = useState<Values>(() => defaults(tool))
+  const [busy, setBusy] = useState<BusyState | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [results, setResults] = useState<ResultItem[] | null>(null)
+  const ctl = useRef<AbortController | null>(null)
 
   const multiple = tool.files !== 'one'
   const fields = visibleFields(tool, values)
   const pagesField = fields.find((f) => f.type === 'pages')
-  const pickerFile = pagesField && items.length === 1 && isPdf(items[0].file) ? items[0].file : null
+  const only = items.length === 1 ? items[0] : undefined
+  const pickerFile = pagesField && only && isPdf(only.file) ? only.file : null
   const problem = validate(tool, values, items.map((i) => i.file))
-  const set = (k) => (v) => setValues((s) => ({ ...s, [k]: v }))
+  const set = (k: string) => (v: FieldValue) => setValues((s) => ({ ...s, [k]: v }))
 
-  const addFiles = (files) => {
+  const addFiles = (files: File[]) => {
     setError(null)
     setItems((cur) => (multiple ? [...cur, ...wrap(files)] : wrap(files)))
   }
@@ -70,25 +77,29 @@ function ServerTool({ tool, initialFiles, onOpen }) {
   const run = async () => {
     if (problem) { setError(problem); return }
     setError(null)
-    ctl.current = new AbortController()
+    const abort = new AbortController()
+    ctl.current = abort
     const files = items.map((i) => i.file)
+    // every job has at least one file: validate() demanded it
     const jobs = tool.files === 'many' ? [files] : files.map((f) => [f])
-    const out = []
+    const out: ResultItem[] = []
     try {
-      for (let i = 0; i < jobs.length; i++) {
+      for (const [i, job] of jobs.entries()) {
+        const first = job[0]!
         setBusy({ i, n: jobs.length, phase: 'upload', ratio: 0 })
-        const r = await runTool(endpointOf(tool, values), buildForm(tool, values, jobs[i]), {
-          signal: ctl.current.signal,
-          fallbackName: `${baseName(jobs[i][0].name)}-${tool.id}.pdf`,
-          onProgress: (p) => setBusy((b) => ({ ...b, ...p })),
+        const r = await runTool(endpointOf(tool, values), buildForm(tool, values, job), {
+          signal: abort.signal,
+          fallbackName: `${baseName(first.name)}-${tool.id}.pdf`,
+          onProgress: (p) => setBusy((b) => (b ? { ...b, ...p } : b)),
         })
-        out.push({ ...r, source: jobs.length > 1 || tool.files !== 'many' ? jobs[i][0] : null })
+        out.push({ ...r, source: jobs.length > 1 || tool.files !== 'many' ? first : null })
       }
       setResults(out)
-    } catch (e) {
+    } catch (err) {
+      const e = err as Error
       if (e.name !== 'AbortError') {
-        const which = jobs.length > 1 ? ` (файл «${jobs[out.length][0].name}»)` : ''
-        const hint = e.code === 'password' && tool.id !== 'unlock' ? ' Сначала снимите его инструментом «Снять пароль».' : ''
+        const which = jobs.length > 1 ? ` (файл «${jobs[out.length]?.[0]?.name}»)` : ''
+        const hint = e instanceof ToolError && e.code === 'password' && tool.id !== 'unlock' ? ' Сначала снимите его инструментом «Снять пароль».' : ''
         setError(`${e.message}${hint}${which}`)
         if (out.length) setResults(out)
       }
@@ -122,11 +133,11 @@ function ServerTool({ tool, initialFiles, onOpen }) {
             <>
               <FileList items={items} sortable={tool.files === 'many'} onChange={setItems} />
               {multiple && <Dropzone accept={tool.accept} kinds={tool.kinds} multiple compact onFiles={addFiles} />}
-              {pickerFile && (
+              {pickerFile && pagesField && (
                 <Suspense fallback={<p className="note" role="status">Открываю страницы…</p>}>
                   <PagePicker
                     file={pickerFile}
-                    value={values[pagesField.key]}
+                    value={String(values[pagesField.key] ?? '')}
                     onChange={set(pagesField.key)}
                     verb={pagesField.label}
                   />
@@ -159,7 +170,7 @@ function ServerTool({ tool, initialFiles, onOpen }) {
   )
 }
 
-export default function ToolView({ tool, initialFiles, onOpen }) {
+export default function ToolView({ tool, initialFiles, onOpen }: ToolBodyProps) {
   const Body = tool.mode === 'organize' ? Organizer : tool.mode === 'image' ? ImageTool : ServerTool
   return (
     <div className="page">

@@ -1,13 +1,16 @@
-import { useId } from 'react'
+import { useId, type ChangeEvent } from 'react'
+import type { Field as FieldSpec, FieldValue } from '../tools'
 
-const POSITIONS = [
+const POSITIONS: [value: string, label: string][] = [
   ['1', 'Сверху слева'], ['2', 'Сверху по центру'], ['3', 'Сверху справа'],
   ['4', 'Посередине слева'], ['5', 'В центре'], ['6', 'Посередине справа'],
   ['7', 'Снизу слева'], ['8', 'Снизу по центру'], ['9', 'Снизу справа'],
 ]
 
 // One option control. Labels are always visible; hints sit under the control.
-export default function Field({ f, value, onChange }) {
+interface Props { f: FieldSpec; value: FieldValue | undefined; onChange: (v: FieldValue) => void }
+
+export default function Field({ f, value, onChange }: Props) {
   const id = useId()
   const hintId = f.hint ? `${id}-hint` : undefined
   const hint = f.hint && <p className="field-hint" id={hintId}>{f.hint}</p>
@@ -45,11 +48,12 @@ export default function Field({ f, value, onChange }) {
   }
 
   if (f.type === 'chips') {
-    const set = new Set(value || [])
-    const toggle = (v) => {
+    const set = new Set(Array.isArray(value) ? value : [])
+    const toggle = (v: string) => {
       const next = new Set(set)
-      next.has(v) ? next.delete(v) : next.add(v)
-      onChange(f.options.map((o) => o.v).filter((x) => next.has(x)))
+      if (next.has(v)) next.delete(v); else next.add(v)
+      const opts = f.options
+      onChange(opts.map((o) => o.v).filter((x) => next.has(x)))
     }
     return (
       <fieldset className="field">
@@ -84,11 +88,12 @@ export default function Field({ f, value, onChange }) {
   }
 
   if (f.type === 'range') {
-    const shown = f.pct ? `${Math.round(value * 100)}%` : value
+    const n = Number(value)
+    const shown = f.pct ? `${Math.round(n * 100)}%` : n
     return (
       <div className="field">
         <label className="field-label" htmlFor={id}>{f.label} <output htmlFor={id}>{shown}</output></label>
-        <input id={id} type="range" min={f.min} max={f.max} step={f.step} value={value} onChange={(e) => onChange(+e.target.value)} />
+        <input id={id} type="range" min={f.min} max={f.max} step={f.step} value={n} onChange={(e) => onChange(+e.target.value)} />
       </div>
     )
   }
@@ -97,17 +102,17 @@ export default function Field({ f, value, onChange }) {
     return (
       <div className="field field-inline">
         <label className="field-label" htmlFor={id}>{f.label}</label>
-        <input id={id} type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+        <input id={id} type="color" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />
       </div>
     )
   }
 
   const common = {
     id,
-    value: value ?? '',
+    value: typeof value === 'number' ? value : String(value ?? ''),
     placeholder: f.placeholder,
     'aria-describedby': hintId,
-    onChange: (e) => onChange(f.type === 'number' ? (e.target.value === '' ? '' : +e.target.value) : e.target.value),
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(f.type === 'number' ? (e.target.value === '' ? '' : +e.target.value) : e.target.value),
   }
   return (
     <div className="field">
@@ -117,7 +122,7 @@ export default function Field({ f, value, onChange }) {
         : <input
             type={f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text'}
             inputMode={f.type === 'number' ? 'numeric' : f.type === 'pages' ? 'numeric' : undefined}
-            min={f.min} max={f.max}
+            min={f.type === 'number' ? f.min : undefined} max={f.type === 'number' ? f.max : undefined}
             autoComplete={f.autocomplete || 'off'}
             spellCheck={false}
             {...common}

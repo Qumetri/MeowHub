@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { NEXT_STEPS, TOOL_BY_ID } from '../tools.js'
-import { bytes, download, isPdf, plural } from '../lib/format.js'
-import { zipFiles } from '../lib/image.js'
-import Icon from './Icon.jsx'
-import Seal from './Seal.jsx'
+import { NEXT_STEPS, TOOL_BY_ID, type Tool } from '../tools'
+import type { OpenTool } from '../App'
+import { bytes, download, isPdf, plural } from '../lib/format'
+import { zipFiles } from '../lib/image'
+import Icon from './Icon'
+import Seal from './Seal'
 
-function Saving({ before, after }) {
+/** One finished file. `source` is the input it came from, for the size comparison. */
+export interface ResultItem { blob: Blob; name: string; source?: File | null }
+
+function Saving({ before, after }: { before: number; after: number }) {
   if (after >= before) {
     return <p className="saving saving-none">{bytes(before)} → {bytes(after)}: меньше не получилось, файл уже сжат. Оставьте оригинал.</p>
   }
@@ -21,13 +25,22 @@ function Saving({ before, after }) {
   )
 }
 
-export default function Result({ tool, results, where, onRestart, onAdjust, onNext }) {
-  const heading = useRef(null)
+interface Props {
+  tool: Tool
+  results: ResultItem[]
+  where: 'server' | 'browser'
+  onRestart: () => void
+  onAdjust: () => void
+  onNext: OpenTool
+}
+
+export default function Result({ tool, results, where, onRestart, onAdjust, onNext }: Props) {
+  const heading = useRef<HTMLHeadingElement>(null)
   const [zipping, setZipping] = useState(false)
   useEffect(() => { heading.current?.focus() }, [])
 
   const date = new Date().toLocaleDateString('ru-RU')
-  const single = results.length === 1 ? results[0] : null
+  const single = results.length === 1 ? results[0] ?? null : null
   const nextFile = single && isPdf({ name: single.name, type: single.blob.type }) ? new File([single.blob], single.name, { type: 'application/pdf' }) : null
 
   const saveAll = async () => {
@@ -76,10 +89,10 @@ export default function Result({ tool, results, where, onRestart, onAdjust, onNe
         <div className="next">
           <h3>Сделать с этим файлом ещё что-нибудь</h3>
           <ul className="next-list">
-            {NEXT_STEPS.filter((id) => id !== tool.id).map((id) => (
-              <li key={id}>
-                <button type="button" className="next-btn" onClick={() => onNext(id, [nextFile])}>
-                  <Icon name={TOOL_BY_ID[id].icon} size={18} />{TOOL_BY_ID[id].title}
+            {NEXT_STEPS.filter((id) => id !== tool.id).flatMap((id) => TOOL_BY_ID[id] ?? []).map((next) => (
+              <li key={next.id}>
+                <button type="button" className="next-btn" onClick={() => onNext(next.id, [nextFile])}>
+                  <Icon name={next.icon} size={18} />{next.title}
                 </button>
               </li>
             ))}

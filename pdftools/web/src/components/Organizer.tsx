@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react'
-import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { buildPdf, friendlyPdfError, openPdf } from '../lib/pdf.js'
-import { baseName, plural } from '../lib/format.js'
-import Icon from './Icon.jsx'
-import Dropzone from './Dropzone.jsx'
-import Thumb from './Thumb.jsx'
-import Result from './Result.jsx'
+import { buildPdf, friendlyPdfError, openPdf, type PageSpec, type PdfDoc } from '../lib/pdf'
+import { baseName, plural } from '../lib/format'
+import Icon from './Icon'
+import Dropzone from './Dropzone'
+import Thumb from './Thumb'
+import Result, { type ResultItem } from './Result'
+import type { ToolBodyProps } from './ImageTool'
 
-function PageCard({ p, index, doc, onRotate, onDelete }) {
+interface Page extends PageSpec { key: string }
+
+interface CardProps { p: Page; index: number; doc: PdfDoc; onRotate: (key: string, by: number) => void; onDelete: (key: string) => void }
+
+function PageCard({ p, index, doc, onRotate, onDelete }: CardProps) {
   const s = useSortable({ id: p.key })
   const style = { transform: CSS.Transform.toString(s.transform), transition: s.transition }
   return (
@@ -27,14 +32,14 @@ function PageCard({ p, index, doc, onRotate, onDelete }) {
   )
 }
 
-export default function Organizer({ tool, initialFiles, onOpen }) {
-  const [file, setFile] = useState(initialFiles?.[0] || null)
-  const [doc, setDoc] = useState(null)
-  const [pages, setPages] = useState([])
-  const [removed, setRemoved] = useState([])
-  const [error, setError] = useState(null)
+export default function Organizer({ tool, initialFiles, onOpen }: ToolBodyProps) {
+  const [file, setFile] = useState<File | null>(initialFiles?.[0] || null)
+  const [doc, setDoc] = useState<PdfDoc | null>(null)
+  const [pages, setPages] = useState<Page[]>([])
+  const [removed, setRemoved] = useState<Page[]>([])
+  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState<ResultItem[] | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -55,26 +60,30 @@ export default function Organizer({ tool, initialFiles, onOpen }) {
         setPages(all)
         setRemoved([])
       })
-      .catch((e) => alive && setError(friendlyPdfError(e)))
+      .catch((e: unknown) => { if (alive) setError(friendlyPdfError(e)) })
     return () => { alive = false }
   }, [file])
 
-  const rotate = (key, by) => setPages((ps) => ps.map((p) => (p.key === key ? { ...p, rot: (p.rot + by) % 360 } : p)))
-  const remove = (key) => {
+  const rotate = (key: string, by: number) => setPages((ps) => ps.map((p) => (p.key === key ? { ...p, rot: (p.rot + by) % 360 } : p)))
+  const remove = (key: string) => {
+    const gone = pages.find((p) => p.key === key)
+    if (!gone) return
     setPages((ps) => ps.filter((p) => p.key !== key))
-    setRemoved((r) => [...r, pages.find((p) => p.key === key)])
+    setRemoved((r) => [...r, gone])
   }
   const undo = () => {
-    const last = removed[removed.length - 1]
+    const last = removed.at(-1)
+    if (!last) return
     setRemoved((r) => r.slice(0, -1))
     setPages((ps) => [...ps, last].sort((a, b) => a.n - b.n))
   }
-  const onDragEnd = ({ active, over }) => {
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return
     setPages((ps) => arrayMove(ps, ps.findIndex((p) => p.key === active.id), ps.findIndex((p) => p.key === over.id)))
   }
 
   const save = async () => {
+    if (!file) return
     setSaving(true)
     setError(null)
     try {
@@ -90,7 +99,7 @@ export default function Organizer({ tool, initialFiles, onOpen }) {
   if (result) {
     return <Result tool={tool} results={result} where="browser" onRestart={() => { setResult(null); setFile(null) }} onAdjust={() => setResult(null)} onNext={onOpen} />
   }
-  if (!file) return <Dropzone accept={tool.accept} kinds={tool.kinds} onFiles={(f) => setFile(f[0])} />
+  if (!file) return <Dropzone accept={tool.accept} kinds={tool.kinds} onFiles={(f) => setFile(f[0] ?? null)} />
 
   const changed = removed.length > 0 || pages.some((p, i) => p.rot || p.n !== i + 1)
 

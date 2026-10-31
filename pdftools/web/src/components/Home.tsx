@@ -1,19 +1,20 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { CATEGORIES, TOOLS } from '../tools.js'
-import Icon from './Icon.jsx'
-import Seal from './Seal.jsx'
-import EngineStatus from './EngineStatus.jsx'
+import { CATEGORIES, TOOLS, type Tool } from '../tools'
+import type { OpenTool } from '../App'
+import Icon from './Icon'
+import Seal from './Seal'
+import EngineStatus from './EngineStatus'
 
-const norm = (s) => s.toLowerCase().replace(/ё/g, 'е')
+const norm = (s: string): string => s.toLowerCase().replace(/ё/g, 'е')
 
-export default function Home({ onOpen }) {
+export default function Home({ onOpen }: { onOpen: OpenTool }) {
   const [q, setQ] = useState('')
   const query = useDeferredValue(norm(q.trim()))
-  const searchRef = useRef(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   // "/" jumps to the search, like most tool catalogues.
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault()
         searchRef.current?.focus()
@@ -24,7 +25,7 @@ export default function Home({ onOpen }) {
   }, [])
 
   const groups = useMemo(() => {
-    const hit = (t) => !query || norm(`${t.title} ${t.desc} ${t.kinds}`).includes(query)
+    const hit = (t: Tool) => !query || norm(`${t.title} ${t.desc} ${t.kinds}`).includes(query)
     return CATEGORIES.map((c) => ({ ...c, tools: TOOLS.filter((t) => t.cat === c.id && hit(t)) })).filter((g) => g.tools.length)
   }, [query])
 

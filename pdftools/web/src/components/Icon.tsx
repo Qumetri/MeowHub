@@ -4,6 +4,7 @@ import {
   LayoutGrid, ListOrdered, Lock, LockOpen, Mail, MemoryStick, Minimize2, Plus, Presentation, Printer,
   RotateCcw, RotateCw, ScanText, Scissors, Search, Sheet, ShieldCheck, Stamp, Tags, Trash2, Type, Upload,
   WifiOff, Wrench, X, MonitorSmartphone, Undo2,
+  type LucideProps,
 } from 'lucide-react'
 
 const ICONS = {
@@ -14,7 +15,9 @@ const ICONS = {
   WifiOff, Wrench, X, MonitorSmartphone, Undo2,
 }
 
-export default function Icon({ name, size = 20, ...rest }) {
+export type IconName = keyof typeof ICONS
+
+export default function Icon({ name, size = 20, ...rest }: { name: IconName; size?: number } & Omit<LucideProps, 'ref'>) {
   const C = ICONS[name]
   return C ? <C size={size} strokeWidth={1.8} aria-hidden="true" focusable="false" {...rest} /> : null
 }

@@ -15,7 +15,7 @@ bank statements. Thirty tools on one page:
 
 <img src="img/pdftools-pages.png" alt="Remove pages: page thumbnails, the picked page marked with a yellow highlighter, the options panel" width="100%">
 
-The page is in **Russian**. All the copy lives in `pdftools/web/src/tools.js` and the components, so
+The page is in **Russian**. All the copy lives in `pdftools/web/src/tools.ts` and the components, so
 translating is a text edit.
 
 ## Enable it

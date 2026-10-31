@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { renderPage } from '../lib/pdf.js'
+import { renderPage, type PdfDoc } from '../lib/pdf'
 
 // A page thumbnail that renders only once it scrolls near the viewport.
-export default function Thumb({ doc, n, rotation = 0, width = 132 }) {
-  const box = useRef(null)
+export default function Thumb({ doc, n, rotation = 0, width = 132 }: { doc: PdfDoc; n: number; rotation?: number; width?: number }) {
+  const box = useRef<HTMLDivElement>(null)
   const [seen, setSeen] = useState(false)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     const el = box.current
     if (!el) return
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && setSeen(true), { rootMargin: '400px' })
+    const io = new IntersectionObserver(([e]) => { if (e?.isIntersecting) setSeen(true) }, { rootMargin: '400px' })
     io.observe(el)
     return () => io.disconnect()
   }, [])
@@ -24,7 +24,7 @@ export default function Thumb({ doc, n, rotation = 0, width = 132 }) {
         canvas.className = 'thumb-canvas'
         box.current.replaceChildren(canvas)
       })
-      .catch(() => alive && setFailed(true))
+      .catch(() => { if (alive) setFailed(true) })
     return () => { alive = false }
   }, [seen, doc, n, rotation, width])
 

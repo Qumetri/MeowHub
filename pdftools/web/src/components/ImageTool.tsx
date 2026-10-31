@@ -1,13 +1,16 @@
 import { useState } from 'react'
-import { convertImage } from '../lib/image.js'
-import { plural, wrap } from '../lib/format.js'
-import Dropzone from './Dropzone.jsx'
-import FileList from './FileList.jsx'
-import Field from './Field.jsx'
-import Result from './Result.jsx'
-import Icon from './Icon.jsx'
+import { convertImage, type ImageFormat } from '../lib/image'
+import type { Field as FieldSpec, Tool, Values } from '../tools'
+import type { OpenTool } from '../App'
+import type { ResultItem } from './Result'
+import { plural, wrap } from '../lib/format'
+import Dropzone from './Dropzone'
+import FileList from './FileList'
+import Field from './Field'
+import Result from './Result'
+import Icon from './Icon'
 
-const FIELDS = [
+const FIELDS: FieldSpec[] = [
   { key: 'format', type: 'segment', label: 'Сохранить как', options: [{ v: 'jpg', l: 'JPG' }, { v: 'webp', l: 'WebP', hint: 'Меньше JPG при том же качестве' }, { v: 'png', l: 'PNG', hint: 'Без потерь — файл будет большим' }] },
   { key: 'quality', type: 'range', label: 'Качество', min: 0.4, max: 0.95, step: 0.05, pct: true },
   {
@@ -16,24 +19,26 @@ const FIELDS = [
   },
 ]
 
-export default function ImageTool({ tool, initialFiles, onOpen }) {
+export interface ToolBodyProps { tool: Tool; initialFiles: File[] | null; onOpen: OpenTool }
+
+export default function ImageTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
   const [items, setItems] = useState(() => wrap(initialFiles || []))
-  const [values, setValues] = useState({ format: 'jpg', quality: 0.8, maxSide: '1920' })
-  const [busy, setBusy] = useState(null)
-  const [error, setError] = useState(null)
-  const [results, setResults] = useState(null)
+  const [values, setValues] = useState<Values>({ format: 'jpg', quality: 0.8, maxSide: '1920' })
+  const [busy, setBusy] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [results, setResults] = useState<ResultItem[] | null>(null)
 
   const run = async () => {
     if (!items.length) return
     setError(null)
-    const out = []
-    for (let i = 0; i < items.length; i++) {
+    const out: ResultItem[] = []
+    for (const [i, item] of items.entries()) {
       setBusy(i)
       try {
-        const r = await convertImage(items[i].file, { format: values.format, quality: values.quality, maxSide: +values.maxSide })
-        out.push({ ...r, source: items[i].file })
+        const r = await convertImage(item.file, { format: values.format as ImageFormat, quality: Number(values.quality), maxSide: Number(values.maxSide) })
+        out.push({ ...r, source: item.file })
       } catch {
-        setError(`Браузер не смог открыть «${items[i].file.name}».`)
+        setError(`Браузер не смог открыть «${item.file.name}».`)
       }
     }
     setBusy(null)

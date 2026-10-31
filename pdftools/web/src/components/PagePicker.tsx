@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { openPdf } from '../lib/pdf.js'
-import { fromRanges, plural, toRanges } from '../lib/format.js'
-import Thumb from './Thumb.jsx'
+import { openPdf, type PdfDoc } from '../lib/pdf'
+import { fromRanges, plural, toRanges } from '../lib/format'
+import Thumb from './Thumb'
 
 // Click pages to select them; the selection is written back as "1-3,5" into the pages field,
 // so typing in the field and clicking here stay in sync. Selected pages get a highlighter band.
-export default function PagePicker({ file, value, onChange, verb }) {
-  const [doc, setDoc] = useState(null)
+interface Props { file: File; value: string; onChange: (pages: string) => void; verb: string }
+
+export default function PagePicker({ file, value, onChange, verb }: Props) {
+  const [doc, setDoc] = useState<PdfDoc | null>(null)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let alive = true
     setDoc(null)
     setFailed(false)
-    openPdf(file).then((d) => alive && setDoc(d)).catch((e) => { console.warn('pdf open failed', e?.name, e?.message); if (alive) setFailed(true) })
+    openPdf(file).then((d) => { if (alive) setDoc(d) }).catch((e: Error) => { console.warn('pdf open failed', e?.name, e?.message); if (alive) setFailed(true) })
     return () => { alive = false }
   }, [file])
 
@@ -23,9 +25,9 @@ export default function PagePicker({ file, value, onChange, verb }) {
   if (failed) return <p className="note">Страницы этого файла не показать — впишите номера в поле справа.</p>
   if (!doc) return <p className="note" role="status">Открываю страницы…</p>
 
-  const toggle = (n) => {
+  const toggle = (n: number) => {
     const next = new Set(selected)
-    next.has(n) ? next.delete(n) : next.add(n)
+    if (next.has(n)) next.delete(n); else next.add(n)
     onChange(toRanges(next))
   }
 

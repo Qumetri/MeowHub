@@ -6,8 +6,71 @@
 //        'batch' — several files allowed, each is sent on its own (results listed one by one)
 //        'many'  — all files go in one request, in the order the person arranged them
 // mode:  'server' (default), 'organize' and 'image' run entirely in the browser.
+//
+// The types below are the contract between this list and the form/engine code: a field's
+// `type` decides which props it may carry, and an unknown icon or category fails `tsc`.
 
-export const CATEGORIES = [
+import type { IconName } from './components/Icon'
+
+export type FieldValue = string | number | boolean | string[]
+export type Values = Record<string, FieldValue>
+
+export interface Option { v: string; l: string; hint?: string }
+
+interface FieldBase {
+  key: string
+  label: string
+  hint?: string
+  /** false: only shapes the request (via `map` or the endpoint), never sent as is */
+  send?: boolean
+  /** shown (and validated, and sent) only while this returns true */
+  show?: (v: Values) => boolean
+  required?: boolean
+  optional?: boolean
+  placeholder?: string
+  autocomplete?: string
+}
+export type Field = FieldBase & (
+  | { type: 'toggle'; def?: boolean }
+  | { type: 'segment'; options: Option[]; def?: string }
+  | { type: 'chips'; options: Option[]; def?: string[]; min?: number }
+  | { type: 'position'; def?: string }
+  | { type: 'range'; min: number; max: number; step: number; pct?: boolean; def?: number }
+  | { type: 'color'; def?: string }
+  | { type: 'number'; min?: number; max?: number; def?: number }
+  | { type: 'text' | 'password' | 'textarea' | 'pages'; def?: string }
+)
+export type FieldType = Field['type']
+
+export type CategoryId = 'organize' | 'optimize' | 'topdf' | 'frompdf' | 'edit' | 'security' | 'images'
+export interface Category { id: CategoryId; title: string; hue: 'ink' | 'moss' | 'amber' | 'teal' | 'rose' | 'brick' | 'sky' }
+
+export interface Tool {
+  id: string
+  cat: CategoryId
+  icon: IconName
+  accept: string
+  /** what the tray asks for, in words: "PDF", "Word, Excel…" */
+  kinds: string
+  files: 'one' | 'batch' | 'many'
+  min?: number
+  title: string
+  desc: string
+  action: string
+  mode?: 'server' | 'organize' | 'image'
+  endpoint?: string | ((v: Values) => string)
+  /** always sent as is */
+  fixed?: Record<string, string>
+  fields?: Field[]
+  /** extra params computed from the form; null/undefined/'' are not sent */
+  map?: (v: Values) => Record<string, string | null | undefined>
+  /** show the size saving on the result */
+  compare?: boolean
+  /** warn that large files take minutes */
+  slow?: boolean
+}
+
+export const CATEGORIES: Category[] = [
   { id: 'organize', title: 'Страницы и файлы', hue: 'ink' },
   { id: 'optimize', title: 'Сжатие и распознавание', hue: 'moss' },
   { id: 'topdf', title: 'Сделать PDF', hue: 'amber' },
@@ -22,9 +85,9 @@ const OFFICE = '.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp,.
 const IMAGES = '.jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff'
 
 // Page lists use the engine's syntax: "1,3,5-9". The picker writes the same thing.
-const pagesField = (key, label, hint) => ({ key, type: 'pages', label, hint, placeholder: 'например 1,3,5-9' })
+const pagesField = (key: string, label: string, hint: string): Field => ({ key, type: 'pages', label, hint, placeholder: 'например 1,3,5-9' })
 
-export const OCR_LANGS = [
+export const OCR_LANGS: Option[] = [
   { v: 'rus', l: 'Русский' },
   { v: 'eng', l: 'English' },
   { v: 'ukr', l: 'Українська' },
@@ -34,7 +97,7 @@ export const OCR_LANGS = [
   { v: 'deu', l: 'Deutsch' },
 ]
 
-export const TOOLS = [
+export const TOOLS: Tool[] = [
   // ── Pages and files ────────────────────────────────────────────────
   {
     id: 'merge', cat: 'organize', icon: 'Combine', ...PDF, files: 'many', min: 2,
@@ -387,7 +450,7 @@ export const TOOLS = [
     ],
     fixed: { useRegex: 'false', redactColor: '#000000', customPadding: '0' },
     // The engine splits on newlines; normalise stray spaces and blank lines.
-    map: (v) => ({ listOfText: v.listOfText.split('\n').map((s) => s.trim()).filter(Boolean).join('\n') }),
+    map: (v) => ({ listOfText: String(v.listOfText ?? '').split('\n').map((s) => s.trim()).filter(Boolean).join('\n') }),
     action: 'Закрасить',
   },
   {
@@ -415,44 +478,44 @@ export const TOOLS = [
   },
 ]
 
-export const TOOL_BY_ID = Object.fromEntries(TOOLS.map((t) => [t.id, t]))
+export const TOOL_BY_ID: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.id, t]))
 
 // Where a finished PDF can go next (the "continue with this file" row).
 export const NEXT_STEPS = ['compress', 'organize', 'merge', 'protect', 'watermark', 'ocr', 'redact', 'pdf-to-word']
 
-export function defaults(tool) {
-  const v = {}
+export function defaults(tool: Tool): Values {
+  const v: Values = {}
   for (const f of tool.fields || []) v[f.key] = Array.isArray(f.def) ? [...f.def] : f.def ?? ''
   return v
 }
 
-export function visibleFields(tool, values) {
+export function visibleFields(tool: Tool, values: Values): Field[] {
   return (tool.fields || []).filter((f) => !f.show || f.show(values))
 }
 
 // Returns the first problem with the form, or null.
-export function validate(tool, values, files) {
+export function validate(tool: Tool, values: Values, files: File[]): string | null {
   const min = tool.min ?? 1
   if (files.length < min) return min > 1 ? `Добавьте хотя бы ${min} файла` : 'Добавьте файл'
   for (const f of visibleFields(tool, values)) {
     const val = values[f.key]
     if (f.required && !String(val ?? '').trim()) return `Заполните поле «${f.label}»`
     if (f.type === 'pages' && !f.optional && !String(val ?? '').trim()) return `Выберите страницы: «${f.label}»`
-    if (f.type === 'pages' && val && !/^[\d,\-\s]+$/.test(val)) return 'Номера страниц: только цифры, запятые и дефисы, например 1,3,5-9'
-    if (f.type === 'chips' && (!val || val.length < (f.min || 0))) return `Выберите хотя бы один вариант: «${f.label}»`
+    if (f.type === 'pages' && val && !/^[\d,\-\s]+$/.test(String(val))) return 'Номера страниц: только цифры, запятые и дефисы, например 1,3,5-9'
+    if (f.type === 'chips' && (!Array.isArray(val) || val.length < (f.min || 0))) return `Выберите хотя бы один вариант: «${f.label}»`
   }
   return null
 }
 
-export function buildForm(tool, values, files) {
+export function buildForm(tool: Tool, values: Values, files: File[]): FormData {
   const fd = new FormData()
   for (const file of files) fd.append('fileInput', file, file.name)
-  const params = {}
+  const params: Record<string, string | string[] | null | undefined> = {}
   for (const f of visibleFields(tool, values)) {
     if (f.send === false) continue
     const val = values[f.key]
     if (f.type === 'toggle') params[f.key] = val ? 'true' : 'false'
-    else if (f.type === 'chips') params[f.key] = val
+    else if (f.type === 'chips') params[f.key] = Array.isArray(val) ? val : []
     else if (f.type === 'pages') params[f.key] = String(val).replace(/\s+/g, '')
     else params[f.key] = String(val)
   }
@@ -465,6 +528,6 @@ export function buildForm(tool, values, files) {
   return fd
 }
 
-export function endpointOf(tool, values) {
-  return typeof tool.endpoint === 'function' ? tool.endpoint(values) : tool.endpoint
+export function endpointOf(tool: Tool, values: Values): string {
+  return typeof tool.endpoint === 'function' ? tool.endpoint(values) : tool.endpoint ?? ''
 }

@@ -132,7 +132,7 @@
 #IF:pdftools
 	# PDF tools page (docs/PDFTOOLS.md): static page + the engine's API. ONLY the endpoints the
 	# page uses get through — Stirling also has url/html-to-pdf (server-side fetches), pipelines
-	# and an admin UI. Keep this list in sync with pdftools/web/src/tools.js (adding a tool =
+	# and an admin UI. Keep this list in sync with pdftools/web/src/tools.ts (adding a tool =
 	# adding its endpoint here). No login: the engine is offline and keeps nothing.
 	redir /{$PDF_PATH} /{$PDF_PATH}/ 308
 	handle_path /{$PDF_PATH}/* {
