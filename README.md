@@ -33,7 +33,7 @@ on hardware you control.
 | ☁️ | **Nextcloud** — files, sync, calendar, office | `cloud.yourdomain` |
 | 🖼️ | **Immich** — photos and video, face recognition | `photos.yourdomain` |
 | 💬 | **Matrix + Element** — private chat, voice, video | `matrix.yourdomain` |
-| ⬇️ | **Downloader** — YouTube, RuTube and VK Video for every member, files self-delete after 30 min (MeTube + yt-dlp underneath) | Mini App |
+| ⬇️ | **Downloader** — YouTube, RuTube and VK Video for every member, files self-delete after 30 min (MeTube + yt-dlp underneath); optionally also a standalone page for anyone, no login | Mini App, video page |
 | 📈 | **Crypto Tracker** — live prices, price and volatility alerts, breaking news from 11 sources | `yourdomain/<secret>` |
 | 🔁 | **n8n** — workflow automation, optional local LLM | `yourdomain/<secret>` |
 | 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |

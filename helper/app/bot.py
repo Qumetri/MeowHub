@@ -181,6 +181,8 @@ class Helper:
         base = os.environ.get("BASE_DOMAIN", "").strip()
         path = os.environ.get("BOT_APP_PATH", "").strip().strip("/")
         self.webapp_url = f"https://{base}/{path}/" if base and path else ""
+        vpath = os.environ.get("VIDEO_PATH", "").strip().strip("/")
+        self.video_url = f"https://{base}/{vpath}/" if base and vpath else ""     # the guest video page
         self.downloads = downloads.Downloads(store, self.members, self.owner_id, lambda: self.webapp_url)
         self.books = books.Books(store, self.members, self.owner_id, notify=self._notify_in_lang,
                                  notify_owner=lambda make: self.notify_owner(make(i18n.lang_of(store, self.owner_id()))))
@@ -982,6 +984,10 @@ class Helper:
         period = i18n.days_word(L, TRIAL_DAYS)
         t.append(tr(L, "svc.trial_line", mark=mark, period=period, cap=TRIAL_PER_DAY))
         kb.append([{"text": tr(L, "svc.trial_btn", mark=mark, period=period), "callback_data": "svc:trial"}])
+        mark = "✅" if self.downloads.public_enabled() else "⬜"
+        t.append(tr(L, "svc.dlpub_line", mark=mark, n=self.downloads.public_stats()["today"])
+                 + (f"\n{esc(self.video_url)}" if self.video_url else ""))
+        kb.append([{"text": tr(L, "svc.dlpub_btn", mark=mark), "callback_data": "svc:dlpub"}])
         t += ["", tr(L, "svc.foot1"), tr(L, "svc.foot2")]
         kb.append([{"text": tr(L, "ntf.open"), "callback_data": "ntf:v"}])
         return "\n".join(t), {"inline_keyboard": kb}
@@ -998,6 +1004,12 @@ class Helper:
             self.members.set_trial_enabled(on)
             self._edit(cid, mid, *self.services_view(L))
             return tr(L, "svc.toast", name=tr(L, "svc.trial_name"), state=tr(L, "svc.on" if on else "svc.off"))
+        if act == "dlpub":
+            on = not self.downloads.public_enabled()
+            self.downloads.set_public_enabled(on)
+            self.members.log(None, "dlpub_toggle", "on" if on else "off")
+            self._edit(cid, mid, *self.services_view(L))
+            return tr(L, "svc.toast", name=tr(L, "svc.dlpub_name"), state=tr(L, "svc.on" if on else "svc.off"))
         if act != "t" or svc not in SERVICES:
             return None
         on = not self.members.service_enabled(svc)

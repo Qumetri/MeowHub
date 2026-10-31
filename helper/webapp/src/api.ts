@@ -28,6 +28,12 @@ export const inPreview = () => !!previewApi
 
 interface ApiOptions { method?: 'GET' | 'POST'; body?: unknown }
 
+// The standalone video page (video.tsx) has no Telegram: it sends a signed anonymous id
+// (X-Guest) instead, and fetches a new one once when the server says it is missing or stale.
+export interface GuestAuth { token(): string; renew(): Promise<void> }
+let guest: GuestAuth | null = null
+export function setGuestAuth(g: GuestAuth | null): void { guest = g }
+
 /** T is what the caller expects back; the server is trusted to send that shape (types.ts). */
 export async function api<T = unknown>(path: string, { method = 'GET', body }: ApiOptions = {}): Promise<T> {
   if (previewApi) return previewApi(method, path, body) as Promise<T>
@@ -35,23 +41,32 @@ export async function api<T = unknown>(path: string, { method = 'GET', body }: A
     const m = await import('./mock')
     return m.handle(method, path, body) as Promise<T>
   }
-  const headers: Record<string, string> = { 'X-Lang': getLang() satisfies Lang }
-  if (isTg) headers['X-Tg-Init-Data'] = initData
-  // The server's CSRF guard wants a JSON content type on every non-GET, even with an empty body.
-  if (method !== 'GET') headers['Content-Type'] = 'application/json'
-  let res
-  try {
-    res = await fetch('./api/' + path, {
-      method, headers, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined, cache: 'no-store',
-    })
-  } catch {
-    throw new ApiError(0, 'network', t('err.network'))
+  async function send() {
+    const headers: Record<string, string> = { 'X-Lang': getLang() satisfies Lang }
+    if (isTg) headers['X-Tg-Init-Data'] = initData
+    if (guest) headers['X-Guest'] = guest.token()
+    // The server's CSRF guard wants a JSON content type on every non-GET, even with an empty body.
+    if (method !== 'GET') headers['Content-Type'] = 'application/json'
+    let res
+    try {
+      res = await fetch('./api/' + path, {
+        method, headers, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined, cache: 'no-store',
+      })
+    } catch {
+      throw new ApiError(0, 'network', t('err.network'))
+    }
+    let data: { error?: string; message?: string } | null = null
+    try { data = await res.json() } catch { /* empty or non-JSON body */ }
+    return { res, data }
   }
-  let data: { error?: string; message?: string } | null = null
-  try { data = await res.json() } catch { /* empty or non-JSON body */ }
+  let { res, data } = await send()
+  if (guest && res.status === 401 && data?.error === 'guest_session') {
+    await guest.renew()
+    ;({ res, data } = await send())
+  }
   if (!res.ok) {
     const code = data?.error || 'http_' + res.status
-    const msg = res.status === 401 ? t('err.unauthorized') : data?.message || t('err.generic')
+    const msg = res.status === 401 && !guest ? t('err.unauthorized') : data?.message || t('err.generic')
     throw new ApiError(res.status, code, msg)
   }
   // /api/admin/members flags a degraded VPN panel in X-Warning; ride along on the array.

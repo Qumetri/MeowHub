@@ -260,6 +260,25 @@
 		}
 	}
 
+	# Video page (docs/HELPER.md "Video page"): the bot's downloader for anyone, no
+	# Telegram and no login, on its own secret path (VIDEO_PATH). Only the page, its
+	# assets, the guest API and signed file links pass; the Mini App itself is 404 here.
+	redir /{$VIDEO_PATH} /{$VIDEO_PATH}/ 308
+	handle_path /{$VIDEO_PATH}/* {
+		@page path /
+		rewrite @page /video.html
+		@allowed path /video.html /assets/* /api/pub/* /dl/*
+		handle @allowed {
+			reverse_proxy helper:8095 {
+				header_up -X-Admin-Key
+				header_up -X-Tg-Init-Data
+			}
+		}
+		handle {
+			respond 404
+		}
+	}
+
 	# Owner's bot admin page (hub card "Bots"): the same app behind basic_auth.
 	# Caddy INJECTS the shared X-Admin-Key (BOT_ADMIN_KEY) that makes the app
 	# treat the request as the owner, and drops any Telegram initData the client

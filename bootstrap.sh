@@ -131,6 +131,7 @@ randomise_path N8N_PUBLIC_PATH n8n
 randomise_path SENSOR_PATH     sensor
 randomise_path BOT_APP_PATH    bot
 randomise_path BOT_ADMIN_PATH  botadmin
+randomise_path VIDEO_PATH      video
 randomise_path HA_PATH         home
 
 # Reload so the rendering below sees everything we just wrote.

@@ -72,6 +72,7 @@ services:
       BOT_ADMIN_PATH: ${BOT_ADMIN_PATH:?BOT_ADMIN_PATH must be set and non-empty (run ./bootstrap.sh)}
       BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}
       BOT_ADMIN_USER: ${BOT_ADMIN_USER:-botadmin}
+      VIDEO_PATH: ${VIDEO_PATH:?VIDEO_PATH must be set and non-empty (run ./bootstrap.sh)}
       XUI_SUB_PORT: ${XUI_SUB_PORT:-2096}
       # Secret path of the VLESS+XHTTP route to a 3x-ui inbound (docs/VPN.md). Also
       # `:?`: an empty path would turn the route into /* and swallow the root domain.
@@ -222,6 +223,7 @@ services:
       CRYPTOPAY_TOKEN: ${CRYPTOPAY_TOKEN:-}
       CRYPTOPAY_TESTNET: ${CRYPTOPAY_TESTNET:-}
       BOT_APP_PATH: ${BOT_APP_PATH:?BOT_APP_PATH must be set and non-empty (run ./bootstrap.sh)}
+      VIDEO_PATH: ${VIDEO_PATH:-}         # the guest video page; only shown to the owner
       BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}
       WEBAPP_DIR: /webapp
       # 3x-ui panel API (host network). Empty token -> VPN features show "not

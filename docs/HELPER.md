@@ -557,6 +557,29 @@ Downloads happen in the Mini App page "Скачать" (`?p=downloads&url=…`).
   Sharing the video to the bot (link prefilled) is the zero-friction path.
 
 
+## Video page
+
+The same downloader as a **standalone page for anyone — no Telegram, no login**, so people can use it
+without the bot. The Mini App screen stays as it is.
+
+- **Where**: `https://${BASE_DOMAIN}/${VIDEO_PATH}/` (`bootstrap.sh` randomises `VIDEO_PATH`). Caddy rewrites `/`
+  to `video.html` and lets **only** `/video.html`, `/assets/*`, `/api/pub/*` and `/dl/*` through to the helper
+  (X-Admin-Key / X-Tg-Init-Data stripped); everything else is 404, so the Mini App itself is not reachable there.
+- **Off by default.** Switch it on in `/services` ("🌐 Страница видео без входа", shows the link and today's
+  count) or on the admin page → Обзор → «Страница видео без входа» (copy/open the link). Settings key
+  `dl_public`, env `DL_PUBLIC=1` sets the initial state. Independent of the members' `youtube` switch.
+- **Front end**: a second Vite entry, `helper/webapp/video.html` → `src/video.tsx`, renders the shared
+  `Downloader` from `screens/Downloads.tsx` against the `pub/dl` API. No Telegram script; RU/EN switch.
+- **Identity**: `POST /api/pub/hello` returns a signed token for a random **negative uid** (180 days, at most
+  20 new ids per IP per hour). The page keeps it in localStorage and sends it as `X-Guest`; a 401 fetches a new
+  one once. Negative uids can never be Telegram users; their MeTube folders are `u-<n>`, which the janitor's
+  `u*` sweep covers. File links stay relative (`./dl/<token>`), so they open under the video path.
+- **Limits** (env): per guest **and** per IP (Caddy's `X-Forwarded-For`, stored in `downloads.ip`):
+  `DL_GUEST_ACTIVE`=1 at a time, `DL_GUEST_PER_HOUR`=5, `DL_GUEST_PER_DAY`=15; all guests together
+  `DL_GUEST_ALL_ACTIVE`=3 and `DL_GUEST_ALL_DAY`=150. No playlists. **Members' jobs start before guests'.**
+- **Notices**: usage service `ytpub` — a guest's finished download, named by IP; mute it separately in `/notify`.
+- Tests: `tests/test_dl_public.py`.
+
 ## Audiobooks (beta)
 
 Service `books` (mode `all`, **off by default**): a Mini App page "Аудиокниги" in front of a
@@ -639,6 +662,7 @@ The owner and admins hear, through the helper bot, when someone uses a member se
 | Service | Notice |
 |---|---|
 | `youtube` | a finished download: title, format, size, link |
+| `ytpub` | the same for a guest of the [video page](#video-page), named by IP |
 | `books` | a book sent to narration: title, author, voice, chapters, length, place in line, the member's limit |
 | `upscale` | a photo sent: name, mode, scale, input → output size, today's count of the limit |
 | `trial` | a newcomer started the free trial, until when |

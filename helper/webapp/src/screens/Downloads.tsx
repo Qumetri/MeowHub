@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Icon from '../icons'
 import { Action, Button, Cell, Chips, Empty, ErrorBox, Field, Pill, Segmented, Skeleton, Switch, toast } from '../ui'
 import { api } from '../api'
@@ -18,9 +18,10 @@ const ST_TONE: Record<DlStatus, Tone> = { queued: 'mute', running: 'accent', don
 type JobList = DlJob[] | { jobs?: DlJob[]; items?: DlJob[] } | null
 const listOf = (r: JobList): DlJob[] => (Array.isArray(r) ? r : r?.jobs || r?.items || [])
 
-// GET /api/dl, polled every 2 s while something is queued/running, else every 15 s.
-// Paused while the page is hidden; resumes (with an immediate fetch) when it is shown again.
-function useJobs() {
+// GET /api/<base> (dl, or pub/dl on the guest video page), polled every 2 s while something is
+// queued/running, else every 15 s. Paused while the page is hidden; resumes (with an immediate
+// fetch) when it is shown again.
+function useJobs(base: string) {
   const [st, setSt] = useState<{ jobs: DlJob[] | null; error: ApiError | null }>({ jobs: null, error: null })
   const kick = useRef<() => void>(() => {})
   useEffect(() => {
@@ -32,7 +33,7 @@ function useJobs() {
       busy = true
       let active = false
       try {
-        const jobs = listOf(await api<JobList>('dl'))
+        const jobs = listOf(await api<JobList>(base))
         active = jobs.some(isActive)
         if (!stop) setSt({ jobs, error: null })
       } catch (error) {
@@ -48,7 +49,7 @@ function useJobs() {
     document.addEventListener('visibilitychange', vis)
     void tick()
     return () => { stop = true; clearTimeout(timer); document.removeEventListener('visibilitychange', vis) }
-  }, [])
+  }, [base])
   const mutate = useCallback((fn: (jobs: DlJob[]) => DlJob[]) => setSt((s) => ({ ...s, jobs: s.jobs ? fn(s.jobs) : s.jobs })), [])
   return { ...st, refresh: () => kick.current(), mutate }
 }
@@ -120,8 +121,8 @@ function fileBtn(f: DlFile, label: string, onSave: (f: DlFile) => void, kind: 't
   return <Button key={f.name} kind={kind} size="s" icon="download" onClick={() => onSave(f)}>{label}</Button>
 }
 
-interface JobRowProps { job: DlJob; audioIds: Set<string> | null; onRefresh: () => void; onGone: (id: number) => void }
-function JobRow({ job, audioIds, onRefresh, onGone }: JobRowProps) {
+interface JobRowProps { base: string; job: DlJob; audioIds: Set<string> | null; onRefresh: () => void; onGone: (id: number) => void }
+function JobRow({ base, job, audioIds, onRefresh, onGone }: JobRowProps) {
   const [busy, setBusy] = useState('')
   const active = isActive(job)
   const files = job.files || []
@@ -136,8 +137,8 @@ function JobRow({ job, audioIds, onRefresh, onGone }: JobRowProps) {
     try { await fn() } catch (e) { haptic.notify('error'); toast((e as Error).message, 'bad') } finally { setBusy('') }
   }
   const save = (f: DlFile) => { haptic.impact('light'); saveFile(f.url, f.name) }
-  const cancel = () => run('cancel', async () => { await api(`dl/${job.id}/cancel`, { method: 'POST' }); onRefresh() })
-  const del = () => run('delete', async () => { await api(`dl/${job.id}/delete`, { method: 'POST' }); onGone(job.id) })
+  const cancel = () => run('cancel', async () => { await api(`${base}/${job.id}/cancel`, { method: 'POST' }); onRefresh() })
+  const del = () => run('delete', async () => { await api(`${base}/${job.id}/delete`, { method: 'POST' }); onGone(job.id) })
 
   const eta = typeof job.eta === 'number' ? fmtDur(job.eta) : job.eta
   return (
@@ -192,11 +193,31 @@ function JobRow({ job, audioIds, onRefresh, onGone }: JobRowProps) {
   )
 }
 
+// Mini App screen: members with `youtube` (and the owner).
 export default function Downloads() {
   const { me } = useApp()
-  const allowed = canDownload(me)
-  const { data: presets, error: presetsErr, loading: presetsLoading, reload: reloadPresets } = useApi<DlPresets>(allowed ? 'dl/presets' : null)
-  const { jobs, error: jobsErr, refresh, mutate } = useJobs()
+  if (!canDownload(me)) {
+    return (
+      <div className="page">
+        <Title>{t('dl.title')}</Title>
+        <Empty icon="lock" title={t('dl.off')} />
+      </div>
+    )
+  }
+  return <Downloader base="dl" head={<Title>{t('dl.title')}</Title>} mine={t('dl.mine')} />
+}
+
+interface DownloaderProps {
+  /** API prefix: `dl` (Mini App) or `pub/dl` (the guest video page) */
+  base: string
+  head: ReactNode
+  /** heading of the job list */
+  mine: string
+}
+// The downloader itself, shared by the Mini App screen and the standalone video page (video.tsx).
+export function Downloader({ base, head, mine }: DownloaderProps) {
+  const { data: presets, error: presetsErr, loading: presetsLoading, reload: reloadPresets } = useApi<DlPresets>(base + '/presets')
+  const { jobs, error: jobsErr, refresh, mutate } = useJobs(base)
 
   const [url, setUrl] = useState(() => new URLSearchParams(location.search).get('url') || '')
   const [preset, setPreset] = useState('')
@@ -256,7 +277,7 @@ export default function Downloads() {
     if (clipUsed) body.clip = { start: cs, end: ce }
     if (playlist) body.playlist = true
     try {
-      const job = await api<DlJob | null>('dl', { method: 'POST', body })
+      const job = await api<DlJob | null>(base, { method: 'POST', body })
       haptic.notify('success'); toast(t('dl.queued_toast'))
       setUrl(''); setClip({ start: '', end: '' }); setPlaylist(false)
       if (job?.id != null) mutate((js) => [job, ...js.filter((j) => j.id !== job.id)])
@@ -264,11 +285,11 @@ export default function Downloads() {
     } catch (e) { haptic.notify('error'); setErr((e as Error).message) } finally { setBusy(false) }
   }
 
-  if (!allowed) {
+  if (presetsErr?.code === 'public_off') {
     return (
       <div className="page">
-        <Title>{t('dl.title')}</Title>
-        <Empty icon="lock" title={t('dl.off')} />
+        {head}
+        <div className="group"><Empty icon="lock" title={presetsErr.message} /></div>
       </div>
     )
   }
@@ -282,7 +303,7 @@ export default function Downloads() {
 
   return (
     <div className="page">
-      <Title>{t('dl.title')}</Title>
+      {head}
 
       <Field label={t('dl.url')} error={err}
         suffix={trimmed
@@ -309,7 +330,7 @@ export default function Downloads() {
       <Action text={t('dl.go')} icon="download" enabled={ready} loading={busy} onClick={submit} />
 
       <section className="sec jobs">
-        <div className="sec__h"><h3>{t('dl.mine')}</h3></div>
+        <div className="sec__h"><h3>{mine}</h3></div>
         {jobs == null && !jobsErr && <Skeleton rows={2} title={false} />}
         {jobs == null && jobsErr && <ErrorBox error={jobsErr} onRetry={refresh} what={t('err.load')} />}
         {jobs && jobs.length === 0 && (
@@ -318,7 +339,7 @@ export default function Downloads() {
         {jobs && jobs.length > 0 && (
           <div className="group">
             {jobs.map((j) => (
-              <JobRow key={j.id} job={j} audioIds={audioIds} onRefresh={refresh}
+              <JobRow key={j.id} base={base} job={j} audioIds={audioIds} onRefresh={refresh}
                 onGone={(id) => { mutate((js) => js.filter((x) => x.id !== id)); refresh() }} />
             ))}
           </div>

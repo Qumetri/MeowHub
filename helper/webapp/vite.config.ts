@@ -7,5 +7,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: './',
   plugins: [react()],
-  build: { outDir: 'dist', emptyOutDir: true },
+  // two pages: the Mini App (index.html) and the guest video page (video.html, its own secret path)
+  build: { outDir: 'dist', emptyOutDir: true, rollupOptions: { input: { main: 'index.html', video: 'video.html' } } },
 })

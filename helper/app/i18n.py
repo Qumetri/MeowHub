@@ -152,6 +152,7 @@ def localize_job_error(lang, text):
 # -- common --------------------------------------------------------------------
 _("common.no_expiry", "без срока", "no expiry")
 _("common.owner", "Владелец", "Owner")
+_("common.guest", "🌐 Гость сайта", "🌐 Site guest")
 _("common.yes", "да", "yes")
 _("common.no", "нет", "no")
 _("common.days", "{n} д", "{n} d")
@@ -382,6 +383,8 @@ _("rem.trial_expired",
 _("usage.trial", "🎁 {who} взял(а) пробный доступ на {period}, до {when}.",
   "🎁 {who} started a free trial for {period}, until {when}.")
 _("usage.svc.trial", "Пробный доступ", "Free trial")
+_("usage.svc.ytpub", "Видео на сайте (гости)", "Video page (guests)")
+_("usage.guest", "🌐 Гость страницы видео (IP <code>{ip}</code>)", "🌐 A video page guest (IP <code>{ip}</code>)")
 
 # -- payments (payments.py): Stars + CryptoBot ----------------------------------------
 _("pay.plan.m1", "1 месяц", "1 month")
@@ -440,6 +443,10 @@ _("svc.trial_btn", "{mark} 🎁 Пробный доступ новичкам —
 _("svc.trial_line", "{mark} Пробный доступ новичкам ({period}, не больше {cap} в сутки)",
   "{mark} Free trial for newcomers ({period}, at most {cap} a day)")
 _("svc.trial_name", "Пробный доступ", "Free trial")
+_("svc.dlpub_line", "{mark} 🌐 <b>Страница видео без входа</b> — сегодня {n}",
+  "{mark} 🌐 <b>Video page, no login</b> — {n} today")
+_("svc.dlpub_btn", "{mark} 🌐 Страница видео без входа", "{mark} 🌐 Video page, no login")
+_("svc.dlpub_name", "Страница видео без входа", "Video page, no login")
 
 # -- VPN / Matrix in chat ----------------------------------------------------------
 _("vpn.owner_none", "У владельца нет подписки — конфиги в панели 3x-ui.",
@@ -1011,6 +1018,16 @@ _("dl.err.limit_active", "Одновременно можно качать не 
 _("dl.err.limit_hour", "Лимит: не больше {n} загрузок в час. Попробуй позже.",
   "Limit: at most {n} downloads per hour. Try again later.")
 _("dl.err.limit_day", "Лимит: не больше {n} загрузок в сутки.", "Limit: at most {n} downloads per day.")
+_("dl.err.public_off", "Страница загрузки сейчас выключена.", "The download page is switched off right now.")
+_("dl.err.guest_playlist", "Плейлисты здесь не качаются — вставь ссылку на одно видео.",
+  "Playlists aren't supported here — paste a link to a single video.")
+_("dl.err.guest_busy", "Сейчас много загрузок — попробуй через пару минут.",
+  "Lots of downloads right now — try again in a couple of minutes.")
+_("dl.err.guest_day", "На сегодня лимит страницы исчерпан — попробуй завтра.",
+  "The page's limit for today is used up — try again tomorrow.")
+_("dl.err.guest_session", "Сессия устарела — обнови страницу.", "Session expired — reload the page.")
+_("dl.err.guest_new", "Слишком много новых сессий с твоего адреса — попробуй позже.",
+  "Too many new sessions from your address — try again later.")
 _("dl.err.not_found", "Загрузка не найдена.", "Download not found.")
 _("dl.err.not_active", "Загрузка уже завершена.", "This download has already finished.")
 _("dl.err.file_gone", "Файл уже удалён.", "The file has already been deleted.")

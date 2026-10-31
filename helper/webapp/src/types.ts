@@ -260,6 +260,15 @@ export interface Overview {
 }
 export interface AdminService { id: string; name: string; description: string; mode: 'grant' | 'all' | string; enabled: boolean; members_with_access?: number }
 export interface TrialSettings { enabled: boolean; days: number; per_day: number; started: number }
+/** GET/POST admin/dl-public: the guest video page */
+export interface DlPublic {
+  enabled: boolean
+  url: string
+  today: number
+  guests: number
+  active: number
+  limits: { active: number; per_hour: number; per_day: number; all_active: number; all_day: number; ttl_min: number }
+}
 
 export type KeyId = 'helper' | 'member' | 'crypto' | 'xui'
 export interface KeyItem {

@@ -21,6 +21,12 @@ MeTube from it:
 Presets are defined once here (presets_payload) and used by the Mini App API
 and by both bots (which only hand the link over to the Mini App). MeTube URLs
 are never handed out -- files are served by webapp's /dl/<token>.
+
+Guests (the standalone video page, no Telegram, no login): an anonymous browser
+gets a signed id that is a NEGATIVE uid (folder `u-<n>`), so it can never be a
+Telegram user. Guests have their own owner switch (`dl_public`, default off) and
+tighter limits, counted per guest AND per IP plus a cap on all guests together;
+no playlists; member jobs are started before guest jobs.
 """
 import html
 import json
@@ -69,13 +75,25 @@ def limits():
             "per_day": _int_env("DL_PER_DAY", 30), "ttl_min": _int_env("METUBE_TTL_MIN", 30)}
 
 
-def presets_payload(lang="ru"):
-    """GET /api/dl/presets, and what the bots build their buttons from."""
+def guest_limits():
+    """Guests: per guest and per IP (`active`, `per_hour`, `per_day`), and for all guests together."""
+    return {"active": _int_env("DL_GUEST_ACTIVE", 1), "per_hour": _int_env("DL_GUEST_PER_HOUR", 5),
+            "per_day": _int_env("DL_GUEST_PER_DAY", 15), "all_active": _int_env("DL_GUEST_ALL_ACTIVE", 3),
+            "all_day": _int_env("DL_GUEST_ALL_DAY", 150), "ttl_min": limits()["ttl_min"]}
+
+
+def is_guest(uid):
+    return uid is not None and int(uid) < 0
+
+
+def presets_payload(lang="ru", guest=False):
+    """GET /api/dl/presets (and /api/pub/dl/presets for guests), and what the bots build their buttons from."""
     best = i18n.tr(lang, "dl.preset.best")
+    g = guest_limits() if guest else None
     return {"video": [{"id": i, "label": best if i == "vbest" else lb} for i, lb, _q in VIDEO],
             "audio": [{"id": i, "label": lb} for i, lb, _f, _q in AUDIO],
-            "extras": {"subs": list(SUBS), "clip": True, "playlist_max": PLAYLIST_MAX},
-            "limits": limits(),
+            "extras": {"subs": list(SUBS), "clip": True, "playlist_max": 0 if guest else PLAYLIST_MAX},
+            "limits": {k: g[k] for k in ("active", "per_hour", "per_day", "ttl_min")} if guest else limits(),
             "sites": [i18n.tr(lang, "dl.site.vk") if x == "VK Видео" else x for x in SITES]}
 
 
@@ -293,6 +311,8 @@ class Downloads:
         self._stable = {}                   # job id -> consecutive all-terminal ticks (playlists)
         self._hk = 0.0
         self._thread = None
+        if "ip" not in {r[1] for r in store.q("PRAGMA table_info(downloads)")}:
+            store.q("ALTER TABLE downloads ADD COLUMN ip TEXT NOT NULL DEFAULT ''")    # guests' limits
 
     # ------------------------------------------------------------ db plumbing --
     def _get(self, jid):
@@ -325,28 +345,54 @@ class Downloads:
             log.warning("disk_usage(%s): %s", self.root, e)
             return float("inf")
 
-    def submit(self, uid, url, preset, raw_opts=None, origin="app", chat_id=None, chat_msg_id=None, lang="ru"):
-        """-> job JSON. Raises DlError (400 bad input, 429 limit, 503 disk_full)."""
+    # ---------------------------------------------------------- guest switch --
+    def public_enabled(self):
+        """The owner's switch for the guest page (settings `dl_public`); until first flipped, env DL_PUBLIC (off)."""
+        return (self.s.get("dl_public", "") or os.environ.get("DL_PUBLIC", "0")).strip() == "1"
+
+    def set_public_enabled(self, on):
+        self.s.set("dl_public", "1" if on else "0")
+
+    def public_stats(self):
+        now = int(self.clock())
+        n = lambda sql, *a: self.s.q(sql, *a)[0][0]                       # noqa: E731
+        return {"today": n("SELECT COUNT(*) FROM downloads WHERE uid<0 AND created_ts>=? AND status!='canceled'",
+                           now - DAY),
+                "guests": n("SELECT COUNT(DISTINCT uid) FROM downloads WHERE uid<0 AND created_ts>=?", now - DAY),
+                "active": n("SELECT COUNT(*) FROM downloads WHERE uid<0 AND status IN ('queued','running')")}
+
+    def submit(self, uid, url, preset, raw_opts=None, origin="app", chat_id=None, chat_msg_id=None, lang="ru",
+               ip=""):
+        """-> job JSON. Raises DlError (400 bad input, 429 limit, 503 disk_full). A guest (uid < 0)
+        passes its IP for the per-IP limits."""
+        guest = is_guest(uid)
+        if guest and not self.public_enabled():
+            raise DlError(403, "public_off", "dl.err.public_off")
         url = url.strip() if isinstance(url, str) else url
         if not valid_url(url):
             raise DlError(400, "bad_url", "dl.err.bad_url")
         if preset not in PRESETS:
             raise DlError(400, "bad_preset", "dl.err.bad_preset")
         opts = norm_opts(raw_opts)
+        if guest and opts["playlist"]:
+            raise DlError(400, "playlist", "dl.err.guest_playlist")
         url = canonical_url(url, keep_list=opts["playlist"])
         if is_playlist(url) and not opts["playlist"]:
-            raise DlError(400, "playlist", "dl.err.playlist")
+            raise DlError(400, "playlist", "dl.err.guest_playlist" if guest else "dl.err.playlist")
         if self.free_gb() < self.min_free_gb:
             raise DlError(503, "disk_full", "dl.err.disk")
         now = int(self.clock())
         with self.sublock:
-            if uid != self.owner_id():
+            if guest:
+                self._check_guest_limits(uid, ip, now)
+            elif uid != self.owner_id():
                 self._check_limits(uid, now)
             with self.s.lock:
                 cur = self.s.db.execute(
-                    "INSERT INTO downloads(uid,url,preset,opts,origin,chat_id,chat_msg_id,created_ts) "
-                    "VALUES(?,?,?,?,?,?,?,?)",
-                    (int(uid), url, preset, json.dumps(opts), origin, chat_id, chat_msg_id, now))
+                    "INSERT INTO downloads(uid,url,preset,opts,origin,chat_id,chat_msg_id,created_ts,ip) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    (int(uid), url, preset, json.dumps(opts), origin, chat_id, chat_msg_id, now,
+                     str(ip or "")[:64] if guest else ""))
                 jid = cur.lastrowid
         self.wake.set()
         return self.job_json(self._get(jid), lang=lang)
@@ -362,6 +408,26 @@ class Downloads:
         if n("SELECT COUNT(*) FROM downloads WHERE uid=? AND created_ts>=? AND status!='canceled'",
              uid, now - DAY) >= lim["per_day"]:
             raise DlError(429, "limit", "dl.err.limit_day", n=lim["per_day"])
+
+    def _check_guest_limits(self, uid, ip, now):
+        """The same guest by id OR by IP (a new id is one localStorage wipe away), then all guests."""
+        g = guest_limits()
+        n = lambda sql, *a: self.s.q(sql, *a)[0][0]                       # noqa: E731
+        who = "uid<0 AND (uid=? OR (ip=? AND ip!=''))"
+        ip = str(ip or "")[:64]
+        if n(f"SELECT COUNT(*) FROM downloads WHERE {who} AND status IN ('queued','running')", uid, ip) >= g["active"]:
+            raise DlError(429, "limit", "dl.err.limit_active", n=g["active"])
+        if n(f"SELECT COUNT(*) FROM downloads WHERE {who} AND created_ts>=? AND status!='canceled'",
+             uid, ip, now - 3600) >= g["per_hour"]:
+            raise DlError(429, "limit", "dl.err.limit_hour", n=g["per_hour"])
+        if n(f"SELECT COUNT(*) FROM downloads WHERE {who} AND created_ts>=? AND status!='canceled'",
+             uid, ip, now - DAY) >= g["per_day"]:
+            raise DlError(429, "limit", "dl.err.limit_day", n=g["per_day"])
+        if n("SELECT COUNT(*) FROM downloads WHERE uid<0 AND status IN ('queued','running')") >= g["all_active"]:
+            raise DlError(429, "busy", "dl.err.guest_busy")
+        if n("SELECT COUNT(*) FROM downloads WHERE uid<0 AND created_ts>=? AND status!='canceled'",
+             now - DAY) >= g["all_day"]:
+            raise DlError(429, "busy", "dl.err.guest_day")
 
     # ------------------------------------------------------------- MeTube body --
     def _add_body(self, j, phase):
@@ -561,8 +627,11 @@ class Downloads:
         title = html.escape(lead.get("title") or lead["url"])
         preset = PRESETS.get(lead["preset"], {}).get("label", lead["preset"])
         url = html.escape(lead["url"])
-        u.report("youtube", lead["uid"], lambda lang, who: i18n.tr(
-            lang, "usage.youtube", who=who, kind=i18n.tr(lang, "usage.kind_" + kind), title=title,
+        guest = is_guest(lead["uid"])
+        ip = html.escape(lead.get("ip") or "?")
+        u.report("ytpub" if guest else "youtube", lead["uid"], lambda lang, who: i18n.tr(
+            lang, "usage.youtube", who=i18n.tr(lang, "usage.guest", ip=ip) if guest else who,
+            kind=i18n.tr(lang, "usage.kind_" + kind), title=title,
             preset=html.escape(preset), size=f"{size / 1048576:.0f} MB", url=url))
 
     def _fail(self, lead, msg):
@@ -570,7 +639,7 @@ class Downloads:
 
     # -- queued jobs --
     def _assign(self, now):
-        queued = self._rows("WHERE status='queued' ORDER BY id")
+        queued = self._rows("WHERE status='queued' ORDER BY uid<0, id")          # members before guests
         if not queued:
             return
         leads = [j for j in self._rows("WHERE status='running' AND lead=id ORDER BY id")]
@@ -617,7 +686,8 @@ class Downloads:
     def file_url(self, j, idx):
         ttl = max(60, int((j["finished_ts"] or self.clock()) + limits()["ttl_min"] * 60 - self.clock()))
         rel = links.sign("file", f"{j['id']}:{idx}", j["uid"], ttl, store=self.s)
-        return links.absolute(rel, self.base_url())
+        # a guest's link stays relative: it opens under the video page's own path, not the Mini App's
+        return rel if is_guest(j["uid"]) else links.absolute(rel, self.base_url())
 
     # ------------------------------------------------------------ housekeeping --
     def _housekeeping(self, now):
@@ -690,11 +760,11 @@ class Downloads:
     # --------------------------------------------------------------- serving --
     def _safe_path(self, rel, folder=None):
         """Real path of `rel` (relative to the downloads root) or None. Confined to
-        <root>/<folder>, folder = `u<digits>` (the rel's first component by default)."""
+        <root>/<folder>, folder = `u<digits>` / guest `u-<digits>` (the rel's first component by default)."""
         if not isinstance(rel, str) or not rel or "\x00" in rel or rel.startswith("/"):
             return None
         first = rel.split("/", 1)[0]
-        if not re.fullmatch(r"u\d+", first) or (folder is not None and first != folder):
+        if not re.fullmatch(r"u-?\d+", first) or (folder is not None and first != folder):
             return None
         root = os.path.realpath(self.root)
         base = os.path.realpath(os.path.join(root, first))
@@ -714,7 +784,10 @@ class Downloads:
             raise DlError(404, "not_found")
         if j["uid"] != uid:
             raise DlError(403, "forbidden")
-        if uid != self.owner_id() and not self.members.has(uid, "youtube"):
+        if is_guest(uid):
+            if not self.public_enabled():
+                raise DlError(403, "public_off", "dl.err.public_off")
+        elif uid != self.owner_id() and not self.members.has(uid, "youtube"):
             raise DlError(403, "no_access", "api.no_access")
         if j["status"] != "done" or not 0 <= idx < len(j["files"]):
             raise DlError(404, "not_found")

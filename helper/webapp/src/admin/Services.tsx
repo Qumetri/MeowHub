@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Cell, ErrorBox, Section, Skeleton, Switch, toast } from '../ui'
+import { Button, Cell, ErrorBox, Section, Skeleton, Switch, toast } from '../ui'
 import { api } from '../api'
 import { useApi } from '../hooks'
-import { confirmDialog, haptic } from '../tg'
+import { confirmDialog, haptic, openLink } from '../tg'
 import { t } from '../i18n'
-import { plural } from '../util'
+import { copyText, plural } from '../util'
 import type { IconName } from '../icons'
-import type { AdminService, TrialSettings } from '../types'
+import type { AdminService, DlPublic, TrialSettings } from '../types'
 
 const ICON: Record<string, IconName> = { vpn: 'shield', matrix: 'chat', tools: 'tools', youtube: 'download', books: 'book', upscale: 'image' }
 const modeNote = (m: string): string => (m === 'all' || m === 'grant' ? t('sv.mode.' + m) : m)
@@ -57,6 +57,7 @@ export default function Services() {
       ))}
     </Section>
     <Trial />
+    <VideoPage />
     </>
   )
 }
@@ -88,6 +89,47 @@ function Trial() {
         sub={t('sv.trial_started', { n: data.started })}
         right={<Switch checked={!!data.enabled} disabled={busy} label={t('sv.trial_title')} onChange={toggle} />}
         onClick={() => { void toggle(!data.enabled) }} />
+    </Section>
+  )
+}
+
+// Owner: the standalone video page for guests (GET/POST /api/admin/dl-public).
+function VideoPage() {
+  const { data, setData } = useApi<DlPublic>('admin/dl-public')
+  const [busy, setBusy] = useState(false)
+  if (!data) return null
+
+  async function toggle(enabled: boolean) {
+    if (busy || !data) return
+    const prev = data
+    setBusy(true)
+    setData({ ...data, enabled })
+    try {
+      setData(await api<DlPublic>('admin/dl-public', { method: 'POST', body: { enabled } }))
+      haptic.notify('success')
+    } catch (e) {
+      setData(prev)
+      haptic.notify('error'); toast((e as Error).message, 'bad')
+    } finally { setBusy(false) }
+  }
+
+  async function copy() {
+    haptic.impact('light')
+    if (await copyText(data!.url)) toast(t('sv.dlpub_copied'))
+  }
+
+  return (
+    <Section title={t('sv.dlpub_title')} footer={t('sv.dlpub_foot', data.limits)}>
+      <Cell icon="globe" tone={data.enabled ? 'accent' : 'mute'} title={t('sv.dlpub_name')}
+        sub={data.url ? t('sv.dlpub_today', { n: data.today, g: data.guests }) : t('sv.dlpub_nourl')}
+        right={<Switch checked={data.enabled} disabled={busy} label={t('sv.dlpub_title')} onChange={toggle} />}
+        onClick={() => { void toggle(!data.enabled) }} />
+      {data.url && (
+        <div className="job__act dlpub__act">
+          <Button kind="tonal" size="s" icon="copy" onClick={copy}>{t('sv.dlpub_copy')}</Button>
+          <Button kind="plain" size="s" icon="external" onClick={() => openLink(data.url)}>{t('sv.dlpub_open')}</Button>
+        </div>
+      )}
     </Section>
   )
 }

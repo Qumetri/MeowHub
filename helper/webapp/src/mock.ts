@@ -7,7 +7,7 @@
 import { ApiError } from './api'
 import { MOCK_USERS, type MockRole } from './mock-users'
 import { getLang } from './i18n'
-import type {
+import type { DlPublic,
   AccessCode, AdminService, BookVoice, BooksView, DlJob, DlPresets, Inbound, KeyId, KeyItem, Lang, LangPref,
   MatrixAccount, MemberStatus, MemberBook, PayOffer, PaymentsAdmin, PayProvider, PlanId, SyncState, TgUser,
   UpscaleJob, UpscaleView,
@@ -84,6 +84,7 @@ const state: {
   sync: SyncState
   keys: Record<KeyId, MockKey>
   trialOn?: boolean
+  dlPublicOn?: boolean
 } = {
   members: [
     U(100200300, 'Админ', '', 'owner', null, ['vpn', 'matrix', 'tools'], 60, 220, { note: 'Владелец' }),
@@ -315,6 +316,8 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
   await delay(180 + Math.random() * 160)
   const failPart = P.get('fail')
   if (failPart && path.includes(failPart)) err(500, 'boom', tr('Внутренняя ошибка сервера (mock)', 'Internal server error (mock)'))
+  if (path === 'pub/hello') return { token: 'mock-guest' }
+  if (path.startsWith('pub/dl')) path = path.slice(4)          // the guest video page: same fake downloader
   const seg = (path.split('?')[0] ?? '').split('/')
 
   if (path === 'me') {
@@ -356,6 +359,14 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
     ownerOnly()
     if (method === 'POST') state.trialOn = !!body.enabled
     return { enabled: state.trialOn !== false, days: 1, per_day: 20, started: 7 }
+  }
+  if (path === 'admin/dl-public') {
+    ownerOnly()
+    if (method === 'POST') state.dlPublicOn = !!body.enabled
+    return {
+      enabled: !!state.dlPublicOn, url: 'https://example.org/video-xxxx/', today: 4, guests: 3, active: 1,
+      limits: { active: 1, per_hour: 5, per_day: 15, all_active: 3, all_day: 150, ttl_min: 30 },
+    } satisfies DlPublic
   }
 
   if (path === 'pay' && method === 'POST' && body.provider === 'donate') return { provider: 'stars', link: 'https://t.me/$mockDonation' }

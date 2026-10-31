@@ -21,6 +21,7 @@ import logging
 import mimetypes
 import os
 import re
+import secrets
 import threading
 import time
 import urllib.error
@@ -45,6 +46,8 @@ MAX_BODY = 64 * 1024
 DRAIN_MAX = 1024 * 1024
 CHUNK = 256 * 1024
 TOUCH_EVERY = 600                    # seconds between "app" activity bumps per uid
+GUEST_TTL = 180 * 86400              # the video page's anonymous id (X-Guest), renewed on expiry
+GUEST_NEW_PER_HOUR = 20              # new anonymous ids per IP and hour
 AVATAR_TTL = 24 * 3600
 GETME_TTL = 600
 LOCKED_TTL = 60
@@ -425,6 +428,7 @@ class App:
         signed.configure(helper.store)
         self._touched = {}
         self._lock = threading.Lock()
+        self._guest_new = {}                # ip -> recent X-Guest issue times
         self._locked = {}                   # mxid -> (ts, bool|None)
         self._getme = {}                    # bot id -> (ts, dict)
         self._alocks = {}
@@ -1379,9 +1383,80 @@ class App:
             raise ApiError(503, "bot_not_ready", "api.dl_starting")
 
         def name(uid):
+            if dlm.is_guest(uid):
+                return i18n.tr(ctx.lang, "common.guest")
             m = self.h.members.get(uid)
             return name_of(m) if m else (i18n.tr(ctx.lang, "common.owner") if uid == self.h.owner_id() else str(uid))
         return jr(d.admin(name, ctx.lang))
+
+    def api_admin_dl_public(self, req, ctx):
+        """GET: the guest video page's switch, link and today's numbers; POST {enabled}: flip it."""
+        self.need_owner(ctx)
+        d = getattr(self.h, "downloads", None)
+        if d is None:
+            raise ApiError(503, "bot_not_ready", "api.dl_starting")
+        if req.command == "POST":
+            on = req.json().get("enabled")
+            if not isinstance(on, bool):
+                raise ApiError(400, "bad_request")
+            d.set_public_enabled(on)
+            self.h.members.log(None, "dlpub_toggle", "on" if on else "off")
+        g = dlm.guest_limits()
+        return jr({"enabled": d.public_enabled(), "url": getattr(self.h, "video_url", ""),
+                   **d.public_stats(), "limits": g})
+
+    # ------------------------------------------------- guest video page --
+    # The standalone downloader (video.html at its own secret path, VIDEO_PATH): no Telegram, no
+    # login. POST /api/pub/hello hands out a signed anonymous id (negative uid) that the page keeps
+    # in localStorage and sends as X-Guest; downloads.py applies the guest switch and limits.
+    def authenticate_guest(self, headers):
+        try:
+            kind, _ident, uid = signed.verify(headers.get("X-Guest", ""), store=self.h.store)
+        except signed.LinkError:
+            raise ApiError(401, "guest_session", "dl.err.guest_session") from None
+        if kind != "guest" or not dlm.is_guest(uid):
+            raise ApiError(401, "guest_session", "dl.err.guest_session")
+        return Ctx(uid, "guest", "browser", {"id": uid}, "web")
+
+    def need_pub_dl(self, ctx):
+        d = getattr(self.h, "downloads", None)
+        if d is None:
+            raise ApiError(503, "bot_not_ready", "api.dl_starting")
+        if not d.public_enabled():
+            raise ApiError(403, "public_off", "dl.err.public_off")
+        return d
+
+    def api_pub_hello(self, req, ctx):
+        ip, now = req.client_ip(), time.time()
+        with self._lock:
+            if len(self._guest_new) > 10000:
+                self._guest_new = {k: v for k, v in self._guest_new.items() if v and now - v[-1] < 3600}
+            recent = [t for t in self._guest_new.get(ip, []) if now - t < 3600]
+            if len(recent) >= GUEST_NEW_PER_HOUR:
+                raise ApiError(429, "guest_new", "dl.err.guest_new")
+            self._guest_new[ip] = recent + [now]
+        gid = -(secrets.randbelow(2 ** 40) + 1)
+        return jr({"token": signed.token("guest", "web", gid, GUEST_TTL, store=self.h.store)})
+
+    def api_pub_dl_presets(self, req, ctx):
+        self.need_pub_dl(ctx)
+        return jr(dlm.presets_payload(ctx.lang, guest=True))
+
+    def api_pub_dl_new(self, req, ctx):
+        d = self.need_pub_dl(ctx)
+        b = req.json()
+        return jr(d.submit(ctx.uid, b.get("url"), b.get("preset"),
+                           {k: b.get(k) for k in ("subs", "clip", "playlist")}, origin="web",
+                           lang=ctx.lang, ip=req.client_ip()))
+
+    def api_pub_dl_list(self, req, ctx):
+        return jr(self.need_pub_dl(ctx).jobs_for(ctx.uid, ctx.lang))
+
+    def api_pub_dl_cancel(self, req, ctx, jid):
+        return jr(self.need_pub_dl(ctx).cancel(ctx.uid, int(jid), ctx.lang))
+
+    def api_pub_dl_delete(self, req, ctx, jid):
+        return jr(self.need_pub_dl(ctx).delete(ctx.uid, int(jid)))
 
     # ------------------------------------------------------------ audiobooks --
     def need_books(self, ctx):
@@ -1741,7 +1816,7 @@ p{{margin:0;opacity:.7}}
             ctype += "; charset=utf-8"
         name = os.path.basename(full)
         rel_real = os.path.relpath(full, root)
-        if name == "index.html":
+        if name.endswith(".html"):                  # index.html, video.html
             cache = "no-cache"
         elif rel_real.startswith("assets" + os.sep):
             cache = "public, max-age=31536000, immutable"
@@ -1751,7 +1826,8 @@ p{{margin:0;opacity:.7}}
 
 
 # ------------------------------------------------------------ route table --
-# (method, regex, auth, handler name); auth: "public" | "any"
+# (method, regex, auth, handler name); auth: "any" (Telegram initData or the admin key) |
+# "guest" (the video page's signed anonymous id, X-Guest) | "public" (nothing)
 ROUTES = [
     ("GET", r"/api/me", "any", "api_me"),
     ("POST", r"/api/lang", "any", "api_lang"),
@@ -1788,6 +1864,14 @@ ROUTES = [
     ("POST", r"/api/dl/(\d{1,12})/cancel", "any", "api_dl_cancel"),
     ("POST", r"/api/dl/(\d{1,12})/delete", "any", "api_dl_delete"),
     ("GET", r"/api/admin/dl", "any", "api_admin_dl"),
+    ("GET", r"/api/admin/dl-public", "any", "api_admin_dl_public"),
+    ("POST", r"/api/admin/dl-public", "any", "api_admin_dl_public"),
+    ("POST", r"/api/pub/hello", "public", "api_pub_hello"),
+    ("GET", r"/api/pub/dl/presets", "guest", "api_pub_dl_presets"),
+    ("POST", r"/api/pub/dl", "guest", "api_pub_dl_new"),
+    ("GET", r"/api/pub/dl", "guest", "api_pub_dl_list"),
+    ("POST", r"/api/pub/dl/(\d{1,12})/cancel", "guest", "api_pub_dl_cancel"),
+    ("POST", r"/api/pub/dl/(\d{1,12})/delete", "guest", "api_pub_dl_delete"),
     ("GET", r"/api/books", "any", "api_books"),
     ("POST", r"/api/books/upload", "any", "api_books_upload"),
     ("GET", r"/api/books/preview", "any", "api_books_preview"),
@@ -1824,6 +1908,11 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/dl/"):                  # the token is a credential
             path = "/dl/…"
         log.debug("%s %s -> %s", self.command, path, code)
+
+    def client_ip(self):
+        """The visitor's address: Caddy sets X-Forwarded-For (from PROXY protocol); else the peer."""
+        xff = (self.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
+        return xff[:64] or self.client_address[0]
 
     # ---- request body ----
     def json(self):
@@ -1892,8 +1981,13 @@ class Handler(BaseHTTPRequestHandler):
             for m, rx, auth, fn in ROUTES:
                 mo = rx.match(path)
                 if mo and m == method:
-                    ctx = app.authenticate(self.headers)
-                    ctx.lang = self._lang = app.ctx_lang(ctx, self.headers)
+                    if auth == "any":
+                        ctx = app.authenticate(self.headers)
+                        ctx.lang = self._lang = app.ctx_lang(ctx, self.headers)
+                    else:
+                        ctx = (app.authenticate_guest(self.headers) if auth == "guest"
+                               else Ctx(None, "guest", "browser", {}, "web"))
+                        ctx.lang = self._lang = self._lang or "ru"
                     return getattr(app, fn)(self, ctx, *mo.groups())
             if any(rx.match(path) for _, rx, _, _ in ROUTES):
                 raise ApiError(405, "method_not_allowed", "api.method")
