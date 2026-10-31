@@ -851,7 +851,7 @@ class TestWiring(TwoBots):
         member_cmds = [e for e in self.mb.log if e[0] == "setMyCommands" and "language_code" not in e[3]]
         self.assertEqual(len(member_cmds), 1)
         self.assertEqual([c["command"] for c in member_cmds[0][3]["commands"]],
-                         ["start", "help", "vpn", "matrix", "sub", "lang"])
+                         ["start", "help", "vpn", "matrix", "sub", "lang", "paysupport"])
 
     def test_menu_buttons(self):
         self.h._menu_button()

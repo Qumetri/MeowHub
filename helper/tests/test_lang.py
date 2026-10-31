@@ -780,7 +780,7 @@ class TestTwoBots(unittest.TestCase):
         calls = [e for e in self.mb.log if e[0] == "setMyCommands"]
         self.assertEqual(len(calls), 1 + len(i18n.RU_CODES))
         self.assertEqual([c["command"] for c in calls[0][3]["commands"]],
-                         ["start", "help", "vpn", "matrix", "sub", "lang"])
+                         ["start", "help", "vpn", "matrix", "sub", "lang", "paysupport"])
 
 
 # ----------------------------------------------------------------- reminders --

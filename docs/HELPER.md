@@ -599,6 +599,35 @@ the `upscaler` service (profile `upscaler`, see [UPSCALER.md](UPSCALER.md)), rea
   guard for this non-JSON route), `POST /api/upscale/<id>/cancel`, `…/delete`, `GET /api/upscale/<id>/before|after`.
   Tests: `tests/test_upscale.py`.
 
+## Payments
+
+Members can pay for more time themselves in the Mini App's **Extend** screen; the owner's
+contact stays there as "pay directly or make an arrangement". Code: `helper/app/payments.py`,
+hooks in `bot.py` and `webapp.py`, UI in `webapp/src/screens/Code.tsx` and `admin/Payments.tsx`.
+
+- **Plans**: 1, 3 and 12 months (30/90/365 days), added to the current end exactly like an
+  access code. Prices per provider are set on the admin page (Overview → Payments); defaults
+  100/270/960 ★ and $2/$5/$18. **Both providers are off until you switch them on.**
+- **Telegram Stars**: the app asks `POST /api/pay` for an invoice link (`createInvoiceLink`,
+  currency XTR), issued by the bot the app was opened from — members open it from the member
+  bot, so that bot's balance receives the Stars (withdraw via Fragment). Both pollers request
+  `pre_checkout_query` and answer it inline in the poll loop (Telegram allows 10 s): our payload,
+  the same user, the same amount, provider on, member not suspended. The membership is credited
+  on the `successful_payment` message.
+- **CryptoBot**: set `CRYPTOPAY_TOKEN` (@CryptoBot → Crypto Pay → Create App). Invoices are
+  priced in USD and paid in USDT/TON/BTC/…; a background thread polls open invoices every 20 s
+  (no webhook, no extra route). Crypto Pay sits behind Cloudflare, which rejects Python's default
+  User-Agent, so the client sends its own.
+- **Exactly once**: every payment is a row keyed `<provider>:<charge or invoice id>`; a
+  redelivered update or a second poll changes nothing. The payer gets a confirmation, the owner
+  and admins a usage notice (`/notify` → Payments), the member's history an event `pay`.
+- **Support and refunds**: `/paysupport` (Telegram requires it for Stars) answers with
+  `OWNER_CONTACT` and pings the owner. `/refund <telegram id>` in the service bot returns that
+  person's last Stars payment (`refundStarPayment`, from the bot that received it) and takes the
+  days back. CryptoBot payments are refunded by hand in @CryptoBot.
+- Rules worth knowing before switching Stars on: digital goods in bots must be sold for Stars,
+  `/paysupport` must work, and Stars on a bot's balance belong to that bot's owner account.
+
 ## Usage notifications
 
 The owner and admins hear, through the helper bot, when someone uses a member service — **who**

@@ -2,6 +2,7 @@
 // plain-browser equivalent) outside Telegram, so screens never branch on it.
 import type { TgUser } from './types'
 
+export type InvoiceStatus = 'paid' | 'cancelled' | 'failed' | 'pending'
 type Haptic = 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'
 type Notice = 'success' | 'error' | 'warning'
 /** The parts of Telegram.WebApp this app touches (telegram-web-app.js, loaded in index.html). */
@@ -21,6 +22,7 @@ export interface TgWebApp {
   openTelegramLink(url: string): void
   downloadFile?(p: { url: string; file_name: string }): void
   readTextFromClipboard?(cb: (text: string | null) => void): void
+  openInvoice?(url: string, cb: (status: InvoiceStatus) => void): void
   BackButton: { show(): void; hide(): void; onClick(cb: () => void): void }
   MainButton: {
     setParams(p: { text?: string; is_visible?: boolean; is_active?: boolean }): void
@@ -126,6 +128,15 @@ export function readClipboard(): Promise<string | null> {
     }
     if (!pending) { resolve(null); return }
     setTimeout(() => { if (!done) { done = true; resolve(null) } }, 1500)   // a callback that never comes
+  })
+}
+
+/** Telegram's own payment sheet (Stars). Resolves with how it closed; 'failed' outside Telegram. */
+export function openInvoice(url: string): Promise<InvoiceStatus> {
+  return new Promise((resolve) => {
+    const open = isTg ? TW().openInvoice : undefined
+    if (!open) { resolve('failed'); return }
+    try { open.call(TW(), url, (status) => resolve(status)) } catch { resolve('failed') }
   })
 }
 

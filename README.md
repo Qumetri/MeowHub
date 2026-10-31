@@ -40,7 +40,7 @@ on hardware you control.
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
 | 🔍 | **Photo upscaler** — enlarge photos and pictures 2–4× on your GPU (Upscayl's models), before/after slider, for you and your members | `yourdomain/<secret>` + Mini App |
 | 📄 | **PDF tools** — your own iLovePDF: merge, split, compress, OCR, Office ↔ PDF, passwords, redaction — 30 tools, on an engine with no internet access | `yourdomain/<secret>` |
-| 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people, with a Telegram Mini App in Russian or English | Telegram |
+| 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people — who can also pay for more time in Telegram Stars or crypto (CryptoBot) — with a Telegram Mini App in Russian or English | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
 | 🏠 | **Home Assistant** — devices in another place, on a secret path, webhooks for ESP32s | optional |

@@ -49,6 +49,25 @@ export interface Me {
   can_preview: boolean
   trial?: { state: 'ok' | 'used' | string; days: number }
   services: MeService[]
+  /** paid extension offer; null while the owner has both providers off */
+  pay?: PayOffer | null
+}
+
+// ---- payments (helper/app/payments.py)
+export type PlanId = 'm1' | 'm3' | 'm12'
+export type PayProvider = 'stars' | 'crypto'
+export interface PayPlan { id: PlanId; days: number; stars: number; usd: number }
+export interface PayOffer { stars: boolean; crypto: boolean; plans: PayPlan[] }
+export type PayInvoice = { provider: 'stars'; link: string } | { provider: 'crypto'; url: string }
+export interface PayCheck { paid: number; member: Member | null }
+export interface PaymentRow { id: string; uid: number; name?: string; provider: PayProvider; plan: PlanId; days: number; amount: string; ts: number; refunded: number }
+export interface PaymentsAdmin {
+  settings: Record<PayProvider, { enabled: boolean; prices: Record<PlanId, number> }>
+  crypto_token: boolean
+  crypto_testnet: boolean
+  plans: { id: PlanId; days: number }[]
+  totals: Partial<Record<PayProvider, { count: number; amount: number }>>
+  recent: PaymentRow[]
 }
 
 export type RedeemResult = 'new' | 'extended' | 'invalid' | 'used' | 'expired_code' | 'revoked_code' | 'rate_limited' | 'suspended'

@@ -118,6 +118,7 @@ export function installFakeTelegram(p: URLSearchParams): void {
       downloadFile(o, cb?: (ok: boolean) => void) { say('downloadFile ' + o.file_name + ' <- ' + o.url); cb?.(true) },
       openLink(u) { say('openLink ' + u) },
       openTelegramLink(u) { say('openTelegramLink ' + u) },
+      openInvoice(u, cb) { say('openInvoice ' + u); setTimeout(() => cb('paid'), 400) },
   }
   window.Telegram = { WebApp }
 }

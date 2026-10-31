@@ -9,7 +9,8 @@ import { MOCK_USERS, type MockRole } from './mock-users'
 import { getLang } from './i18n'
 import type {
   AccessCode, AdminService, BookVoice, BooksView, DlJob, DlPresets, Inbound, KeyId, KeyItem, Lang, LangPref,
-  MatrixAccount, MemberStatus, MemberBook, SyncState, TgUser, UpscaleJob, UpscaleView,
+  MatrixAccount, MemberStatus, MemberBook, PayOffer, PaymentsAdmin, PayProvider, PlanId, SyncState, TgUser,
+  UpscaleJob, UpscaleView,
 } from './types'
 
 // Stored rows (what the server keeps), as opposed to the views handle() returns.
@@ -37,7 +38,19 @@ interface MockBody {
   username?: string; password?: string; member_ids?: number[]
   action?: string; days?: number; ts?: number | null; services?: string[]; note?: string
   uid?: number; token?: string; uses_max?: number
+  provider?: string; plan?: string; prices?: Partial<Record<PlanId, number>>
 }
+
+// Paid plans (payments.py): both providers on in the mock so the extend screen shows them.
+const PLAN_DAYS: Record<PlanId, number> = { m1: 30, m3: 90, m12: 365 }
+const PAY: PaymentsAdmin['settings'] = {
+  stars: { enabled: true, prices: { m1: 100, m3: 270, m12: 960 } },
+  crypto: { enabled: true, prices: { m1: 2, m3: 5, m12: 18 } },
+}
+const payOffer = (): PayOffer | null => (!PAY.stars.enabled && !PAY.crypto.enabled ? null : {
+  stars: PAY.stars.enabled, crypto: PAY.crypto.enabled,
+  plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id], stars: PAY.stars.prices[id], usd: PAY.crypto.prices[id] })),
+})
 
 const P = new URLSearchParams(location.search)
 let ROLE: string | null = P.get('mock')
@@ -316,6 +329,7 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
       member_bot_username: state.keys.member.bot?.username || '',
       can_preview: ROLE === 'owner',
       trial: { state: !m && P.get('trial') !== 'used' ? 'ok' : 'used', days: 1 },
+      pay: P.get('mode') === 'tg' || previewOn ? payOffer() : null,
       // Only switched-on services; `available` = what this person can actually use right now.
       services: SERVICES.filter((s) => SVC_STATE.find((x) => x.id === s.id)?.enabled).map((s) => ({
         id: s.id, name: s[L()][0], description: s[L()][1],
@@ -341,6 +355,16 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
     if (method === 'POST') state.trialOn = !!body.enabled
     return { enabled: state.trialOn !== false, days: 1, per_day: 20, started: 7 }
   }
+
+  if (path === 'pay' && method === 'POST') {
+    const plan = body.plan as PlanId
+    if (!(plan in PLAN_DAYS)) return err(400, 'bad_plan', tr('Такого тарифа нет.', 'There is no such plan.'))
+    // Fake invoices: mock-tg's openInvoice "pays" at once, and pay/check then extends the member.
+    const m = selfMember()
+    if (m) m.expires_ts = Math.max(now(), m.expires_ts || now()) + PLAN_DAYS[plan] * D
+    return body.provider === 'crypto' ? { provider: 'crypto', url: 'https://t.me/CryptoBot?start=mock' } : { provider: 'stars', link: 'https://t.me/$mockInvoice' }
+  }
+  if (path === 'pay/check') { const m = selfMember(); return { paid: 0, member: m ? view(m) : null } }
 
   if (path === 'redeem') {
     const code = (body.code || '').toUpperCase()
@@ -513,6 +537,26 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
       ]
       const all = [...dlJobs, ...extra].map((j) => ({ ...dlView(j), user: NAMES[j.uid] || String(j.uid), uid: j.uid })).sort((x, y) => y.created_ts - x.created_ts)
       return { disk_free_gb: 412, active: all.filter((j) => j.status === 'running' || j.status === 'queued').length, today: { jobs: all.length + 2, bytes: all.reduce((a, j) => a + (j.size || 0), 0) }, jobs: all }
+    }
+    if (rest[0] === 'payments') {
+      if (method === 'POST') {
+        const p = body.provider as PayProvider
+        if (!(p in PAY)) return err(404, 'unknown_provider', tr('Такого способа оплаты нет.', 'There is no such payment method.'))
+        if (typeof body.enabled === 'boolean') PAY[p].enabled = body.enabled
+        if (body.prices) Object.assign(PAY[p].prices, body.prices)
+      }
+      const ago = (h: number) => now() - h * 3600
+      return {
+        settings: PAY, crypto_token: true, crypto_testnet: false,
+        plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id] })),
+        totals: { stars: { count: 3, amount: 470 }, crypto: { count: 1, amount: 5 } },
+        recent: [
+          { id: 'stars:a', uid: 100200301, name: 'Алексей Громов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(3), refunded: 0 },
+          { id: 'crypto:7', uid: 100200302, name: 'Мария Соколова', provider: 'crypto', plan: 'm3', days: 90, amount: '5.00', ts: ago(30), refunded: 0 },
+          { id: 'stars:b', uid: 100200309, name: 'Никита Фёдоров', provider: 'stars', plan: 'm3', days: 90, amount: '270', ts: ago(80), refunded: 0 },
+          { id: 'stars:c', uid: 100200311, name: 'Артём Кузнецов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(200), refunded: 1 },
+        ],
+      } satisfies PaymentsAdmin
     }
     if (rest[0] === 'sync') { state.sync = { ts: now(), ok: true, error: '', vpn_clients: state.members.filter((m) => m.services.includes('vpn')).length }; return state.sync }
     if (rest[0] === 'integrations') {

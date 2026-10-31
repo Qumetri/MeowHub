@@ -382,6 +382,51 @@ _("rem.trial_expired",
 _("usage.trial", "🎁 {who} взял(а) пробный доступ на {period}, до {when}.",
   "🎁 {who} started a free trial for {period}, until {when}.")
 _("usage.svc.trial", "Пробный доступ", "Free trial")
+
+# -- payments (payments.py): Stars + CryptoBot ----------------------------------------
+_("pay.plan.m1", "1 месяц", "1 month")
+_("pay.plan.m3", "3 месяца", "3 months")
+_("pay.plan.m12", "12 месяцев", "12 months")
+_("pay.via.stars", "звёздами", "in Stars")
+_("pay.via.crypto", "через CryptoBot", "via CryptoBot")
+_("pay.invoice_title", "MeowHub — {plan}", "MeowHub — {plan}")
+_("pay.invoice_desc", "Доступ к MeowHub (VPN, мессенджер и сервисы участника) на {plan}. Срок прибавляется к текущему.",
+  "MeowHub access (VPN, messenger and member services) for {plan}. Added to your current term.")
+_("pay.done", "✅ <b>Оплата получена</b>: {plan}, {amount}. Доступ продлён до {when}. Спасибо!",
+  "✅ <b>Payment received</b>: {plan}, {amount}. Access extended until {when}. Thank you!")
+_("usage.pay", "💫 {who} оплатил(а) {plan} {via} ({amount}), доступ до {when}.",
+  "💫 {who} paid for {plan} {via} ({amount}), access until {when}.")
+_("usage.svc.pay", "Оплаты", "Payments")
+_("pay.unknown", "⚠️ Пришла оплата звёздами, которую бот не узнал: {who}, charge <code>{charge}</code>. "
+  "Проверь и при необходимости верни командой /refund.",
+  "⚠️ A Stars payment the bot didn't recognise: {who}, charge <code>{charge}</code>. "
+  "Check it and refund with /refund if needed.")
+_("pay.support", "💬 Вопросы по оплате и возвраты — напиши {c}. Возврат звёзд делаем полностью, "
+  "срок продления при этом отменяется.",
+  "💬 Payment questions and refunds — message {c}. Stars are refunded in full, and the extension is cancelled.")
+_("pay.support_owner", "💬 {who} нажал(а) /paysupport — возможно, вопрос по оплате.",
+  "💬 {who} sent /paysupport — probably a payment question.")
+_("pay.err.off", "Оплата сейчас выключена. Напиши {c}.", "Payments are switched off right now. Message {c}.")
+_("pay.err.suspended", "Доступ приостановлен владельцем — оплата недоступна. Напиши {c}.",
+  "Your access is paused by the owner — payment isn't available. Message {c}.")
+_("pay.err.bad_invoice", "Этот счёт устарел. Открой «Продлить» в приложении ещё раз.",
+  "This invoice is out of date. Open “Extend” in the app again.")
+_("pay.err.bad_plan", "Такого тарифа нет.", "There is no such plan.")
+_("pay.err.unknown_provider", "Такого способа оплаты нет.", "There is no such payment method.")
+_("pay.err.failed", "Не удалось проверить оплату. Попробуй ещё раз или напиши {c}.",
+  "Couldn't check the payment. Try again or message {c}.")
+_("pay.err.crypto_no_token", "CryptoBot не подключён (нет CRYPTOPAY_TOKEN).", "CryptoBot isn't connected (no CRYPTOPAY_TOKEN).")
+_("pay.err.crypto_failed", "CryptoBot не ответил. Попробуй ещё раз через минуту.", "CryptoBot didn't answer. Try again in a minute.")
+_("pay.err.bad_price", "Цена вне допустимых пределов.", "The price is out of range.")
+_("pay.err.bad_request", "Неверный запрос.", "Bad request.")
+_("pay.err.tg_only", "Оплата работает в Telegram.", "Payment works inside Telegram.")
+_("refund.usage", "Возврат последней оплаты звёздами: <code>/refund &lt;Telegram ID&gt;</code>",
+  "Refund the last Stars payment: <code>/refund &lt;Telegram ID&gt;</code>")
+_("refund.none", "У этого человека нет оплат, которые можно вернуть.", "This person has no payments to refund.")
+_("refund.crypto", "Последняя оплата была через CryptoBot ({amount}) — её возвращают вручную переводом в @CryptoBot.",
+  "The last payment was via CryptoBot ({amount}) — refund it by hand with a transfer in @CryptoBot.")
+_("refund.failed", "Telegram не принял возврат: {e}", "Telegram refused the refund: {e}")
+_("refund.done", "↩️ Возвращено {amount}, срок уменьшен на {days} дн.", "↩️ Refunded {amount}, the term is {days} days shorter.")
 _("svc.trial_btn", "{mark} 🎁 Пробный доступ новичкам — {period}", "{mark} 🎁 Free trial for newcomers — {period}")
 _("svc.trial_line", "{mark} Пробный доступ новичкам ({period}, не больше {cap} в сутки)",
   "{mark} Free trial for newcomers ({period}, at most {cap} a day)")
@@ -606,6 +651,8 @@ _("cmd.vpn", "Мой VPN", "My VPN")
 _("cmd.matrix", "Мессенджер", "Messenger")
 _("cmd.sub", "Моя подписка", "My subscription")
 _("cmd.lang", "Язык / Language", "Язык / Language")
+_("cmd.paysupport", "Вопросы по оплате", "Payment support")
+_("cmd.refund", "Вернуть оплату звёздами", "Refund a Stars payment")
 _("cmd.health", "Состояние сервера", "Server status")
 _("cmd.links", "Ссылки хаба", "Hub links")
 _("cmd.yt", "Скачать видео: /yt <ссылка>", "Download a video: /yt <link>")

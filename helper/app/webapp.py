@@ -33,6 +33,7 @@ import downloads as dlm
 import i18n
 import links as signed
 import members as mem
+import payments as paym
 import tokens
 from synapse import SynapseError
 from tg import Bot, TelegramError
@@ -692,7 +693,13 @@ class App:
             "can_preview": ctx.role == "owner" and ctx.via in ("helper", "browser"),
             # the newcomer's free trial: offered on the stranger screen while state is "ok"
             "trial": {"state": self.h.members.trial_state(ctx.uid) if ctx.mode == "tg" and m is None else "used",
-                      "days": mem.TRIAL_DAYS}})
+                      "days": mem.TRIAL_DAYS},
+            # paid extension offer (Stars / CryptoBot) for the extend screen; null while both are off
+            "pay": self._pay_offer(ctx)})
+
+    def _pay_offer(self, ctx):
+        pay = getattr(self.h, "payments", None)           # absent in older test harnesses
+        return pay.offer(ctx.uid) if pay is not None and ctx.mode == "tg" else None
 
     def api_lang(self, req, ctx):
         """Save the caller's language preference (browser admin = the owner's)."""
@@ -751,6 +758,67 @@ class App:
         n = self.h.store.q("SELECT COUNT(*) AS n FROM events WHERE kind='trial'")[0]["n"]
         return jr({"enabled": self.h.members.trial_enabled(), "days": mem.TRIAL_DAYS,
                    "per_day": mem.TRIAL_PER_DAY, "started": n})
+
+    # ---------------------------------------------------------- payments --
+    def api_pay(self, req, ctx):
+        """POST {provider: stars|crypto, plan}: an invoice to open in Telegram.
+        stars -> {link} for WebApp.openInvoice, issued by the bot the app was opened from
+        (its balance gets the Stars); crypto -> {url} of a CryptoBot invoice."""
+        if ctx.mode != "tg" or ctx.uid is None:
+            raise ApiError(403, "tg_only", "pay.err.tg_only")
+        b = req.json()
+        provider, plan = b.get("provider"), b.get("plan")
+        pay, L = self.h.payments, ctx.lang
+        c = env("OWNER_CONTACT")
+        try:
+            if provider == "stars":
+                price = pay.check("stars", ctx.uid, plan)
+                front = self.h.member_front if ctx.via == "member" and self.h.member_front is not None else self.h
+                name = i18n.tr(L, "pay.plan." + plan)
+                link = front.bot.call("createInvoiceLink", title=i18n.tr(L, "pay.invoice_title", plan=name)[:32],
+                                      description=i18n.tr(L, "pay.invoice_desc", plan=name)[:255],
+                                      payload=pay.stars_payload(ctx.uid, plan, price), provider_token="",
+                                      currency="XTR", prices=[{"label": name, "amount": price}])
+                return jr({"provider": "stars", "link": link})
+            if provider == "crypto":
+                name = i18n.tr(L, "pay.plan." + str(plan)) if plan in paym.PLANS else ""
+                back = f"https://t.me/{self.h.share_username()}" if self.h.share_username() else None
+                url = pay.crypto_invoice(ctx.uid, plan, user=ctx.user, back_url=back,
+                                         description=i18n.tr(L, "pay.invoice_desc", plan=name))
+                return jr({"provider": "crypto", "url": url})
+            raise paym.PayError("unknown_provider", 404)
+        except paym.PayError as e:
+            raise ApiError(e.status, e.code, "pay.err." + e.code, c=c) from None
+        except TelegramError as e:
+            log.warning("createInvoiceLink: %s", e)
+            raise ApiError(502, "pay_failed", "pay.err.failed", c=c) from None
+
+    def api_pay_check(self, req, ctx):
+        """POST: look at the caller's open CryptoBot invoices now (the app calls it on return)."""
+        if ctx.uid is None:
+            raise ApiError(403, "forbidden")
+        paid = self.h.payments.crypto_poll(ctx.uid)
+        cur = self.h.members.get(ctx.uid)
+        return jr({"paid": paid, "member": self.h.members.view(cur) if cur else None})
+
+    def api_payments_admin(self, req, ctx):
+        """GET: settings, totals, recent payments; POST {provider, enabled?, prices?} (owner)."""
+        self.need_owner(ctx)
+        pay = self.h.payments
+        if req.command == "POST":
+            b = req.json()
+            try:
+                pay.configure(b.get("provider"), b.get("enabled"), b.get("prices"))
+            except paym.PayError as e:
+                raise ApiError(e.status, e.code, "pay.err." + e.code, c="") from None
+        st = pay.stats()
+        names = {m["id"]: m for m in self.h.members.list()}
+        for r in st["recent"]:
+            m = names.get(r["uid"]) or {}
+            r["name"] = (f"{m.get('first_name') or ''} {m.get('last_name') or ''}".strip() or m.get("username") or str(r["uid"]))
+        return jr({"settings": pay.settings(), "crypto_token": bool(pay.crypto_token()),
+                   "crypto_testnet": env("CRYPTOPAY_TESTNET", "") == "1",
+                   "plans": [{"id": k, "days": d} for k, d in paym.PLANS.items()], **st})
 
     def _announce_redeem(self, ctx, row, res):
         if ctx.uid == self.h.owner_id():
@@ -1677,6 +1745,8 @@ ROUTES = [
     ("POST", r"/api/lang", "any", "api_lang"),
     ("POST", r"/api/redeem", "any", "api_redeem"),
     ("POST", r"/api/trial", "any", "api_trial"),
+    ("POST", r"/api/pay", "any", "api_pay"),
+    ("POST", r"/api/pay/check", "any", "api_pay_check"),
     ("GET", r"/api/vpn", "any", "api_vpn"),
     ("GET", r"/api/matrix", "any", "api_matrix"),
     ("POST", r"/api/matrix/create", "any", "api_matrix_create"),
@@ -1696,6 +1766,8 @@ ROUTES = [
     ("GET", r"/api/admin/services", "any", "api_services"),
     ("GET", r"/api/admin/trial", "any", "api_trial_admin"),
     ("POST", r"/api/admin/trial", "any", "api_trial_admin"),
+    ("GET", r"/api/admin/payments", "any", "api_payments_admin"),
+    ("POST", r"/api/admin/payments", "any", "api_payments_admin"),
     ("POST", r"/api/admin/services/([a-z0-9_]{1,20})", "any", "api_service_set"),
     ("POST", r"/api/admin/sync", "any", "api_sync"),
     ("GET", r"/api/dl/presets", "any", "api_dl_presets"),

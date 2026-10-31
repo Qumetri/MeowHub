@@ -9,6 +9,7 @@ import { useApp } from '../ctx'
 import Chart from './Chart'
 import Integrations from './Integrations'
 import Services from './Services'
+import Payments from './Payments'
 import DlAdmin from './DlAdmin'
 import { LangSection } from '../screens/shared'
 import type { ApiError } from '../api'
@@ -107,6 +108,7 @@ export default function Overview() {
             <div className="group group--pad"><Chart data={data.activity || []} /></div>
           </section>
           <Services />
+          <Payments />
           <Inbounds />
           <DlAdmin />
         </div>

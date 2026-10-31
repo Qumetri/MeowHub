@@ -218,6 +218,9 @@ services:
       # Telegram @handle shown to strangers and members ("contact the owner").
       # Empty -> the bot just says "contact the owner".
       OWNER_CONTACT: ${OWNER_CONTACT:-}
+      # Payments (docs/HELPER.md "Payments"): Stars need nothing; CryptoBot needs a Crypto Pay app token
+      CRYPTOPAY_TOKEN: ${CRYPTOPAY_TOKEN:-}
+      CRYPTOPAY_TESTNET: ${CRYPTOPAY_TESTNET:-}
       BOT_APP_PATH: ${BOT_APP_PATH:?BOT_APP_PATH must be set and non-empty (run ./bootstrap.sh)}
       BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}
       WEBAPP_DIR: /webapp

@@ -374,7 +374,7 @@ class Members:
     def _trial_check(db, uid, now):
         """None when `uid` may start a trial now, else why not: used | full."""
         if db.execute("SELECT 1 FROM members WHERE id=?", (uid,)).fetchone() or db.execute(
-                "SELECT 1 FROM events WHERE uid=? AND kind IN ('trial','redeem','grant') LIMIT 1", (uid,)).fetchone():
+                "SELECT 1 FROM events WHERE uid=? AND kind IN ('trial','redeem','grant','pay') LIMIT 1", (uid,)).fetchone():
             return "used"
         n = db.execute("SELECT COUNT(*) FROM events WHERE kind='trial' AND ts>?", (now - DAY,)).fetchone()[0]
         return "full" if n >= TRIAL_PER_DAY else None
@@ -416,7 +416,7 @@ class Members:
     def on_trial(self, uid):
         """True while the newest access event of `uid` is the trial (no code or grant since)."""
         for e in self.events(uid, 50):
-            if e["kind"] in ("redeem", "grant", "extend", "expire") and e["detail"] != "reminder":
+            if e["kind"] in ("redeem", "grant", "extend", "expire", "pay") and e["detail"] != "reminder":
                 return False
             if e["kind"] == "trial":
                 return True
@@ -773,7 +773,7 @@ class Reconciler:
         for e in self.m.events(uid, 20):                 # newest first
             if e["kind"] == "expire" and e["detail"] != "reminder":
                 return False
-            if e["kind"] in ("redeem", "grant", "extend", "trial"):
+            if e["kind"] in ("redeem", "grant", "extend", "trial", "pay"):
                 return now - e["ts"] < window
         return False
 

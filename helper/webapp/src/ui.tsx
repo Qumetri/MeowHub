@@ -173,11 +173,13 @@ interface ButtonProps {
   block?: boolean
   type?: 'button' | 'submit'
   size?: 's'
+  /** accessible name when the visible text alone is ambiguous (e.g. a bare price) */
+  label?: string
 }
-export function Button({ children, kind = 'primary', icon, onClick, loading, disabled, block, type = 'button', size }: ButtonProps) {
+export function Button({ children, kind = 'primary', icon, onClick, loading, disabled, block, type = 'button', size, label }: ButtonProps) {
   return (
     <button type={type} className={`btn btn--${kind} ${block ? 'btn--block' : ''} ${size ? 'btn--' + size : ''}`}
-      disabled={disabled || loading} onClick={onClick}>
+      disabled={disabled || loading} onClick={onClick} aria-label={label}>
       {loading ? <span className="spin" /> : icon && <Icon name={icon} size={18} />}
       {children}
     </button>

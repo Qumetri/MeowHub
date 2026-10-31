@@ -44,6 +44,7 @@ import health
 import hub
 import i18n
 import links
+import payments
 import tokens
 import upscale
 import usage
@@ -84,7 +85,7 @@ URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
 OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
-              "/sshalerts", "/sshunban", "/notify")
+              "/sshalerts", "/sshunban", "/notify", "/refund")
 SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
 
 
@@ -188,6 +189,8 @@ class Helper:
         self.usage = usage.Usage(store, self.members, self.owner_id, self.admin_ids,
                                  send=lambda chat, text: self.bot.send(chat, text))
         self.downloads.usage = self.books.usage = self.upscale.usage = self.usage
+        # paid extensions (Stars + CryptoBot); the bot answers pre-checkout and credits payments
+        self.payments = payments.Payments(store, self.members, announce=self._pay_announce)
 
     @property
     def core(self):
@@ -376,6 +379,7 @@ class Helper:
         except Exception:                                   # noqa: BLE001
             log.exception("webapp failed to start")
         threading.Thread(target=self.rec.run, daemon=True, name="reconciler").start()
+        threading.Thread(target=self.payments.run, daemon=True, name="crypto-pay").start()
         self.downloads.start()
         self.books.ensure_watcher()          # picks up books that were in progress before a restart
         self._menu_button()
@@ -421,7 +425,8 @@ class Helper:
             self._beat(front.kind)
             try:
                 ups = front.bot.call("getUpdates", _timeout=70, offset=offset or None,
-                                     allowed_updates=["message", "callback_query"], timeout=50)
+                                     allowed_updates=["message", "callback_query", "pre_checkout_query"],
+                                     timeout=50)
             except TelegramError as e:
                 log.warning("getUpdates (%s): %s", front.kind, e)
                 time.sleep(5)
@@ -433,6 +438,10 @@ class Helper:
                 continue
             for u in ups:
                 offset = u["update_id"] + 1
+                if "pre_checkout_query" in u:
+                    # answered here, not in the pool: Telegram cancels the payment after 10 s
+                    front.on_precheckout(u["pre_checkout_query"])
+                    continue
                 self.pool.submit(front._safe, u)
             if ups:
                 self.store.set(offset_key, offset)
@@ -484,11 +493,11 @@ class Helper:
     def command_list(lang, owner=False):
         """setMyCommands payload in `lang`: the member list, plus the ops commands for the owner."""
         d = lambda c: {"command": c, "description": tr(lang, "cmd." + c)}      # noqa: E731
-        base = [d("start"), d("help"), d("vpn"), d("matrix"), d("sub"), d("lang")]
+        base = [d("start"), d("help"), d("vpn"), d("matrix"), d("sub"), d("lang"), d("paysupport")]
         if not owner:
             return base
         return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"), d("notify"),
-                       d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban")]
+                       d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban"), d("refund")]
 
     def _commands(self):
         """Default-scope commands: English text, plus Russian for the Russian-speaking
@@ -552,6 +561,8 @@ class Helper:
         text = (m.get("text") or "").strip()
         if chat.get("type") != "private":
             return                                       # never answer in groups
+        if m.get("successful_payment"):
+            return self.on_paid(m)
         L = self.lang(uid, frm)
         btn = btn_key(text)
         role = self.role(uid)
@@ -572,6 +583,8 @@ class Helper:
         # The language picker works for everybody (also strangers and paused members).
         if cmd == "/lang" or btn == "lang":
             return self.cmd_lang(cid, uid)
+        if cmd == "/paysupport":                        # required by Telegram for Stars payments
+            return self.cmd_paysupport(cid, uid, frm)
         if role is None:
             return self.stranger(frm, cid, text)
         if btn == "app":
@@ -639,6 +652,8 @@ class Helper:
             return self.cmd_sshalerts(cid, arg.strip().lower())
         if cmd == "/sshunban":
             return self.cmd_sshunban(cid, arg.strip())
+        if cmd == "/refund":
+            return self.cmd_refund(cid, arg.strip())
         return self.bot.send(cid, self.help_text(role, L), reply_markup=self.keyboard(uid))
 
     # --------------------------------------------------------------- language --
@@ -792,6 +807,70 @@ class Helper:
                                      {"text": tr(OL, "btn.give30"), "callback_data": f"g:{uid}:30"},
                                      {"text": tr(OL, "btn.ignore"), "callback_data": f"g:{uid}:x"}]]}):
                 self.nagged[uid] = now
+
+    # --------------------------------------------------------------- payments --
+    def on_precheckout(self, q):
+        """Stars checkout: say yes only to our own, still valid invoice. Never raises."""
+        uid = (q.get("from") or {}).get("id")
+        try:
+            ok, why = self.core.payments.precheckout(q)
+        except Exception:                                   # noqa: BLE001
+            log.exception("pre-checkout check failed")
+            ok, why = False, "failed"
+        params = {"pre_checkout_query_id": q["id"], "ok": ok}
+        if not ok:
+            params["error_message"] = tr(self.lang(uid), "pay.err." + why, c=self.contact())
+        try:
+            self.bot.call("answerPreCheckoutQuery", **params)
+        except TelegramError as e:
+            log.warning("answerPreCheckoutQuery: %s", e)
+
+    def on_paid(self, m):
+        """A Stars payment went through: credit it (once, by charge id). The thanks and the
+        owner's notice come from _pay_announce."""
+        frm, sp = m.get("from") or {}, m["successful_payment"]
+        p = payments.Payments.parse_stars(sp.get("invoice_payload"))
+        charge = sp.get("telegram_payment_charge_id", "")
+        if sp.get("currency") != "XTR" or p is None or not charge:
+            log.error("unexpected successful_payment from %s: %s", frm.get("id"), sp.get("invoice_payload"))
+            return self.notify_owner(tr(self.lang(self.owner_id()), "pay.unknown", who=usage.who(None, frm.get("id"), frm),
+                                        charge=esc(charge)))
+        uid, plan, _ = p
+        self.core.payments.credit("stars", charge, uid, plan, sp.get("total_amount", 0), user=frm, bot=self.kind)
+
+    def _pay_announce(self, provider, uid, plan, amount, member, user):
+        exp = member["expires_ts"]
+        L = i18n.lang_of(self.store, uid, member.get("lang"))
+        self.notify(uid, tr(L, "pay.done", plan=tr(L, "pay.plan." + plan), amount=payments.fmt_amount(provider, amount),
+                            when=i18n.fmt_when(L, exp)))
+        self.usage.report("pay", uid, lambda LL, who: tr(
+            LL, "usage.pay", who=who, plan=tr(LL, "pay.plan." + plan), amount=payments.fmt_amount(provider, amount),
+            via=tr(LL, "pay.via." + provider), when=i18n.fmt_when(LL, exp)), user=user)
+
+    def cmd_paysupport(self, cid, uid, frm):
+        L = self.lang(uid, frm)
+        self.bot.send(cid, tr(L, "pay.support", c=esc(self.contact())))
+        if uid != self.owner_id():
+            self.notify_owner(tr(self.lang(self.owner_id()), "pay.support_owner", who=usage.who(self.members.get(uid), uid, frm)))
+
+    def cmd_refund(self, cid, arg):
+        """/refund <telegram id>: return that member's last Stars payment and take its days back."""
+        L = self.lang(cid)
+        if not arg.lstrip("-").isdigit():
+            return self.bot.send(cid, tr(L, "refund.usage"))
+        uid = int(arg)
+        p = self.payments.last_payment(uid)
+        if p is None:
+            return self.bot.send(cid, tr(L, "refund.none"))
+        if p["provider"] != "stars":
+            return self.bot.send(cid, tr(L, "refund.crypto", amount=payments.fmt_amount(p["provider"], p["amount"])))
+        bot = self.member_bot if p["bot"] == "member" and self.member_bot is not None else self.bot
+        try:
+            bot.call("refundStarPayment", user_id=uid, telegram_payment_charge_id=p["id"].split(":", 1)[1])
+        except TelegramError as e:
+            return self.bot.send(cid, tr(L, "refund.failed", e=esc(e)))
+        self.payments.mark_refunded(p["id"])
+        self.bot.send(cid, tr(L, "refund.done", amount=payments.fmt_amount("stars", p["amount"]), days=p["days"]))
 
     # ------------------------------------------------------------------ trial --
     def begin_trial(self, uid, frm=None):

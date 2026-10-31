@@ -21,8 +21,8 @@ from members import SERVICES as MEMBER_SERVICES
 log = logging.getLogger("usage")
 
 # Services that report usage, in the order /notify lists them (ids from members.SERVICES, plus
-# "trial": a newcomer starting the free trial).
-SERVICES = ("youtube", "books", "upscale", "trial")
+# "trial": a newcomer starting the free trial; "pay": a paid extension).
+SERVICES = ("youtube", "books", "upscale", "trial", "pay")
 KEY = "usage_notify"
 
 
