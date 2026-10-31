@@ -6,6 +6,19 @@
 //
 // status: 'live' renders a clickable card, 'soon' renders a dimmed one.
 
+import type { IconName } from './Icon'
+
+export interface Service {
+  id: string
+  name: string
+  description: string
+  url: string
+  icon: IconName
+  /** [from, to] colours of the card's light */
+  gradient: [string, string]
+  status: 'live' | 'soon'
+}
+
 const E = import.meta.env
 const BASE    = E.VITE_BASE_DOMAIN   || 'localhost'
 const CLOUD   = E.VITE_CLOUD_HOST    || `cloud.${BASE}`
@@ -22,7 +35,7 @@ const PDF     = E.VITE_PDF_PATH      || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
-export const services = [
+export const services: Service[] = [
   {
     id: 'nextcloud',
     name: 'Nextcloud',

@@ -10,7 +10,7 @@ import { useEffect, useRef } from 'react'
 // ripple frame repainted the whole document.)
 
 // A round pad with a narrow notch and veins fanning out from the stem.
-function LilyPad({ className }) {
+function LilyPad({ className }: { className: string }) {
   const veins = [20, 62, 104, 146, 188, 230, 272, 314]
   return (
     <svg className={`pad ${className}`} viewBox="0 0 100 100" aria-hidden="true">
@@ -30,15 +30,16 @@ function LilyPad({ className }) {
 }
 
 export default function Pond() {
-  const water = useRef(null)
+  const water = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const pond = water.current
+    if (!pond) return
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let live = 0
 
     // size: diameter in px at the end; waves: concentric rings; life: ms
-    const ripple = (x, y, size, alpha, waves, life) => {
+    const ripple = (x: number, y: number, size: number, alpha: number, waves: number, life: number) => {
       if (live > 14) return
       live++
       const r = document.createElement('span')
@@ -48,10 +49,10 @@ export default function Pond() {
       for (let j = 0; j < waves; j++) {
         const w = document.createElement('i')
         w.style.animationDelay = `${j * life * 0.14}ms`
-        w.style.opacity = 0
+        w.style.opacity = '0'
         r.appendChild(w)
       }
-      r.lastChild.addEventListener('animationend', () => {
+      r.lastChild?.addEventListener('animationend', () => {
         r.remove()
         live--
       })
@@ -61,7 +62,7 @@ export default function Pond() {
     let lx = -999
     let ly = -999
     let lt = 0
-    const move = (e) => {
+    const move = (e: PointerEvent) => {
       if (still || e.pointerType === 'touch') return
       const now = performance.now()
       if (now - lt < 90 || Math.hypot(e.clientX - lx, e.clientY - ly) < 40) return
@@ -71,16 +72,16 @@ export default function Pond() {
       ripple(lx, ly, 92, 0.22, 2, 1300)
     }
     // click, not pointerdown: on a phone every scroll starts with a pointerdown
-    const tap = (e) => ripple(e.clientX, e.clientY, 260, 0.4, 3, 1800)
+    const tap = (e: MouseEvent) => ripple(e.clientX, e.clientY, 260, 0.4, 3, 1800)
 
     let rain = 0
     const drop = () => {
       if (!document.hidden) {
         ripple(Math.random() * window.innerWidth, Math.random() * window.innerHeight, 140, 0.18, 2, 2200)
       }
-      rain = setTimeout(drop, 4000 + Math.random() * 5000)
+      rain = window.setTimeout(drop, 4000 + Math.random() * 5000)
     }
-    if (!still) rain = setTimeout(drop, 1500)
+    if (!still) rain = window.setTimeout(drop, 1500)
 
     window.addEventListener('pointermove', move, { passive: true })
     window.addEventListener('click', tap, { passive: true })

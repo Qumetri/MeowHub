@@ -1,9 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { motion } from 'framer-motion'
 
 const POLL_MS = 2000
 
-function fmtBytes(n) {
+// GET ./api/stats, served by stats/server.py
+interface Usage { percent: number; used: number; total: number }
+interface HostStats {
+  cpu: { percent: number; temp: number | null }
+  mem: Usage
+  disk: Usage
+  hdd: Usage | null
+  gpu: { percent: number; memUsed: number; memTotal: number; memPercent?: number; temp: number } | null
+  net: { rxBps: number; txBps: number }
+  ts: number
+}
+
+function fmtBytes(bytes: number): string {
+  let n = bytes
   if (n < 1024) return `${n} B`
   const u = ['KB', 'MB', 'GB', 'TB']
   let i = -1
@@ -14,7 +27,9 @@ function fmtBytes(n) {
   return `${n.toFixed(n < 10 ? 1 : 0)} ${u[i]}`
 }
 
-function Gauge({ label, percent, detail, from, to }) {
+interface GaugeProps { label: string; percent: number | null | undefined; detail: string; from: string; to: string }
+
+function Gauge({ label, percent, detail, from, to }: GaugeProps) {
   const p = Math.max(0, Math.min(100, percent ?? 0))
   return (
     <div className="stat">
@@ -25,7 +40,7 @@ function Gauge({ label, percent, detail, from, to }) {
       <div className="stat__track">
         <div
           className="stat__fill"
-          style={{ '--from': from, '--to': to, transform: `translateX(${p - 100}%)` }}
+          style={{ '--from': from, '--to': to, transform: `translateX(${p - 100}%)` } as CSSProperties}
         />
       </div>
       <div className="stat__detail">{detail}</div>
@@ -34,9 +49,9 @@ function Gauge({ label, percent, detail, from, to }) {
 }
 
 export default function Stats() {
-  const [data, setData] = useState(null)
+  const [data, setData] = useState<HostStats | null>(null)
   const [err, setErr] = useState(false)
-  const timer = useRef(null)
+  const timer = useRef(0)
 
   useEffect(() => {
     let alive = true
@@ -44,7 +59,7 @@ export default function Stats() {
       try {
         const r = await fetch('./api/stats', { cache: 'no-store' })
         if (!r.ok) throw new Error()
-        const j = await r.json()
+        const j = (await r.json()) as HostStats
         if (alive) {
           setData(j)
           setErr(false)
@@ -53,8 +68,8 @@ export default function Stats() {
         if (alive) setErr(true)
       }
     }
-    tick()
-    timer.current = setInterval(tick, POLL_MS)
+    void tick()
+    timer.current = window.setInterval(tick, POLL_MS)
     return () => {
       alive = false
       clearInterval(timer.current)

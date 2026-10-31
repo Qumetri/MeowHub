@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 const paths = {
   chart: (
     <>
@@ -81,11 +83,25 @@ const paths = {
       <path d="M5 19h14" />
     </>
   ),
-  docs: (
+  home: (
     <>
-      <path d="M6 3.5h8l4 4v13H6z" />
-      <path d="M14 3.5v4h4" />
-      <circle cx="12" cy="14" r="3.2" />
+      <path d="M4 11.5 12 5l8 6.5" />
+      <path d="M6 10v9h12v-9" />
+      <path d="M10 19v-5h4v5" />
+    </>
+  ),
+  layers: (
+    <>
+      <path d="M12 3.5 3.5 8l8.5 4.5L20.5 8z" />
+      <path d="m3.5 12 8.5 4.5 8.5-4.5" />
+      <path d="m3.5 16 8.5 4.5 8.5-4.5" />
+    </>
+  ),
+  audiobook: (
+    <>
+      <path d="M4.5 5.5A1.5 1.5 0 0 1 6 4h11.5v12H6a1.5 1.5 0 0 0-1.5 1.5z" />
+      <path d="M4.5 17.5A1.5 1.5 0 0 0 6 19h11.5" />
+      <path d="M9 8.5v3M12 7v6M15 9v2" />
     </>
   ),
   upscale: (
@@ -95,9 +111,24 @@ const paths = {
       <path d="M13 4h7v7M20 4l-6.5 6.5" />
     </>
   ),
-}
+  docs: (
+    <>
+      <path d="M6 3.5h8l4 4v13H6z" />
+      <path d="M14 3.5v4h4" />
+      <circle cx="12" cy="14" r="3.2" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5s1.2-6.1 3.5-8.5Z" />
+    </>
+  ),
+} satisfies Record<string, ReactNode>
 
-export default function Icon({ name }) {
+export type IconName = keyof typeof paths
+
+export default function Icon({ name }: { name: IconName }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -110,7 +141,7 @@ export default function Icon({ name }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {paths[name] ?? paths.folder}
+      {paths[name]}
     </svg>
   )
 }

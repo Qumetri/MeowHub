@@ -1,13 +1,14 @@
-import { defineConfig, createServer } from 'vite'
+import { defineConfig, createServer, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { Service } from './src/services'
 
 // Writes dist/services.json: the same cards the page renders, as data, for
 // the helper bot's "links" and health checks. Loaded through Vite's SSR
 // loader so import.meta.env resolves exactly as it does in the page — one
 // list, no second copy to drift.
-function servicesJson() {
+function servicesJson(): Plugin {
   let outDir = 'dist'
   return {
     name: 'services-json',
@@ -19,7 +20,7 @@ function servicesJson() {
         server: { middlewareMode: true, hmr: false }, appType: 'custom',
       })
       try {
-        const { services } = await server.ssrLoadModule('/src/services.js')
+        const { services } = (await server.ssrLoadModule('/src/services.ts')) as { services: Service[] }
         const data = services.map(({ id, name, description, url, status }) =>
           ({ id, name, description, url, status }))
         writeFileSync(resolve(outDir, 'services.json'), JSON.stringify(data, null, 2) + '\n')

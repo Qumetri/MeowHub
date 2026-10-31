@@ -2,7 +2,9 @@
 // facing right, used everywhere — the hero, the parade along the edges and the
 // heads that peek over the cards. Pupils read --px/--py (−1…1) from CSS so a
 // parent can make the eyes follow the pointer without re-rendering.
-export default function Duck({ ears = true, className = '', size = 64, body = true }) {
+interface DuckProps { ears?: boolean; className?: string; size?: number; body?: boolean }
+
+export default function Duck({ ears = true, className = '', size = 64, body = true }: DuckProps) {
   return (
     <svg
       className={`duck ${className}`}

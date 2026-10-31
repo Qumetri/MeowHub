@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import Duck from './Duck.jsx'
+import Duck from './Duck'
 
 // A mother duck and her ducklings swim around the inside of the window frame,
 // feet always towards the nearest edge (so they ride the top edge upside down).
@@ -13,11 +13,15 @@ const SPEED = 38 // px per second along the frame
 const MAX_DUCKS = 14
 const STEP = 8 // px between keyframes
 
+type Point = [x: number, y: number]
+interface Lap { total: number; keyframes: Keyframe[] }
+interface Duckling { key: number; mother: boolean }
+
 // Rounded rectangle traced counter-clockwise on screen: bottom edge left→right,
 // up the right edge, top edge right→left, down the left edge.
-function frame(w, h, m, r) {
-  const pts = []
-  const arc = (cx, cy, a0, a1) => {
+function frame(w: number, h: number, m: number, r: number): Point[] {
+  const pts: Point[] = []
+  const arc = (cx: number, cy: number, a0: number, a1: number) => {
     for (let i = 1; i <= 16; i++) {
       const a = ((a0 + ((a1 - a0) * i) / 16) * Math.PI) / 180
       pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
@@ -32,17 +36,17 @@ function frame(w, h, m, r) {
   arc(m + r, m + r, -90, -180)
   pts.push([m, h - m - r])
   arc(m + r, h - m - r, 180, 90)
-  pts.push(pts[0])
+  pts.push(pts[0]!)
   return pts
 }
 
 // One lap as keyframes for a duck of size s: its feet ride the path, heading
 // unwrapped so rotation never spins the long way round between keyframes.
-function lap(pts, s) {
-  const frames = []
+function lap(pts: Point[], s: number): Lap {
+  const frames: { x: number; y: number; a: number }[] = []
   let heading = 0
-  let prev = null
-  const push = (x, y, a) => {
+  let prev: number | null = null
+  const push = (x: number, y: number, a: number) => {
     if (prev !== null) {
       let d = a - prev
       while (d > 180) d -= 360
@@ -53,8 +57,8 @@ function lap(pts, s) {
     frames.push({ x, y, a: heading })
   }
   for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1]
-    const [x1, y1] = pts[i]
+    const [x0, y0] = pts[i - 1]!
+    const [x1, y1] = pts[i]!
     const len = Math.hypot(x1 - x0, y1 - y0)
     if (!len) continue
     const a = (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI
@@ -62,7 +66,8 @@ function lap(pts, s) {
     for (let k = 0; k < n; k++) push(x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n, a)
   }
   const total = frames.length * STEP
-  frames.push({ ...frames[0], a: frames[0].a + Math.round((heading - frames[0].a) / 360) * 360 })
+  const first = frames[0]!
+  frames.push({ ...first, a: first.a + Math.round((heading - first.a) / 360) * 360 })
   return {
     total,
     keyframes: frames.map((f) => ({
@@ -71,13 +76,13 @@ function lap(pts, s) {
   }
 }
 
-function makeBrood(n) {
+function makeBrood(n: number): Duckling[] {
   return Array.from({ length: n }, (_, i) => ({ key: i, mother: i === 0 }))
 }
 
 export default function Parade() {
   const [brood, setBrood] = useState(() => makeBrood(5))
-  const refs = useRef([])
+  const refs = useRef<(HTMLSpanElement | null)[]>([])
   // Shared clock so a new duckling, or a resize, slots into the same parade.
   const origin = useRef(performance.now())
 
@@ -91,7 +96,8 @@ export default function Parade() {
   useEffect(() => {
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const box = refs.current[0]?.parentElement
-    let anims = []
+    if (!box) return
+    let anims: Animation[] = []
 
     const layout = () => {
       anims.forEach((a) => a.cancel())
@@ -100,7 +106,7 @@ export default function Parade() {
       const h = box.clientHeight
       const size = w < 640 ? 22 : 30
       const pts = frame(w, h, w < 640 ? 3 : 6, 34)
-      const laps = {}
+      const laps: Record<number, Lap> = {}
       refs.current.forEach((el, i) => {
         if (!el) return
         const s = i === 0 ? size : Math.round(size * 0.68)
@@ -110,7 +116,7 @@ export default function Parade() {
         const behind = (gap / SPEED) * 1000
         el.style.width = `${s}px`
         if (still) {
-          el.style.transform = keyframes[Math.floor(((0.12 * total - gap + total) % total) / STEP)].transform
+          el.style.transform = String(keyframes[Math.floor(((0.12 * total - gap + total) % total) / STEP)]?.transform ?? '')
           return
         }
         const a = el.animate(keyframes, { duration, iterations: Infinity, easing: 'linear' })
@@ -127,7 +133,7 @@ export default function Parade() {
     let lastH = box.clientHeight
     const onResize = () => {
       clearTimeout(pending)
-      pending = setTimeout(() => {
+      pending = window.setTimeout(() => {
         if (box.clientWidth === lastW && Math.abs(box.clientHeight - lastH) < 4) return
         lastW = box.clientWidth
         lastH = box.clientHeight
@@ -142,10 +148,10 @@ export default function Parade() {
     }
   }, [brood.length])
 
-  const quack = (i) => {
+  const quack = (i: number) => {
     const el = refs.current[i]
     if (!el) return
-    el.firstChild.animate(
+    ;(el.firstElementChild as HTMLElement).animate(
       [{ transform: 'translateY(0)' }, { transform: 'translateY(-90%)' }, { transform: 'translateY(0)' }],
       { duration: 450, easing: 'ease-out' },
     )
@@ -159,7 +165,7 @@ export default function Parade() {
       {brood.map((d, i) => (
         <span
           key={d.key}
-          ref={(el) => (refs.current[i] = el)}
+          ref={(el) => { refs.current[i] = el }}
           className={`parade__duck ${d.mother ? 'parade__duck--mother' : ''}`}
           onPointerDown={() => quack(i)}
         >

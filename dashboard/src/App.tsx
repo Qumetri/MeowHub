@@ -1,18 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
-import Duck, { DuckDefs } from './Duck.jsx'
-import Icon from './Icon.jsx'
-import Parade from './Parade.jsx'
-import Pond from './Pond.jsx'
-import Stats from './Stats.jsx'
-import { services } from './services.js'
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { motion, type Variants } from 'framer-motion'
+import Duck, { DuckDefs } from './Duck'
+import Icon from './Icon'
+import Parade from './Parade'
+import Pond from './Pond'
+import Stats from './Stats'
+import { services, type Service } from './services'
 
-const container = {
+const container: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.06, delayChildren: 0.35 } },
 }
 
-const item = {
+const item: Variants = {
   hidden: { opacity: 0, y: 28, rotate: -1.5 },
   show: {
     opacity: 1,
@@ -22,29 +22,29 @@ const item = {
   },
 }
 
-const fine = typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
 const NAME = import.meta.env.VITE_HUB_NAME || 'Home Hub'
 const DOMAIN = import.meta.env.VITE_BASE_DOMAIN || 'localhost'
 
+const fine = typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
 const still = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 // Pointer position inside an element, as −1…1 on each axis.
-function aim(e, el) {
+function aim(e: { clientX: number; clientY: number }, el: Element): [x: number, y: number, rect: DOMRect] {
   const r = el.getBoundingClientRect()
   return [((e.clientX - r.left) / r.width) * 2 - 1, ((e.clientY - r.top) / r.height) * 2 - 1, r]
 }
 
-function Card({ service }) {
+function Card({ service }: { service: Service }) {
   const live = service.status === 'live'
   const [from, to] = service.gradient
-  const ref = useRef(null)
+  const ref = useRef<HTMLDivElement>(null)
   const Tag = live ? 'a' : 'div'
 
   // Tilt toward the pointer, move the light, and let the peeking duck look at
   // it. Written as CSS variables so hovering never re-renders React.
-  const onMove = (e) => {
-    if (!fine) return
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const el = ref.current
+    if (!fine || !el) return
     const [x, y] = aim(e, el)
     el.style.setProperty('--mx', `${((x + 1) / 2) * 100}%`)
     el.style.setProperty('--my', `${((y + 1) / 2) * 100}%`)
@@ -56,12 +56,14 @@ function Card({ service }) {
   }
   const onLeave = () => {
     const el = ref.current
+    if (!el) return
     ;['--tilt', '--px', '--py'].forEach((v) => el.style.removeProperty(v))
   }
   // A splash from where the card was tapped (on click, so starting a scroll on
   // a card doesn't splash).
-  const onTap = (e) => {
-    const el = ref.current.querySelector('.card')
+  const onTap = (e: MouseEvent<HTMLDivElement>) => {
+    const el = ref.current?.querySelector('.card')
+    if (!el) return
     const r = el.getBoundingClientRect()
     const s = document.createElement('span')
     s.className = 'splash'
@@ -76,7 +78,7 @@ function Card({ service }) {
       ref={ref}
       className={`tile ${live ? '' : 'tile--soon'}`}
       variants={item}
-      style={{ '--from': from, '--to': to }}
+      style={{ '--from': from, '--to': to } as CSSProperties}
       onPointerMove={onMove}
       onPointerLeave={onLeave}
       onClick={live ? onTap : undefined}
@@ -117,12 +119,12 @@ function Card({ service }) {
 // anywhere on the page; pressing it quacks and sends one more duckling into
 // the parade along the window's edge.
 function Hero() {
-  const ref = useRef(null)
+  const ref = useRef<HTMLButtonElement>(null)
   const [quacks, setQuacks] = useState(0)
 
   useEffect(() => {
     if (!fine) return
-    const look = (e) => {
+    const look = (e: PointerEvent) => {
       const el = ref.current
       if (!el) return
       const [x, y] = aim(e, el)
@@ -137,6 +139,7 @@ function Hero() {
     setQuacks((q) => q + 1)
     window.dispatchEvent(new Event('duck:add'))
     const el = ref.current
+    if (!el) return
     el.classList.remove('mascot--quack')
     void el.offsetWidth
     el.classList.add('mascot--quack')
@@ -158,7 +161,7 @@ function Hero() {
       </button>
       <h1 className="title" aria-label={NAME}>
         {NAME.split('').map((ch, i) => (
-          <span key={i} aria-hidden="true" style={{ '--i': i }}>
+          <span key={i} aria-hidden="true" style={{ '--i': i } as CSSProperties}>
             {ch === ' ' ? ' ' : ch}
           </span>
         ))}

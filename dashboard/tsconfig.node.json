@@ -1,0 +1,19 @@
+{
+  // vite.config.ts runs in Node (it writes dist/services.json), so it gets Node's types and not the DOM's.
+  // jsx and vite/client are only for the type import of services.ts (icon names from Icon.tsx,
+  // card URLs from import.meta.env).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["vite.config.ts", "src/vite-env.d.ts"]
+}
