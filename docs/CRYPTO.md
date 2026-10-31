@@ -42,6 +42,8 @@ A visitor without the password sees a **demo of the real UI** instead of a bare 
   settings or the token.
 - **Server** (`crypto/app/server.py` `_demo_page`): `demo.html` is not a file; it is `index.html` with
   `<script src="demo.js">` added before the app.
+- **Source**: `web/app.js` and `web/demo.js` are compiled from TypeScript in `crypto/web-src/`
+  (`npm run build` there); edit the `.ts`, never the emitted files. See [TYPESCRIPT.md](TYPESCRIPT.md).
 - **`crypto/web/demo.js`** answers the app's own `api/...` calls in the browser. Prices and candles are
   **live from Binance's public API** (every 5 s, a random walk if Binance is unreachable). Targets, the
   alert log, news and Telegram settings are **examples**, and any change shows "log in". The banner

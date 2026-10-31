@@ -392,14 +392,15 @@ caddy's `environment:`** — an empty value would turn the route into `/*` and
 swallow the root domain, so `docker compose` refuses to run instead. They are
 compose-level, so apply a change with `docker compose up -d --no-deps caddy`.
 
-**Frontend**: `helper/webapp/` (Vite + React, `base: './'` so the bundle does not
+**Frontend**: `helper/webapp/` (Vite + React + strict TypeScript, `base: './'` so the bundle does not
 depend on the secret paths). `bootstrap.sh` builds it to `helper/webapp/dist`
 when `npm` is available (same as the dashboard); the container mounts it
 read-only at `/webapp`. To rebuild by hand: `cd helper/webapp && npm install &&
 npm run build` — no container restart. For development, `npm run dev` and open
 `?mock=member|owner|stranger|expired&mode=tg&theme=dark&p=vpn|matrix|admin`
 (the mock is dev-only and not in the production bundle). Every contact or
-domain the UI shows comes from `/api/me`; nothing is hardcoded.
+domain the UI shows comes from `/api/me`; nothing is hardcoded. The API shapes live in
+`src/types.ts`, and the mock is typed against them — see [TYPESCRIPT.md](TYPESCRIPT.md).
 Append `&member_bot=1` to simulate a configured member bot, `&via=member` for the owner
 opening the app through it, `&preview=guest|member|expired` to start a preview.
 
@@ -452,7 +453,7 @@ Design points:
 
 **🔗 Links** lists the hub page and every card on it, with a button for each.
 The list is **`dashboard/dist/services.json`**, written by the dashboard build
-from the same `src/services.js` the page renders — add a card, rebuild, and the
+from the same `src/services.ts` the page renders — add a card, rebuild, and the
 bot has it. The hub's own URL comes from `BASE_DOMAIN` + `DASHBOARD_PATH`.
 
 ## Language
@@ -494,8 +495,9 @@ The Russian texts are the originals; add a key with both languages whenever you 
   `ctl.py` output, container logs.
 - No `OWNER_CONTACT` set: messages that say "write {contact}" fall back to "the owner" / "владельцу"
   (the catalog gets an empty `c`, `i18n.tr` fills the wording); the Mini App hides the contact cell.
-- Frontend strings live in `webapp/src/i18n.js` (`ru` and `en` dictionaries); `npm run build` runs
-  `helper/webapp/scripts/check-i18n.mjs` first and fails on a key or `{placeholder}` missing in either language.
+- Frontend strings live in `webapp/src/i18n.ts` (`ru` and `en` dictionaries). `en` is typed
+  `Record<keyof typeof ru, string>`, so `tsc` fails on a key missing in either language; `npm run build`
+  also runs `helper/webapp/scripts/check-i18n.mjs` first, which fails on a `{placeholder}` or plural-form mismatch.
 
 ## Downloader
 
@@ -639,7 +641,7 @@ Where the logins come from:
 | `.env` / `secrets/` | Nextcloud admin, crypto UI, VPN UI, bots admin page, and the downloader, photo upscaler and audiobooks pages (same login as the bots page) — mapped in compose as `VAULT_<ID>_USER` + `VAULT_<ID>_PASS` or `_PASS_FILE` | `.env`, then `docker compose up -d helper` |
 | the bot | accounts that store only a hash: 3x-ui, Immich, n8n, Matrix users… | `/setpass <id> <login> <password>` |
 
-`<id>` is the card id from `services.js` (`immich`, `3xui`, `n8n`, …); `/pass`
+`<id>` is the card id from `services.ts` (`immich`, `3xui`, `n8n`, …); `/pass`
 lists them. `/setpass` **deletes your message** as soon as it has read it, and
 its reply does not repeat the password. A bot entry overrides an `.env` one;
 `/delpass <id>` removes it (`.env` entries can only be changed in `.env`).

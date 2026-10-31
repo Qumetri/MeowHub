@@ -348,12 +348,34 @@ Move a file there from your phone or laptop, and a few seconds later it's in
 Plex with poster, summary and cast. `scripts/plex-library.sh` sets up both sides
 in one go. Naming rules and the anime caveats are in **[docs/PLEX.md](docs/PLEX.md)**.
 
+## Typed front ends
+
+Every page in the stack is **strict TypeScript** — the hub, the bot's Mini App
+and admin page, the PDF tools, the crypto tracker and the photo upscaler; the
+backends stay dependency-free Python. The types are contracts, not decoration:
+
+- **The bot API is one file.** `helper/webapp/src/types.ts` describes everything
+  the Python backend sends; the screens *and* the dev mock behind the owner's
+  "preview as member" compile against it, so the preview can't drift from the
+  real server.
+- **Translations can't fall out of sync.** `en` is typed as
+  `Record<keyof typeof ru, string>`: a key missing in English is a build error.
+- **Forms are checked by shape.** A PDF tool's field is a union keyed by its
+  `type` — a slider without `min/max/step` doesn't compile.
+- **Icons are names, not strings.** A hub card or Mini App cell pointing at an
+  icon that doesn't exist fails the build instead of rendering an empty square.
+
+Bundled pages build with `tsc && vite build`, so a type error stops a deploy.
+The two pages without a bundler compile to the plain script their Python server
+already serves, and the images still contain no Node. How it's set up, the
+conventions and what tripped us up while migrating: **[docs/TYPESCRIPT.md](docs/TYPESCRIPT.md)**.
+
 ## Requirements
 
 - Linux, Docker Engine, Compose v2
 - A domain with DNS pointing at the server
 - Ports 80 and 443 open
-- `gettext-base`, `openssl`, `python3` — and `npm` to build the dashboard
+- `gettext-base`, `openssl`, `python3` — and Node.js 20.19+/22.12+ with `npm` to build the pages (TypeScript + Vite)
 - ~4 GB RAM for everything, ~2 GB without Immich's ML
 
 **GPU is optional.** The base stack requests no devices and runs anywhere. With
@@ -371,12 +393,14 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
 bootstrap.sh            setup + re-render
 docker-compose.yml      the stack        docker-compose.gpu.yml   NVIDIA overlay
 caddy/                  custom image + Caddyfile template
-dashboard/              hub page (Vite + React) — cards in src/services.js
+dashboard/              hub page (Vite + React + TypeScript) — cards in src/services.ts
 stats/                  host metrics, dependency-free Python
-crypto/                 crypto tracker + Telegram alerts (dependency-free Python)
+crypto/                 crypto tracker + Telegram alerts (dependency-free Python; page in web-src/, TypeScript)
 sensor/data/            ESP32 sensor readings (the app is built from its own repo)
 n8n/workflows/          importable automation workflows
-helper/                 Telegram bots (dependency-free Python) + webapp/ Mini App (Vite + React)
+helper/                 Telegram bots (dependency-free Python) + webapp/ Mini App (Vite + React + TypeScript)
+pdftools/               PDF tools: offline Stirling-PDF engine + web/ page (Vite + React + TypeScript)
+upscaler/               GPU photo upscaler (stdlib Python; page in web/, TypeScript)
 matrix/                 Synapse · Element · coturn · LiveKit  (templates)
 amneziawg/              obfuscated WireGuard      ⟵ separate compose project
 3xpanel/                3x-ui panel               ⟵ separate compose project
@@ -403,6 +427,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🔒 **[SSH-GUARD.md](docs/SSH-GUARD.md)** | Optional: fail2ban for the host's SSH (root and made-up users banned at once), new-login alerts and a daily summary in Telegram |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |
 | 🔬 **[research/](docs/research/README.md)** | Dated research reports — censorship-resistant VPN transports, the multi-user downloader, fast crypto news sources, AmneziaVPN deep links — and the decisions taken from them |
+| 🟦 **[TYPESCRIPT.md](docs/TYPESCRIPT.md)** | The typed front ends — strict setup, the API/i18n/form contracts, the two build shapes, contributor conventions, migration pitfalls |
 | 🏗️ **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Why it's built this way — mostly stories about what broke first |
 
 ## Security, honestly

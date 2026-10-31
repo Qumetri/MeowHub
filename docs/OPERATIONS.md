@@ -29,9 +29,10 @@ Almost everything lives in `.env`. What you change decides what you run after:
 | A secret path (`DASHBOARD_PATH`, …) | `docker compose restart caddy` |
 | Hostnames, `COMPOSE_PROFILES` | `./bootstrap.sh && docker compose up -d` |
 | Anything in a `matrix/*.template` | `./bootstrap.sh && docker compose up -d` |
-| Hub cards (`dashboard/src/services.js`) | `cd dashboard && npm run build` |
+| Hub cards (`dashboard/src/services.ts`) | `cd dashboard && npm run build` |
 | Metrics (`stats/server.py`) | `docker compose restart hub-stats` |
 | Crypto tracker code (`crypto/app`, `crypto/web`) | `docker compose up -d --build crypto` |
+| Crypto / upscaler page source (`crypto/web-src`, `upscaler/web`) | `npm run build` there, commit the emitted `.js`, then rebuild that service |
 
 Caddy reads `{$VAR}` at load time, which is why a path change needs only a
 restart. Synapse, coturn, LiveKit and Element have no env substitution at all —
@@ -44,8 +45,9 @@ template change until you touch it — if a render seems ignored, that's why.)
 
 ## Adding a service to the hub page
 
-Edit `dashboard/src/services.js`, then `cd dashboard && npm run build`. Cards
-are data — id, name, description, url, icon, gradient, status. `status: 'soon'`
+Edit `dashboard/src/services.ts`, then `cd dashboard && npm run build`. Cards
+are data — id, name, description, url, icon, gradient, status — typed as `Service`, so a
+missing field or an icon name that isn't in `Icon.tsx` fails the build. `status: 'soon'`
 renders a dimmed placeholder.
 
 URLs come from build-time env vars written by `bootstrap.sh` into

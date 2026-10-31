@@ -58,7 +58,7 @@ headless container fails with `Could not get 'vkCreateInstance'` (no X server) �
 
 Remacri / UltraSharp weights are CC BY-NC-SA (non-commercial) — fine for private use. To add a model: drop
 its NCNN `.bin` + `.param` into `UPSCALE_DATA/models/`, add it to `MODELS` in `server.py`
-(and to `NAMES` in `static/app.js`), rebuild. PyTorch models must be converted first (chaiNNer).
+(and to `NAMES` in `upscaler/web/src/app.ts`, then `npm run build` there — it emits `app/static/app.js`), rebuild. PyTorch models must be converted first (chaiNNer).
 
 ## Operating
 
