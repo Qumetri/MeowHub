@@ -829,8 +829,12 @@ class Helper:
         """A Stars payment went through: credit it (once, by charge id). The thanks and the
         owner's notice come from _pay_announce."""
         frm, sp = m.get("from") or {}, m["successful_payment"]
-        p = payments.Payments.parse_stars(sp.get("invoice_payload"))
         charge = sp.get("telegram_payment_charge_id", "")
+        d = payments.Payments.parse_donate(sp.get("invoice_payload"))
+        if d is not None and sp.get("currency") == "XTR" and charge:
+            self.core.payments.credit("donate", charge, d[0], "donate", sp.get("total_amount", 0), user=frm, bot=self.kind)
+            return None
+        p = payments.Payments.parse_stars(sp.get("invoice_payload"))
         if sp.get("currency") != "XTR" or p is None or not charge:
             log.error("unexpected successful_payment from %s: %s", frm.get("id"), sp.get("invoice_payload"))
             return self.notify_owner(tr(self.lang(self.owner_id()), "pay.unknown", who=usage.who(None, frm.get("id"), frm),
@@ -839,6 +843,11 @@ class Helper:
         self.core.payments.credit("stars", charge, uid, plan, sp.get("total_amount", 0), user=frm, bot=self.kind)
 
     def _pay_announce(self, provider, uid, plan, amount, member, user):
+        if provider == "donate":
+            L = i18n.lang_of(self.store, uid, (member or {}).get("lang"))
+            stars = payments.fmt_amount("stars", amount)
+            self.notify(uid, tr(L, "donate.thanks", amount=stars))
+            return self.usage.report("pay", uid, lambda LL, who: tr(LL, "usage.donate", who=who, amount=stars), user=user)
         exp = member["expires_ts"]
         L = i18n.lang_of(self.store, uid, member.get("lang"))
         self.notify(uid, tr(L, "pay.done", plan=tr(L, "pay.plan." + plan), amount=payments.fmt_amount(provider, amount),
@@ -862,7 +871,7 @@ class Helper:
         p = self.payments.last_payment(uid)
         if p is None:
             return self.bot.send(cid, tr(L, "refund.none"))
-        if p["provider"] != "stars":
+        if p["provider"] not in ("stars", "donate"):
             return self.bot.send(cid, tr(L, "refund.crypto", amount=payments.fmt_amount(p["provider"], p["amount"])))
         bot = self.member_bot if p["bot"] == "member" and self.member_bot is not None else self.bot
         try:
@@ -870,7 +879,9 @@ class Helper:
         except TelegramError as e:
             return self.bot.send(cid, tr(L, "refund.failed", e=esc(e)))
         self.payments.mark_refunded(p["id"])
-        self.bot.send(cid, tr(L, "refund.done", amount=payments.fmt_amount("stars", p["amount"]), days=p["days"]))
+        amount = payments.fmt_amount("stars", p["amount"])
+        self.bot.send(cid, tr(L, "refund.done", amount=amount, days=p["days"]) if p["days"]
+                      else tr(L, "refund.done_donation", amount=amount))
 
     # ------------------------------------------------------------------ trial --
     def begin_trial(self, uid, frm=None):

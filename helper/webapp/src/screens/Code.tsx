@@ -79,6 +79,7 @@ export default function Code() {
   const [ok, setOk] = useState<Member | null>(null)
   const ready = normCode(code).length >= 8
   const offer = isTg ? me.pay : null
+  const sells = !!offer && (offer.stars || offer.crypto)
 
   async function submit() {
     if (!ready || busy) return
@@ -107,11 +108,11 @@ export default function Code() {
           </div>
         </div>
       )}
-      {offer && <><p className="lead lead--left">{t('pay.lead')}</p><PayPlans offer={offer} onPaid={paid} /></>}
-      {offer && <h3 className="form__h">{t('code.section')}</h3>}
+      {sells && <><p className="lead lead--left">{t('pay.lead')}</p><PayPlans offer={offer} onPaid={paid} /></>}
+      {sells && <h3 className="form__h">{t('code.section')}</h3>}
       <p className="lead lead--left">{t('code.lead')}</p>
       <div className="codebox">
-        <input className={'codeinput' + (err ? ' bad' : '')} value={code} placeholder="MEOW-XXXX-XXXX" autoFocus={!ok && !offer}
+        <input className={'codeinput' + (err ? ' bad' : '')} value={code} placeholder="MEOW-XXXX-XXXX" autoFocus={!ok && !sells}
           autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go"
           aria-label={t('stranger.code')}
           onChange={(e) => { setCode(e.target.value.toUpperCase()); setErr(''); setOk(null) }}

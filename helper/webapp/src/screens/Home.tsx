@@ -2,10 +2,11 @@ import Icon from '../icons'
 import Pass from '../Pass'
 import { Avatar, Button, Cell, Pill, Section, toast } from '../ui'
 import { t } from '../i18n'
-import { haptic } from '../tg'
+import { haptic, isTg } from '../tg'
 import { canDownload, fmtDate, hasService, personName, svcList, uiState } from '../util'
 import { useApp } from '../ctx'
 import { ContactCell, LangSection, contactVars } from './shared'
+import Donate from './Donate'
 import type { IconName } from '../icons'
 import type { Screen } from '../types'
 
@@ -102,6 +103,8 @@ export default function Home() {
           sub={m.username ? '@' + m.username : undefined} />
         <Cell icon="calendar" tone="mute" title={t('home.since')} value={fmtDate(m.created_ts, true)} />
       </Section>
+
+      {isTg && !!me.pay?.donate?.length && <Donate amounts={me.pay.donate} />}
 
       <LangSection />
     </div>

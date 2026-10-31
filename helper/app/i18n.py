@@ -420,11 +420,20 @@ _("pay.err.crypto_failed", "CryptoBot не ответил. Попробуй ещ
 _("pay.err.bad_price", "Цена вне допустимых пределов.", "The price is out of range.")
 _("pay.err.bad_request", "Неверный запрос.", "Bad request.")
 _("pay.err.tg_only", "Оплата работает в Telegram.", "Payment works inside Telegram.")
+_("donate.title", "Поддержать MeowHub", "Support MeowHub")
+_("donate.desc", "Добровольное пожертвование на сервер и развитие MeowHub. Спасибо! Подписку оно не продлевает.",
+  "A voluntary donation towards the server and MeowHub's development. Thank you! It doesn't extend your plan.")
+_("donate.label", "Пожертвование", "Donation")
+_("donate.thanks", "💛 Спасибо за поддержку — {amount}! Это правда помогает держать сервер.",
+  "💛 Thank you for your support — {amount}! It really helps keep the server running.")
+_("usage.donate", "💛 {who} поддержал(а) проект: {amount}.", "💛 {who} supported the project: {amount}.")
+_("pay.err.bad_amount", "Сумма — от 1 до 10 000 звёзд.", "The amount must be 1 to 10,000 Stars.")
 _("refund.usage", "Возврат последней оплаты звёздами: <code>/refund &lt;Telegram ID&gt;</code>",
   "Refund the last Stars payment: <code>/refund &lt;Telegram ID&gt;</code>")
 _("refund.none", "У этого человека нет оплат, которые можно вернуть.", "This person has no payments to refund.")
 _("refund.crypto", "Последняя оплата была через CryptoBot ({amount}) — её возвращают вручную переводом в @CryptoBot.",
   "The last payment was via CryptoBot ({amount}) — refund it by hand with a transfer in @CryptoBot.")
+_("refund.done_donation", "↩️ Пожертвование {amount} возвращено.", "↩️ Donation of {amount} refunded.")
 _("refund.failed", "Telegram не принял возврат: {e}", "Telegram refused the refund: {e}")
 _("refund.done", "↩️ Возвращено {amount}, срок уменьшен на {days} дн.", "↩️ Refunded {amount}, the term is {days} days shorter.")
 _("svc.trial_btn", "{mark} 🎁 Пробный доступ новичкам — {period}", "{mark} 🎁 Free trial for newcomers — {period}")

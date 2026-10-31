@@ -700,3 +700,8 @@ html[data-mode='browser'] .keycard { backdrop-filter: blur(12px); }
 .payprices__row { display: flex; flex-wrap: wrap; gap: 10px; }
 .payprices__f { display: grid; gap: 4px; font-size: 13px; color: var(--hint); }
 .payprices__f .input { width: 96px; }
+
+/* donations */
+.donate { padding: 4px 16px 14px; display: grid; gap: 10px; }
+.donate .input--num { max-width: 140px; }
+.payprices__f--wide .input { width: 220px; }

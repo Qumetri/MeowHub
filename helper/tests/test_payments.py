@@ -157,6 +157,43 @@ class PaymentsTest(unittest.TestCase):
         self.h.on_message(msg(69, "/refund 69"))
         self.assertFalse([e for e in self.b.log if e[0] == "refundStarPayment"])
 
+    # --------------------------------------------------------------- donations --
+    def test_donation_off_until_both_switches(self):
+        self.pay().configure("stars", enabled=True)
+        self.assertFalse(self.pay().donate_enabled())
+        self.assertIsNone(self.pay().offer(5)["donate"])
+        self.pay().configure("donate", enabled=True, amounts=[30, 100])
+        self.assertEqual(self.pay().offer(5)["donate"], [30, 100])
+        self.pay().configure("stars", enabled=False)
+        self.assertFalse(self.pay().donate_enabled())               # donations ride on Stars
+        with self.assertRaises(pm.PayError):
+            self.pay().configure("donate", amounts=[0])
+
+    def test_donation_flow_no_days_thanks_and_refund(self):
+        self.pay().configure("stars", enabled=True)
+        self.pay().configure("donate", enabled=True)
+        self.make_member(72, days=5)
+        exp = self.mm.get(72)["expires_ts"]
+        payload = pm.Payments.donate_payload(72, 250)
+        self.assertEqual(self.pay().precheckout(self.q(72, payload, 250)), (True, None))
+        self.assertEqual(self.pay().precheckout(self.q(72, payload, 50)), (False, "bad_invoice"))
+        self.h.on_message(paid_msg(72, payload, 250, charge="d-1"))
+        self.h.on_message(paid_msg(72, payload, 250, charge="d-1"))      # redelivered
+        self.assertEqual(self.mm.get(72)["expires_ts"], exp)              # no extra days
+        thanks = [s for s in self.b.sent(72) if "Спасибо за поддержку" in s[2]]
+        self.assertEqual(len(thanks), 1)
+        self.assertIn("поддержал(а) проект: 250 ★", self.wait_owner(1)[-1][2])
+        self.assertEqual([e["kind"] for e in self.mm.events(72)].count("donate"), 1)
+        self.h.on_message(msg(OWNER, "/refund 72"))
+        self.assertIn("Пожертвование 250 ★ возвращено", self.b.sent(OWNER)[-1][2])
+        self.assertEqual(self.mm.get(72)["expires_ts"], exp)
+
+    def test_stranger_can_donate(self):
+        self.pay().configure("stars", enabled=True)
+        self.pay().configure("donate", enabled=True)
+        self.h.on_message(paid_msg(73, pm.Payments.donate_payload(73, 100), 100, charge="d-2"))
+        self.assertIsNone(self.mm.get(73))                                # a donation makes no member
+
     # ------------------------------------------------------------------ crypto --
     def test_crypto_invoice_then_poll_credits_once(self):
         calls = []

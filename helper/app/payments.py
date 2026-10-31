@@ -14,8 +14,11 @@ added), an event `pay`, and a usage notice to the owner and admins.
     (no webhook, no new route). Needs CRYPTOPAY_TOKEN in .env (@CryptoBot → Crypto Pay →
     Create App); CRYPTOPAY_TESTNET=1 talks to @CryptoTestnetBot instead.
 
-Owner settings: settings `payments` = {"stars": {"enabled", "prices"}, "crypto": {...}}.
-Both providers are off until the owner switches them on (service toggle convention).
+Donations (`donate`): a free amount in Stars from anyone with the app, through the same invoice /
+pre-checkout / successful_payment path; recorded in `payments` with plan `donate`, no days added.
+
+Owner settings: settings `payments` = {"stars": {"enabled", "prices"}, "crypto": {...},
+"donate": {"enabled", "amounts"}}. Everything is off until the owner switches it on (service toggle convention).
 """
 import json
 import logging
@@ -34,6 +37,8 @@ PLANS = {"m1": 30, "m3": 90, "m12": 365}              # plan id -> days, in the 
 PROVIDERS = ("stars", "crypto")
 DEFAULT_PRICES = {"stars": {"m1": 100, "m3": 270, "m12": 960},   # ★ (reports/stars-payments-2026-10.md)
                   "crypto": {"m1": 2.0, "m3": 5.0, "m12": 18.0}}  # USD
+DONATE_AMOUNTS = [50, 100, 250, 500]                 # ★ chips offered in the app
+DONATE_MAX = 10000
 CRYPTO_ASSETS = "USDT,TON,BTC,ETH,LTC,TRX,USDC"
 CRYPTO_TTL = 3600                                     # an unpaid CryptoBot invoice expires after an hour
 POLL_EVERY = 20
@@ -102,9 +107,14 @@ class Payments:
                     except (TypeError, ValueError):
                         pass
             out[p] = {"enabled": cur.get("enabled") is True, "prices": prices}
+        d = raw.get("donate") if isinstance(raw.get("donate"), dict) else {}
+        amounts = [int(a) for a in d.get("amounts") or [] if isinstance(a, int) and 1 <= a <= DONATE_MAX]
+        out["donate"] = {"enabled": d.get("enabled") is True, "amounts": sorted(set(amounts)) or list(DONATE_AMOUNTS)}
         return out
 
-    def configure(self, provider, enabled=None, prices=None):
+    def configure(self, provider, enabled=None, prices=None, amounts=None):
+        if provider == "donate":
+            return self._configure_donate(enabled, amounts)
         if provider not in PROVIDERS:
             raise PayError("unknown_provider", 404)
         cfg = self.settings()
@@ -127,6 +137,27 @@ class Payments:
                    + ",".join(f"{k}={v}" for k, v in cfg[provider]["prices"].items()))
         return cfg
 
+    def _configure_donate(self, enabled, amounts):
+        cfg = self.settings()
+        if enabled is not None:
+            if not isinstance(enabled, bool):
+                raise PayError("bad_request")
+            cfg["donate"]["enabled"] = enabled
+        if amounts is not None:
+            if (not isinstance(amounts, list) or not 1 <= len(amounts) <= 6
+                    or not all(isinstance(a, int) and not isinstance(a, bool) and 1 <= a <= DONATE_MAX for a in amounts)):
+                raise PayError("bad_price")
+            cfg["donate"]["amounts"] = sorted(set(amounts))
+        self.s.set("payments", json.dumps(cfg))
+        self.m.log(None, "pay_settings", f"donate {'on' if cfg['donate']['enabled'] else 'off'} "
+                   + ",".join(map(str, cfg["donate"]["amounts"])))
+        return cfg
+
+    def donate_enabled(self):
+        """Donations go through Stars, so both switches must be on."""
+        cfg = self.settings()
+        return cfg["donate"]["enabled"] and cfg["stars"]["enabled"]
+
     @staticmethod
     def crypto_token():
         return os.environ.get("CRYPTOPAY_TOKEN", "").strip()
@@ -139,9 +170,10 @@ class Payments:
         """What /api/me shows on the extend screen; None when no provider is on."""
         cfg = self.settings()
         on = {p: self.enabled(p) for p in PROVIDERS}
-        if not any(on.values()) or uid is None:
+        donate = cfg["donate"]["amounts"] if self.donate_enabled() else None
+        if (not any(on.values()) and not donate) or uid is None:
             return None
-        return {"stars": on["stars"], "crypto": on["crypto"],
+        return {"stars": on["stars"], "crypto": on["crypto"], "donate": donate,
                 "plans": [{"id": k, "days": d, "stars": cfg["stars"]["prices"][k],
                            "usd": cfg["crypto"]["prices"][k]} for k, d in PLANS.items()]}
 
@@ -160,8 +192,10 @@ class Payments:
 
     # --------------------------------------------------------------- credit --
     def credit(self, provider, ref, uid, plan, amount, user=None, bot=""):
-        """('paid', member) the first time, ('dup', member) for a payment already counted."""
-        uid, days, now = int(uid), PLANS[plan], int(time.time())
+        """('paid', member) the first time, ('dup', member) for a payment already counted.
+        A donation (provider `donate`) is recorded the same way but adds no days."""
+        donation = provider == "donate"
+        uid, days, now = int(uid), 0 if donation else PLANS[plan], int(time.time())
         db = self.s.db
         with self.s.lock:
             db.execute("BEGIN IMMEDIATE")
@@ -170,7 +204,9 @@ class Payments:
                                  "VALUES(?,?,?,?,?,?,?,?)",
                                  (f"{provider}:{ref}", uid, provider, plan, days, str(amount), bot, now))
                 fresh = cur.rowcount == 1
-                if fresh:
+                if fresh and donation:
+                    self.m._log_db(db, uid, "donate", fmt_amount("stars", amount))
+                elif fresh:
                     import members as mem                   # the module, for DEFAULT_SERVICES
                     self.m._apply(db, uid, user, days, mem.DEFAULT_SERVICES, now)
                     self.m._log_db(db, uid, "pay", f"{provider} {plan} +{days}d {fmt_amount(provider, amount)}")
@@ -182,7 +218,8 @@ class Payments:
         member = self.m._row(row)
         if not fresh:
             return "dup", member
-        self.m.changed.set()                                 # the Reconciler (re)opens access now
+        if not donation:
+            self.m.changed.set()                             # the Reconciler (re)opens access now
         log.info("payment %s:%s uid=%s %s %s", provider, ref, uid, plan, amount)
         if self.announce is not None:
             try:
@@ -203,7 +240,8 @@ class Payments:
             return None
         p = dict(r[0])
         self.s.q("UPDATE payments SET refunded=1 WHERE id=?", pid)
-        self.m.extend(p["uid"], -p["days"])
+        if p["days"]:
+            self.m.extend(p["uid"], -p["days"])
         self.m.log(p["uid"], "pay_refund", f"{p['provider']} {p['plan']} -{p['days']}d {fmt_amount(p['provider'], p['amount'])}")
         return p
 
@@ -230,11 +268,32 @@ class Payments:
         except ValueError:
             return None
 
+    @staticmethod
+    def donate_payload(uid, amount):
+        return f"dn:{int(uid)}:{int(amount)}:{secrets.token_hex(4)}"
+
+    @staticmethod
+    def parse_donate(payload):
+        """(uid, amount) from a donation invoice payload, else None."""
+        parts = str(payload or "").split(":")
+        if len(parts) != 4 or parts[0] != "dn":
+            return None
+        try:
+            uid, amount = int(parts[1]), int(parts[2])
+        except ValueError:
+            return None
+        return (uid, amount) if 1 <= amount <= DONATE_MAX else None
+
     def precheckout(self, q):
         """(ok, error_code) for a pre_checkout_query. The price is the one on the invoice:
         a price change after the link was made does not break a payment in progress."""
-        p = self.parse_stars(q.get("invoice_payload"))
         frm = (q.get("from") or {}).get("id")
+        d = self.parse_donate(q.get("invoice_payload"))
+        if d is not None:
+            if q.get("currency") != "XTR" or frm != d[0] or q.get("total_amount") != d[1]:
+                return False, "bad_invoice"
+            return (True, None) if self.donate_enabled() else (False, "off")
+        p = self.parse_stars(q.get("invoice_payload"))
         if p is None or q.get("currency") != "XTR":
             return False, "bad_invoice"
         uid, plan, price = p

@@ -38,17 +38,19 @@ interface MockBody {
   username?: string; password?: string; member_ids?: number[]
   action?: string; days?: number; ts?: number | null; services?: string[]; note?: string
   uid?: number; token?: string; uses_max?: number
-  provider?: string; plan?: string; prices?: Partial<Record<PlanId, number>>
+  provider?: string; plan?: string; prices?: Partial<Record<PlanId, number>>; amount?: number; amounts?: number[]
 }
 
 // Paid plans (payments.py): both providers on in the mock so the extend screen shows them.
 const PLAN_DAYS: Record<PlanId, number> = { m1: 30, m3: 90, m12: 365 }
 const PAY: PaymentsAdmin['settings'] = {
-  stars: { enabled: true, prices: { m1: 100, m3: 270, m12: 960 } },
-  crypto: { enabled: true, prices: { m1: 2, m3: 5, m12: 18 } },
+  stars: { enabled: true, prices: { m1: 285, m3: 855, m12: 3420 } },
+  crypto: { enabled: true, prices: { m1: 3.55, m3: 10.6, m12: 42.3 } },
+  donate: { enabled: true, amounts: [50, 100, 250, 500] },
 }
 const payOffer = (): PayOffer | null => (!PAY.stars.enabled && !PAY.crypto.enabled ? null : {
   stars: PAY.stars.enabled, crypto: PAY.crypto.enabled,
+  donate: PAY.donate.enabled && PAY.stars.enabled ? PAY.donate.amounts : null,
   plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id], stars: PAY.stars.prices[id], usd: PAY.crypto.prices[id] })),
 })
 
@@ -356,6 +358,7 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
     return { enabled: state.trialOn !== false, days: 1, per_day: 20, started: 7 }
   }
 
+  if (path === 'pay' && method === 'POST' && body.provider === 'donate') return { provider: 'stars', link: 'https://t.me/$mockDonation' }
   if (path === 'pay' && method === 'POST') {
     const plan = body.plan as PlanId
     if (!(plan in PLAN_DAYS)) return err(400, 'bad_plan', tr('Такого тарифа нет.', 'There is no such plan.'))
@@ -540,23 +543,17 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
     }
     if (rest[0] === 'payments') {
       if (method === 'POST') {
+        if (body.provider === 'donate') {
+          if (typeof body.enabled === 'boolean') PAY.donate.enabled = body.enabled
+          if (body.amounts) PAY.donate.amounts = [...body.amounts].sort((a, b) => a - b)
+          return adminPay()
+        }
         const p = body.provider as PayProvider
         if (!(p in PAY)) return err(404, 'unknown_provider', tr('Такого способа оплаты нет.', 'There is no such payment method.'))
         if (typeof body.enabled === 'boolean') PAY[p].enabled = body.enabled
         if (body.prices) Object.assign(PAY[p].prices, body.prices)
       }
-      const ago = (h: number) => now() - h * 3600
-      return {
-        settings: PAY, crypto_token: true, crypto_testnet: false,
-        plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id] })),
-        totals: { stars: { count: 3, amount: 470 }, crypto: { count: 1, amount: 5 } },
-        recent: [
-          { id: 'stars:a', uid: 100200301, name: 'Алексей Громов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(3), refunded: 0 },
-          { id: 'crypto:7', uid: 100200302, name: 'Мария Соколова', provider: 'crypto', plan: 'm3', days: 90, amount: '5.00', ts: ago(30), refunded: 0 },
-          { id: 'stars:b', uid: 100200309, name: 'Никита Фёдоров', provider: 'stars', plan: 'm3', days: 90, amount: '270', ts: ago(80), refunded: 0 },
-          { id: 'stars:c', uid: 100200311, name: 'Артём Кузнецов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(200), refunded: 1 },
-        ],
-      } satisfies PaymentsAdmin
+      return adminPay()
     }
     if (rest[0] === 'sync') { state.sync = { ts: now(), ok: true, error: '', vpn_clients: state.members.filter((m) => m.services.includes('vpn')).length }; return state.sync }
     if (rest[0] === 'integrations') {
@@ -642,6 +639,21 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
     }
   }
   return err(404, 'not_found', tr('Не найдено: ', 'Not found: ') + path)
+}
+
+function adminPay(): PaymentsAdmin {
+  const ago = (h: number) => now() - h * 3600
+  return {
+    settings: PAY, crypto_token: true, crypto_testnet: false,
+    plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id] })),
+    totals: { stars: { count: 3, amount: 470 }, crypto: { count: 1, amount: 5 }, donate: { count: 2, amount: 350 } },
+    recent: [
+      { id: 'stars:a', uid: 100200301, name: 'Алексей Громов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(3), refunded: 0 },
+      { id: 'crypto:7', uid: 100200302, name: 'Мария Соколова', provider: 'crypto', plan: 'm3', days: 90, amount: '5.00', ts: ago(30), refunded: 0 },
+      { id: 'stars:b', uid: 100200309, name: 'Никита Фёдоров', provider: 'stars', plan: 'm3', days: 90, amount: '270', ts: ago(80), refunded: 0 },
+      { id: 'stars:c', uid: 100200311, name: 'Артём Кузнецов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(200), refunded: 1 },
+    ],
+  }
 }
 
 // ---- photo upscaling: a finished picture (drawn SVGs: blocky "before", smooth "after") and one in line

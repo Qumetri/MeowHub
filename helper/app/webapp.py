@@ -780,6 +780,18 @@ class App:
                                       payload=pay.stars_payload(ctx.uid, plan, price), provider_token="",
                                       currency="XTR", prices=[{"label": name, "amount": price}])
                 return jr({"provider": "stars", "link": link})
+            if provider == "donate":
+                amount = b.get("amount")
+                if not pay.donate_enabled():
+                    raise paym.PayError("off", 403)
+                if not isinstance(amount, int) or isinstance(amount, bool) or not 1 <= amount <= paym.DONATE_MAX:
+                    raise paym.PayError("bad_amount")
+                front = self.h.member_front if ctx.via == "member" and self.h.member_front is not None else self.h
+                link = front.bot.call("createInvoiceLink", title=i18n.tr(L, "donate.title")[:32],
+                                      description=i18n.tr(L, "donate.desc")[:255],
+                                      payload=pay.donate_payload(ctx.uid, amount), provider_token="",
+                                      currency="XTR", prices=[{"label": i18n.tr(L, "donate.label"), "amount": amount}])
+                return jr({"provider": "stars", "link": link})
             if provider == "crypto":
                 name = i18n.tr(L, "pay.plan." + str(plan)) if plan in paym.PLANS else ""
                 back = f"https://t.me/{self.h.share_username()}" if self.h.share_username() else None
@@ -808,7 +820,7 @@ class App:
         if req.command == "POST":
             b = req.json()
             try:
-                pay.configure(b.get("provider"), b.get("enabled"), b.get("prices"))
+                pay.configure(b.get("provider"), b.get("enabled"), b.get("prices"), b.get("amounts"))
             except paym.PayError as e:
                 raise ApiError(e.status, e.code, "pay.err." + e.code, c="") from None
         st = pay.stats()

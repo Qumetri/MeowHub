@@ -2,9 +2,10 @@ import { useState } from 'react'
 import Icon from '../icons'
 import { Cell, Section } from '../ui'
 import { t } from '../i18n'
-import { haptic } from '../tg'
+import { haptic, isTg } from '../tg'
 import { useApp } from '../ctx'
 import { ContactCell, Title, contactHandle, contactVars } from './shared'
+import Donate from './Donate'
 
 export default function Help() {
   const { me } = useApp()
@@ -27,6 +28,7 @@ export default function Help() {
           </div>
         ))}
       </Section>
+      {isTg && !!me.pay?.donate?.length && <Donate amounts={me.pay.donate} />}
     </div>
   )
 }

@@ -625,6 +625,9 @@ hooks in `bot.py` and `webapp.py`, UI in `webapp/src/screens/Code.tsx` and `admi
   `OWNER_CONTACT` and pings the owner. `/refund <telegram id>` in the service bot returns that
   person's last Stars payment (`refundStarPayment`, from the bot that received it) and takes the
   days back. CryptoBot payments are refunded by hand in @CryptoBot.
+- **Donations**: a "Support the project" button on Home and in Help (Telegram only) takes any amount
+  of Stars (preset chips are editable on the admin page). Same invoice path, payload `dn:…`, recorded in
+  `payments` as plan `donate` with no days; the donor gets a thank-you, the owner a notice. Needs Stars on.
 - Rules worth knowing before switching Stars on: digital goods in bots must be sold for Stars,
   `/paysupport` must work, and Stars on a bot's balance belong to that bot's owner account.
 
