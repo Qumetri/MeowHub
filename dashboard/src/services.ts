@@ -32,6 +32,8 @@ const SENSOR  = E.VITE_SENSOR_PATH   || ''
 const BOTS    = E.VITE_BOT_ADMIN_PATH || ''
 const UPSCALE = E.VITE_UPSCALE_PATH  || ''
 const PDF     = E.VITE_PDF_PATH      || ''
+const VIDEO   = E.VITE_VIDEO_PATH    || ''
+const HA      = E.VITE_HA_PATH       || ''
 const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
 const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
@@ -127,6 +129,17 @@ export const services: Service[] = [
     status: 'live',
   },
   {
+    // The helper bot's downloader as a page for anyone (docs/HELPER.md "Video page");
+    // the owner switches it on in /services.
+    id: 'video',
+    name: 'Video',
+    description: 'Video downloads for anyone, no login',
+    url: `https://${BASE}/${VIDEO}/`,
+    icon: 'film',
+    gradient: ['#ff3d6e', '#ffb36b'],
+    status: VIDEO ? 'live' : 'soon',
+  },
+  {
     id: 'upscale',
     name: 'Photo Upscaler',
     description: 'Enlarge photos and pictures 2–4× with AI, compare before and after',
@@ -152,5 +165,15 @@ export const services: Service[] = [
     icon: 'bot',
     gradient: ['#229ed9', '#7dd3fc'],
     status: BOTS ? 'live' : 'soon',
+  },
+  {
+    // Optional (ENABLE_HOMEASSISTANT, docs/HOMEASSISTANT.md): the path sets the gate cookie.
+    id: 'homeassistant',
+    name: 'Home Assistant',
+    description: 'Smart home on a secret path, webhooks for ESP32s',
+    url: `https://${BASE}/${HA}/`,
+    icon: 'home',
+    gradient: ['#18bcf2', '#7ee0ff'],
+    status: HA ? 'live' : 'soon',
   },
 ]

@@ -4,19 +4,20 @@
 
 **Your self-hosted corner of the internet.**
 
-Files, photos, private chat with voice and video, a media downloader, a live
-dashboard, a Telegram bot that hands out access to all of it — and two VPN paths
-for networks that don't want you to have any of it.
+Files, photos, private chat with voice and video, a video downloader anyone can
+use, PDF tools and a GPU photo upscaler, a live dashboard, a Telegram bot that
+hands out access to all of it (and takes payment for it) — and two VPN paths for
+networks that don't want you to have any of it.
 
 One `docker compose up`. One `.env`. One reverse proxy.
 
 ![Docker Compose](https://img.shields.io/badge/Docker-Compose_v2-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/TLS-automatic-00C7B7?logo=caddy&logoColor=white)
-![Services](https://img.shields.io/badge/services-24-7928CA)
+![Services](https://img.shields.io/badge/services-26-7928CA)
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
 ![Languages](https://img.shields.io/badge/bot_%26_app-RU_%C2%B7_EN-229ED9?logo=telegram&logoColor=white)
 
-<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, live host metrics and service cards (one hovered, with a duck peeking over it)" width="100%">
+<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, live host metrics and fifteen service cards; the Video card is hovered, with a duck peeking over it" width="100%">
 
 </div>
 
@@ -33,17 +34,19 @@ on hardware you control.
 | ☁️ | **Nextcloud** — files, sync, calendar, office | `cloud.yourdomain` |
 | 🖼️ | **Immich** — photos and video, face recognition | `photos.yourdomain` |
 | 💬 | **Matrix + Element** — private chat, voice, video | `matrix.yourdomain` |
-| ⬇️ | **Downloader** — YouTube, RuTube and VK Video for every member, files self-delete after 30 min (MeTube + yt-dlp underneath); optionally also a standalone page for anyone, no login | Mini App, video page |
+| ⬇️ | **Downloader** — YouTube, RuTube and VK Video for every member, files self-delete after 30 min (MeTube + yt-dlp underneath) | Mini App |
+| 🎬 | **Video page** — the same downloader for anyone with the link: no Telegram, no account, small per-browser quotas; off until you switch it on | `yourdomain/<secret>` |
 | 📈 | **Crypto Tracker** — live prices, price and volatility alerts, breaking news from 11 sources | `yourdomain/<secret>` |
 | 🔁 | **n8n** — workflow automation, optional local LLM | `yourdomain/<secret>` |
 | 🌡️ | **Room Sensor** — charts from an ESP32 that posts from anywhere | `yourdomain/<secret>` |
 | 📊 | **Hub page** — service cards + live CPU/RAM/GPU/disk/network | `yourdomain/<secret>` |
 | 🔍 | **Photo upscaler** — enlarge photos and pictures 2–4× on your GPU (Upscayl's models), before/after slider, for you and your members | `yourdomain/<secret>` + Mini App |
 | 📄 | **PDF tools** — your own iLovePDF: merge, split, compress, OCR, Office ↔ PDF, passwords, redaction — 30 tools, on an engine with no internet access | `yourdomain/<secret>` |
-| 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads) for your people — who can also pay for more time in Telegram Stars or crypto (CryptoBot) — with a Telegram Mini App in Russian or English | Telegram |
+| 🤖 | **Helper bot** — health alerts for you; invite-code memberships (VPN, Matrix, downloads, audiobooks, photo upscaling) for your people, a one-day free trial for newcomers, more time paid in Telegram Stars or crypto (CryptoBot), Stars donations — with a Telegram Mini App in Russian or English | Telegram |
 | 🛡️ | **AmneziaWG** — obfuscated WireGuard VPN | optional |
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
 | 🏠 | **Home Assistant** — devices in another place, on a secret path, webhooks for ESP32s | optional |
+| 🔒 | **SSH guard** — fail2ban for the host's SSH, new-login alerts and a daily summary in Telegram | optional, host |
 
 ## Quick start
 
@@ -89,13 +92,14 @@ flowchart TB
     web --> mx["Synapse + Element"]
     web --> app["Bot Mini App<br/>+ signed downloads"]
     web --> hub["Hub + live stats"]
-    web --> more["Crypto · n8n · sensor"]
+    web --> vid["Video page<br/>guests, no login"]
+    web --> more["Crypto · n8n · sensor<br/>PDF tools · upscaler"]
 
     classDef router fill:#7928ca,stroke:#a855f7,color:#ffffff
     classDef svc fill:#0f172a,stroke:#38bdf8,color:#e2e8f0
     classDef vpn fill:#0f172a,stroke:#f43f5e,color:#e2e8f0
     class l4,web router
-    class nc,im,mx,app,hub,more,lk svc
+    class nc,im,mx,app,vid,hub,more,lk svc
     class vpn vpn
 ```
 
@@ -111,7 +115,7 @@ Not everyone wants all of it. One line in `.env` decides:
 
 ```ini
 # everything
-COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,sensor,n8n,ollama,helper
+COMPOSE_PROFILES=nextcloud,immich,matrix,metube,crypto,sensor,n8n,ollama,helper,upscaler,pdftools
 
 # just files and photos
 COMPOSE_PROFILES=nextcloud,immich
@@ -124,7 +128,8 @@ COMPOSE_PROFILES=immich
 |---|---|
 | `nextcloud` | 6 |
 | `nextcloud,immich` | 10 |
-| all nine | 24 |
+| all but `upscaler,pdftools` | 24 |
+| all eleven | 26 |
 
 Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
@@ -145,7 +150,7 @@ third-party requests.
 
 ## Everything is in one file
 
-`.env` holds **131 settings**, each documented where it sits. Only two have no
+`.env` holds **146 settings**, each documented where it sits. Only two have no
 sensible default, because they can't:
 
 ```ini
@@ -165,10 +170,10 @@ password is generated for you.
 | Identity | `BASE_DOMAIN`, `CLOUD_HOST`, `MATRIX_HOST`, `ACME_EMAIL`, `TZ` |
 | What runs | `COMPOSE_PROFILES`, `COMPOSE_FILE` (GPU overlay) |
 | Storage | `DATA_ROOT` and per-service paths |
-| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH`, `UPSCALE_PATH`, `PDF_PATH` |
+| Secret paths | `DASHBOARD_PATH`, `METUBE_PATH`, `MATRIXRTC_PATH`, `AWG_ADMIN_PATH`, `XHTTP_PATH`, `CRYPTO_PATH`, `SENSOR_PATH`, `N8N_PUBLIC_PATH`, `BOT_APP_PATH`, `BOT_ADMIN_PATH`, `VIDEO_PATH`, `UPSCALE_PATH`, `PDF_PATH`, `HA_PATH` |
 | Ports | web, debug, call media, TURN relay range |
 | Versions | every image tag, pinned |
-| Secrets | 12 passwords and shared secrets, all generated |
+| Secrets | 16 passwords and shared secrets, all generated (plus three page logins in `secrets/`) |
 | VPN | subnet, endpoint, MTU, port, SNI passthrough |
 | Branding | `HUB_NAME`, `ELEMENT_BRAND` |
 
@@ -292,7 +297,7 @@ at your IP — and again when it's fixed. It also lists the hub's links and hand
 **you, and only you**, the logins for your services, in a message that deletes
 itself after a minute.
 
-<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card, the VPN page with Happ marked as recommended, and the audiobooks beta" width="100%">
+<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card, the Extend screen with prices in Telegram Stars and dollars, and photo upscaling with a picture in progress" width="100%">
 
 It can also **let other people in**. You mint an access code; whoever redeems it
 becomes a member for 30 days (or as long as you choose) and gets, from a
@@ -316,6 +321,19 @@ Wallet-style Telegram Mini App:
   Drawings, 2–4×, and compare before and after with a slider; 20 a day per member,
   results kept for a day. Runs on the [upscaler](docs/UPSCALER.md) and starts off.
 
+Newcomers don't have to wait for a code: the member bot's first message offers a
+**one-day free trial** (once per person, a daily cap, its own switch).
+
+**Members can pay for more time themselves.** The **Extend** screen sells 1, 3 or
+12 months in **Telegram Stars** (no payment provider, no merchant account — the
+stars land on the member bot's balance) or in **crypto through CryptoBot** (USDT,
+TON, BTC and more; one API token). Access is extended the moment the payment
+arrives, every payment is credited exactly once, and you get a notice. Stars can be
+refunded with `/refund`, and `/paysupport` answers payment questions as Telegram
+requires. A **Support the project** button takes Stars donations of any amount.
+Prices, both providers and donations are switched and edited on the Bots page; all
+of it starts off, and your own "pay me directly" contact stays on the screen.
+
 The bot reminds members 24 hours before their time runs out. When it does, the
 VPN client is switched off and the Matrix accounts are locked (rooms and history
 kept); a new code brings it all back. Every service has an **owner switch**, and a
@@ -336,6 +354,40 @@ second bot keeps your ops bot private while members talk to theirs. You can make
 trusted people **admins** (`HELPER_ADMIN_IDS`): they get your controls but not your
 personal logins or the bot tokens, and alerts still come only to you.
 
+<table>
+<tr><td width="50%" valign="top">
+
+<img src="docs/img/bots-settings.png" alt="Bots page settings: the free trial, the video page switch with its link and today's guests, and payments — Stars and CryptoBot prices per term, donation amounts" width="100%">
+
+</td><td width="50%" valign="top">
+
+**One screen for the business side.** The free trial, the public video page
+(with its link and today's guests), and payments: Stars and CryptoBot each with
+an on/off switch and a price per term, donations with the amounts on their
+buttons, and the latest payments with refunds marked.
+
+Payments, donations and the video page start **off**: a fresh install charges
+nobody and opens nothing to strangers until you decide it should. Only the trial
+starts on (`TRIAL_ENABLED`), since it is how newcomers try the place out.
+
+</td></tr>
+</table>
+
+### Video downloads without the bot
+
+The downloader also runs as a **page of its own** for people who don't use
+Telegram — no account, no login. Paste a link, pick 360p to 1080p or audio, and
+save the file.
+
+<img src="docs/img/video.png" alt="The video page: a link field, quality chips from 360p to Best and MP3/M4A/Opus, and this browser's downloads with progress, a queued item and a finished one with Save and Subtitles buttons" width="100%">
+
+Each browser gets an anonymous signed id, so people see only their own downloads.
+Quotas count per browser **and** per IP (1 at a time, 5 an hour, 15 a day), with a
+cap for all guests together; playlists are off, and members' downloads always go
+first in the queue. On that path Caddy lets through only the page, the guest API
+and signed file links — the Mini App behind it isn't reachable. It is off until
+you switch it on in `/services` or on the Bots page, and the link is shown there.
+
 Setup is two lines in `.env` — `HELPER_BOT_TOKEN` and your Telegram id as
 `HELPER_OWNER_ID`; the VPN and Matrix halves of the memberships each need one
 more value (a 3x-ui API token, a Matrix admin). Full details in
@@ -350,8 +402,8 @@ in one go. Naming rules and the anime caveats are in **[docs/PLEX.md](docs/PLEX.
 
 ## Typed front ends
 
-Every page in the stack is **strict TypeScript** — the hub, the bot's Mini App
-and admin page, the PDF tools, the crypto tracker and the photo upscaler; the
+Every page in the stack is **strict TypeScript** — the hub, the bot's Mini App,
+admin page and public video page, the PDF tools, the crypto tracker and the photo upscaler; the
 backends stay dependency-free Python. The types are contracts, not decoration:
 
 - **The bot API is one file.** `helper/webapp/src/types.ts` describes everything
@@ -422,7 +474,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 📄 **[PDFTOOLS.md](docs/PDFTOOLS.md)** | The PDF tools — enabling it, the offline engine, the endpoint allowlist, OCR languages, pitfalls |
 | 🌡️ **[SENSOR.md](docs/SENSOR.md)** | The ESP32 room sensor — posting from another network, token, certificate check, importing old readings |
 | 🔁 **[N8N.md](docs/N8N.md)** | Automation, local models, the daily-summary and move-explainer workflows |
-| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, admins, VPN by app, downloader, audiobooks, Russian/English |
+| 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, free trial, payments in Stars and crypto, admins, VPN by app, downloader and the public video page, audiobooks, photo upscaling, Russian/English |
 | 🏠 **[HOMEASSISTANT.md](docs/HOMEASSISTANT.md)** | Optional: Home Assistant for devices in another place, on a secret path (no subdomain), webhooks for ESP32s |
 | 🔒 **[SSH-GUARD.md](docs/SSH-GUARD.md)** | Optional: fail2ban for the host's SSH (root and made-up users banned at once), new-login alerts and a daily summary in Telegram |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |
@@ -446,6 +498,11 @@ upload cookies (it shares the bots admin login; members never use that route —
 the bot talks to MeTube internally and hands files out through short-lived
 HMAC-signed links, so the MeTube path never leaks). The bot's Mini App for
 members has no basic auth: it accepts only Telegram's signed login data.
+
+The **video page** is open on purpose: anyone with the link can download. That is
+why it starts switched off, gives each browser and each IP small quotas, caps all
+guests together, and serves nothing of the bot's app on its path. Switching it off
+stops the page and every file link at once.
 
 Nextcloud, Immich and Matrix have real authentication of their own.
 

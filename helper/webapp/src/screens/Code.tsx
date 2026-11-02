@@ -60,7 +60,7 @@ function PayPlans({ offer, onPaid }: { offer: PayOffer; onPaid: (m: Member | nul
                 {offer.crypto && (
                   <Button kind="tonal" size="s" loading={busy === p.id + 'crypto'} disabled={!!busy && busy !== p.id + 'crypto'}
                     label={t('pay.crypto_aria', { plan: name, n: p.usd })} onClick={() => { void pay(p, 'crypto') }}>
-                    ${p.usd}
+                    ${Number.isInteger(p.usd) ? p.usd : p.usd.toFixed(2)}
                   </Button>
                 )}
               </span>

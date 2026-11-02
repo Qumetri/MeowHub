@@ -83,6 +83,12 @@ const paths = {
       <path d="M5 19h14" />
     </>
   ),
+  film: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M7.5 3v18M16.5 3v18M3 12h18M3 7.5h4.5M3 16.5h4.5M16.5 7.5H21M16.5 16.5H21" />
+    </>
+  ),
   home: (
     <>
       <path d="M4 11.5 12 5l8 6.5" />

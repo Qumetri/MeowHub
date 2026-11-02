@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_BOT_ADMIN_PATH?: string
   readonly VITE_CLOUD_HOST?: string
   readonly VITE_CRYPTO_PATH?: string
+  readonly VITE_HA_PATH?: string
   readonly VITE_HUB_NAME?: string
   readonly VITE_MATRIX_HOST?: string
   readonly VITE_METUBE_PATH?: string
@@ -16,6 +17,7 @@ interface ImportMetaEnv {
   readonly VITE_PHOTOS_HOST?: string
   readonly VITE_SENSOR_PATH?: string
   readonly VITE_UPSCALE_PATH?: string
+  readonly VITE_VIDEO_PATH?: string
   readonly VITE_XUI_PANEL_PATH?: string
   readonly VITE_XUI_PANEL_PORT?: string
 }
