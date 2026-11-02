@@ -366,9 +366,8 @@ personal logins or the bot tokens, and alerts still come only to you.
 an on/off switch and a price per term, donations with the amounts on their
 buttons, and the latest payments with refunds marked.
 
-Payments, donations and the video page start **off**: a fresh install charges
-nobody and opens nothing to strangers until you decide it should. Only the trial
-starts on (`TRIAL_ENABLED`), since it is how newcomers try the place out.
+Every switch here starts **off** — the trial too (`TRIAL_ENABLED`). A fresh
+install charges nobody and opens nothing to strangers until you decide it should.
 
 </td></tr>
 </table>
