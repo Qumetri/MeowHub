@@ -9,25 +9,27 @@
 //
 // The types below are the contract between this list and the form/engine code: a field's
 // `type` decides which props it may carry, and an unknown icon or category fails `tsc`.
+// Every text a person reads is L(ru, en) (lib/i18n.ts); components read it with tx().
 
 import type { IconName } from './components/Icon'
+import { L, T, tx, type Text } from './lib/i18n'
 
 export type FieldValue = string | number | boolean | string[]
 export type Values = Record<string, FieldValue>
 
-export interface Option { v: string; l: string; hint?: string }
+export interface Option { v: string; l: Text; hint?: Text }
 
 interface FieldBase {
   key: string
-  label: string
-  hint?: string
+  label: Text
+  hint?: Text
   /** false: only shapes the request (via `map` or the endpoint), never sent as is */
   send?: boolean
   /** shown (and validated, and sent) only while this returns true */
   show?: (v: Values) => boolean
   required?: boolean
   optional?: boolean
-  placeholder?: string
+  placeholder?: Text
   autocomplete?: string
 }
 export type Field = FieldBase & (
@@ -38,12 +40,12 @@ export type Field = FieldBase & (
   | { type: 'range'; min: number; max: number; step: number; pct?: boolean; def?: number }
   | { type: 'color'; def?: string }
   | { type: 'number'; min?: number; max?: number; def?: number }
-  | { type: 'text' | 'password' | 'textarea' | 'pages'; def?: string }
+  | { type: 'text' | 'password' | 'textarea' | 'pages'; def?: Text }
 )
 export type FieldType = Field['type']
 
 export type CategoryId = 'organize' | 'optimize' | 'topdf' | 'frompdf' | 'edit' | 'security' | 'images'
-export interface Category { id: CategoryId; title: string; hue: 'ink' | 'moss' | 'amber' | 'teal' | 'rose' | 'brick' | 'sky' }
+export interface Category { id: CategoryId; title: Text; hue: 'ink' | 'moss' | 'amber' | 'teal' | 'rose' | 'brick' | 'sky' }
 
 export interface Tool {
   id: string
@@ -54,9 +56,9 @@ export interface Tool {
   kinds: string
   files: 'one' | 'batch' | 'many'
   min?: number
-  title: string
-  desc: string
-  action: string
+  title: Text
+  desc: Text
+  action: Text
   mode?: 'server' | 'organize' | 'image'
   endpoint?: string | ((v: Values) => string)
   /** always sent as is */
@@ -71,13 +73,13 @@ export interface Tool {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: 'organize', title: 'Страницы и файлы', hue: 'ink' },
-  { id: 'optimize', title: 'Сжатие и распознавание', hue: 'moss' },
-  { id: 'topdf', title: 'Сделать PDF', hue: 'amber' },
-  { id: 'frompdf', title: 'Из PDF в другой формат', hue: 'teal' },
-  { id: 'edit', title: 'Оформление', hue: 'rose' },
-  { id: 'security', title: 'Защита и приватность', hue: 'brick' },
-  { id: 'images', title: 'Картинки', hue: 'sky' },
+  { id: 'organize', title: L('Страницы и файлы', 'Pages and files'), hue: 'ink' },
+  { id: 'optimize', title: L('Сжатие и распознавание', 'Compression and OCR'), hue: 'moss' },
+  { id: 'topdf', title: L('Сделать PDF', 'Make a PDF'), hue: 'amber' },
+  { id: 'frompdf', title: L('Из PDF в другой формат', 'From PDF to another format'), hue: 'teal' },
+  { id: 'edit', title: L('Оформление', 'Layout'), hue: 'rose' },
+  { id: 'security', title: L('Защита и приватность', 'Security and privacy'), hue: 'brick' },
+  { id: 'images', title: L('Картинки', 'Images'), hue: 'sky' },
 ]
 
 const PDF = { accept: '.pdf,application/pdf', kinds: 'PDF' }
@@ -85,8 +87,15 @@ const OFFICE = '.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp,.
 const IMAGES = '.jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff'
 
 // Page lists use the engine's syntax: "1,3,5-9". The picker writes the same thing.
-const pagesField = (key: string, label: string, hint: string): Field => ({ key, type: 'pages', label, hint, placeholder: 'например 1,3,5-9' })
+const pagesField = (key: string, label: Text, hint: Text): Field => ({ key, type: 'pages', label, hint, placeholder: L('например 1,3,5-9', 'e.g. 1,3,5-9') })
 
+const MAKE_PDF = L('Сделать PDF', 'Make PDF')
+const CONVERT = L('Конвертировать', 'Convert')
+const FORMAT = L('Формат', 'Format')
+const COLOR = L('Цвет', 'Color')
+const TILT = L('Наклон', 'Tilt')
+
+// Language names are written in their own language, so they read the same either way.
 export const OCR_LANGS: Option[] = [
   { v: 'rus', l: 'Русский' },
   { v: 'eng', l: 'English' },
@@ -101,380 +110,406 @@ export const TOOLS: Tool[] = [
   // ── Pages and files ────────────────────────────────────────────────
   {
     id: 'merge', cat: 'organize', icon: 'Combine', ...PDF, files: 'many', min: 2,
-    title: 'Объединить PDF',
-    desc: 'Склеить несколько файлов в один, в том порядке, который вы зададите.',
+    title: L('Объединить PDF', 'Merge PDF'),
+    desc: L('Склеить несколько файлов в один, в том порядке, который вы зададите.', 'Combine several files into one, in the order you set.'),
     endpoint: 'general/merge-pdfs',
     fixed: { sortType: 'orderProvided', removeCertSign: 'true' },
-    fields: [{ key: 'generateToc', type: 'toggle', label: 'Добавить оглавление из имён файлов', def: false }],
-    action: 'Объединить',
+    fields: [{ key: 'generateToc', type: 'toggle', label: L('Добавить оглавление из имён файлов', 'Add a table of contents from the file names'), def: false }],
+    action: L('Объединить', 'Merge'),
   },
   {
     id: 'organize', cat: 'organize', icon: 'LayoutGrid', ...PDF, files: 'one', mode: 'organize',
-    title: 'Упорядочить страницы',
-    desc: 'Переставить, повернуть и удалить страницы, глядя на них.',
-    action: 'Сохранить PDF',
+    title: L('Упорядочить страницы', 'Organize pages'),
+    desc: L('Переставить, повернуть и удалить страницы, глядя на них.', 'Reorder, rotate and delete pages while you look at them.'),
+    action: L('Сохранить PDF', 'Save PDF'),
   },
   {
     id: 'split', cat: 'organize', icon: 'Scissors', ...PDF, files: 'one',
-    title: 'Разделить PDF',
-    desc: 'Разрезать документ на части: после нужных страниц, по N страниц или по размеру.',
+    title: L('Разделить PDF', 'Split PDF'),
+    desc: L('Разрезать документ на части: после нужных страниц, по N страниц или по размеру.', 'Cut a document into parts: after chosen pages, every N pages or by size.'),
     endpoint: (v) => (v.how === 'after' ? 'general/split-pages' : 'general/split-by-size-or-count'),
     fields: [
       {
-        key: 'how', type: 'segment', label: 'Как делить', def: 'after', send: false,
-        options: [{ v: 'after', l: 'После страниц' }, { v: 'count', l: 'По N страниц' }, { v: 'size', l: 'По размеру' }],
+        key: 'how', type: 'segment', label: L('Как делить', 'How to split'), def: 'after', send: false,
+        options: [{ v: 'after', l: L('После страниц', 'After pages') }, { v: 'count', l: L('По N страниц', 'Every N pages') }, { v: 'size', l: L('По размеру', 'By size') }],
       },
-      { ...pagesField('pageNumbers', 'Резать после страниц', 'Выделите страницы, после которых начинается новая часть.'), show: (v) => v.how === 'after' },
-      { key: 'pagesEach', type: 'number', label: 'Страниц в каждой части', def: 5, min: 1, send: false, show: (v) => v.how === 'count' },
-      { key: 'sizeEach', type: 'number', label: 'Не больше, МБ', def: 10, min: 1, send: false, show: (v) => v.how === 'size' },
+      {
+        ...pagesField('pageNumbers', L('Резать после страниц', 'Split after pages'), L('Выделите страницы, после которых начинается новая часть.', 'Select the pages after which a new part starts.')),
+        show: (v) => v.how === 'after',
+      },
+      { key: 'pagesEach', type: 'number', label: L('Страниц в каждой части', 'Pages in each part'), def: 5, min: 1, send: false, show: (v) => v.how === 'count' },
+      { key: 'sizeEach', type: 'number', label: L('Не больше, МБ', 'At most, MB'), def: 10, min: 1, send: false, show: (v) => v.how === 'size' },
     ],
     map: (v) => (v.how === 'count' ? { splitType: '1', splitValue: String(v.pagesEach) }
       : v.how === 'size' ? { splitType: '0', splitValue: `${v.sizeEach}MB` } : {}),
-    action: 'Разделить',
+    action: L('Разделить', 'Split'),
   },
   {
     id: 'remove-pages', cat: 'organize', icon: 'FileMinus', ...PDF, files: 'one',
-    title: 'Удалить страницы',
-    desc: 'Убрать лишние страницы из документа.',
+    title: L('Удалить страницы', 'Remove pages'),
+    desc: L('Убрать лишние страницы из документа.', 'Take the pages you don’t need out of a document.'),
     endpoint: 'general/remove-pages',
-    fields: [pagesField('pageNumbers', 'Какие страницы удалить', 'Нажмите на страницы, которые нужно убрать.')],
-    action: 'Удалить страницы',
+    fields: [pagesField('pageNumbers', L('Какие страницы удалить', 'Pages to remove'), L('Нажмите на страницы, которые нужно убрать.', 'Click the pages you want gone.'))],
+    action: L('Удалить страницы', 'Remove pages'),
   },
   {
     id: 'extract', cat: 'organize', icon: 'FileOutput', ...PDF, files: 'one',
-    title: 'Извлечь страницы',
-    desc: 'Сохранить выбранные страницы отдельным документом.',
+    title: L('Извлечь страницы', 'Extract pages'),
+    desc: L('Сохранить выбранные страницы отдельным документом.', 'Save the chosen pages as a document of their own.'),
     endpoint: 'general/rearrange-pages',
     fixed: { customMode: 'CUSTOM' },
-    fields: [pagesField('pageNumbers', 'Какие страницы оставить', 'Страницы попадут в новый файл в порядке номеров.')],
-    action: 'Извлечь',
+    fields: [pagesField('pageNumbers', L('Какие страницы оставить', 'Pages to keep'), L('Страницы попадут в новый файл в порядке номеров.', 'They go into the new file in page-number order.'))],
+    action: L('Извлечь', 'Extract'),
   },
   {
     id: 'rotate', cat: 'organize', icon: 'RotateCw', ...PDF, files: 'batch',
-    title: 'Повернуть PDF',
-    desc: 'Повернуть все страницы. Отдельные страницы — в «Упорядочить страницы».',
+    title: L('Повернуть PDF', 'Rotate PDF'),
+    desc: L('Повернуть все страницы. Отдельные страницы — в «Упорядочить страницы».', 'Rotate every page. For single pages, use Organize pages.'),
     endpoint: 'general/rotate-pdf',
     fields: [{
-      key: 'angle', type: 'segment', label: 'Поворот по часовой', def: '90',
+      key: 'angle', type: 'segment', label: L('Поворот по часовой', 'Clockwise'), def: '90',
       options: [{ v: '90', l: '90°' }, { v: '180', l: '180°' }, { v: '270', l: '270°' }],
     }],
-    action: 'Повернуть',
+    action: L('Повернуть', 'Rotate'),
   },
   {
     id: 'page-numbers', cat: 'organize', icon: 'ListOrdered', ...PDF, files: 'batch',
-    title: 'Пронумеровать страницы',
-    desc: 'Поставить номера страниц в нужном углу.',
+    title: L('Пронумеровать страницы', 'Number pages'),
+    desc: L('Поставить номера страниц в нужном углу.', 'Put page numbers in the corner you choose.'),
     endpoint: 'misc/add-page-numbers',
     fixed: { fontType: 'helvetica', pageNumbers: 'all' },
     fields: [
-      { key: 'position', type: 'position', label: 'Где на странице', def: '8' },
+      { key: 'position', type: 'position', label: L('Где на странице', 'Where on the page'), def: '8' },
       {
         // The engine's built-in fonts have no Cyrillic, so only Latin patterns are offered.
-        key: 'customText', type: 'segment', label: 'Вид', def: '{n}',
+        key: 'customText', type: 'segment', label: L('Вид', 'Style'), def: '{n}',
         options: [{ v: '{n}', l: '3' }, { v: '{n} / {total}', l: '3 / 12' }, { v: '- {n} -', l: '- 3 -' }],
       },
-      { key: 'startingNumber', type: 'number', label: 'Начать с номера', def: 1, min: 0 },
-      { key: 'fontSize', type: 'number', label: 'Размер шрифта', def: 11, min: 6, max: 48 },
+      { key: 'startingNumber', type: 'number', label: L('Начать с номера', 'Start at'), def: 1, min: 0 },
+      { key: 'fontSize', type: 'number', label: L('Размер шрифта', 'Font size'), def: 11, min: 6, max: 48 },
     ],
-    action: 'Пронумеровать',
+    action: L('Пронумеровать', 'Add numbers'),
   },
   {
     id: 'remove-blanks', cat: 'organize', icon: 'FileX', ...PDF, files: 'batch',
-    title: 'Убрать пустые страницы',
-    desc: 'Найти и удалить пустые листы — частая беда сканов с двух сторон.',
+    title: L('Убрать пустые страницы', 'Remove blank pages'),
+    desc: L('Найти и удалить пустые листы — частая беда сканов с двух сторон.', 'Find and delete empty sheets, the usual leftovers of double-sided scans.'),
     endpoint: 'misc/remove-blanks',
     fixed: { threshold: '10', whitePercent: '99.9' },
-    action: 'Убрать пустые',
+    action: L('Убрать пустые', 'Remove blanks'),
   },
 
   // ── Compression and OCR ────────────────────────────────────────────
   {
     id: 'compress', cat: 'optimize', icon: 'Minimize2', ...PDF, files: 'batch',
-    title: 'Сжать PDF',
-    desc: 'Уменьшить файл, чтобы он пролез в почту или на госуслуги.',
+    title: L('Сжать PDF', 'Compress PDF'),
+    desc: L('Уменьшить файл, чтобы он пролез в почту или на госуслуги.', 'Make a file small enough for an email or an upload form.'),
     endpoint: 'misc/compress-pdf',
     fields: [
       {
-        key: 'optimizeLevel', type: 'segment', label: 'Насколько сильно', def: '5',
+        key: 'optimizeLevel', type: 'segment', label: L('Насколько сильно', 'How hard'), def: '5',
         options: [
-          { v: '3', l: 'Бережно', hint: 'Без потери качества, выигрыш небольшой' },
-          { v: '5', l: 'Обычно', hint: 'Картинки чуть мягче, файл заметно меньше' },
-          { v: '8', l: 'Сильно', hint: 'Максимум экономии, картинки заметно хуже' },
+          { v: '3', l: L('Бережно', 'Gently'), hint: L('Без потери качества, выигрыш небольшой', 'No quality loss, a small gain') },
+          { v: '5', l: L('Обычно', 'Normal'), hint: L('Картинки чуть мягче, файл заметно меньше', 'Pictures a little softer, the file much smaller') },
+          { v: '8', l: L('Сильно', 'Hard'), hint: L('Максимум экономии, картинки заметно хуже', 'The most saving, pictures visibly worse') },
         ],
       },
-      { key: 'grayscale', type: 'toggle', label: 'Сделать чёрно-белым', def: false },
+      { key: 'grayscale', type: 'toggle', label: L('Сделать чёрно-белым', 'Make it black and white'), def: false },
     ],
     fixed: { linearize: 'false', normalize: 'false' },
-    action: 'Сжать',
+    action: L('Сжать', 'Compress'),
     compare: true,
   },
   {
     id: 'ocr', cat: 'optimize', icon: 'ScanText', ...PDF, files: 'batch',
-    title: 'Распознать текст (OCR)',
-    desc: 'Превратить скан в PDF, где текст можно искать и копировать.',
+    title: L('Распознать текст (OCR)', 'Recognize text (OCR)'),
+    desc: L('Превратить скан в PDF, где текст можно искать и копировать.', 'Turn a scan into a PDF whose text you can search and copy.'),
     endpoint: 'misc/ocr-pdf',
     fields: [
-      { key: 'languages', type: 'chips', label: 'Языки документа', def: ['rus', 'eng'], options: OCR_LANGS, min: 1 },
+      { key: 'languages', type: 'chips', label: L('Языки документа', 'Document languages'), def: ['rus', 'eng'], options: OCR_LANGS, min: 1 },
       {
-        key: 'ocrType', type: 'segment', label: 'Если текст уже есть', def: 'skip-text',
+        key: 'ocrType', type: 'segment', label: L('Если текст уже есть', 'Where there is text already'), def: 'skip-text',
         options: [
-          { v: 'skip-text', l: 'Пропустить такие страницы' },
-          { v: 'force-ocr', l: 'Распознать всё заново' },
+          { v: 'skip-text', l: L('Пропустить такие страницы', 'Skip those pages') },
+          { v: 'force-ocr', l: L('Распознать всё заново', 'Recognize everything again') },
         ],
       },
-      { key: 'deskew', type: 'toggle', label: 'Выровнять перекошенные страницы', def: true },
-      { key: 'rotatePages', type: 'toggle', label: 'Повернуть перевёрнутые страницы', def: true },
+      { key: 'deskew', type: 'toggle', label: L('Выровнять перекошенные страницы', 'Straighten skewed pages'), def: true },
+      { key: 'rotatePages', type: 'toggle', label: L('Повернуть перевёрнутые страницы', 'Turn upside-down pages'), def: true },
     ],
     fixed: { ocrRenderType: 'hocr' },
-    action: 'Распознать',
+    action: L('Распознать', 'Recognize'),
     slow: true,
   },
   {
     id: 'repair', cat: 'optimize', icon: 'Wrench', ...PDF, files: 'batch',
-    title: 'Починить PDF',
-    desc: 'Попробовать открыть повреждённый файл, который не читается.',
+    title: L('Починить PDF', 'Repair PDF'),
+    desc: L('Попробовать открыть повреждённый файл, который не читается.', 'Try to recover a damaged file that won’t open.'),
     endpoint: 'misc/repair',
-    action: 'Починить',
+    action: L('Починить', 'Repair'),
   },
 
   // ── To PDF ─────────────────────────────────────────────────────────
   {
     id: 'office-to-pdf', cat: 'topdf', icon: 'FileText', accept: OFFICE, kinds: 'Word, Excel, PowerPoint, ODF, RTF, TXT', files: 'batch',
-    title: 'Документ в PDF',
-    desc: 'Word, Excel, PowerPoint, OpenDocument и текст — в PDF.',
+    title: L('Документ в PDF', 'Document to PDF'),
+    desc: L('Word, Excel, PowerPoint, OpenDocument и текст — в PDF.', 'Word, Excel, PowerPoint, OpenDocument and plain text to PDF.'),
     endpoint: 'convert/file/pdf',
-    action: 'Сделать PDF',
+    action: MAKE_PDF,
     slow: true,
   },
   {
     id: 'images-to-pdf', cat: 'topdf', icon: 'Images', accept: IMAGES, kinds: 'JPG, PNG, WebP, TIFF', files: 'many', min: 1,
-    title: 'Картинки в PDF',
-    desc: 'Собрать фотографии или сканы в один PDF, страница за страницей.',
+    title: L('Картинки в PDF', 'Images to PDF'),
+    desc: L('Собрать фотографии или сканы в один PDF, страница за страницей.', 'Gather photos or scans into one PDF, page by page.'),
     endpoint: 'convert/img/pdf',
     fields: [
       {
-        key: 'fitOption', type: 'segment', label: 'Размер страницы', def: 'fitDocumentToImage',
-        options: [{ v: 'fitDocumentToImage', l: 'Как у картинки' }, { v: 'maintainAspectRatio', l: 'A4, с полями' }, { v: 'fillPage', l: 'A4, растянуть' }],
+        key: 'fitOption', type: 'segment', label: L('Размер страницы', 'Page size'), def: 'fitDocumentToImage',
+        options: [
+          { v: 'fitDocumentToImage', l: L('Как у картинки', 'Same as the image') },
+          { v: 'maintainAspectRatio', l: L('A4, с полями', 'A4 with margins') },
+          { v: 'fillPage', l: L('A4, растянуть', 'A4, stretched') },
+        ],
       },
       {
-        key: 'colorType', type: 'segment', label: 'Цвет', def: 'color',
-        options: [{ v: 'color', l: 'Цветной' }, { v: 'greyscale', l: 'Серый' }, { v: 'blackwhite', l: 'Ч/б' }],
+        key: 'colorType', type: 'segment', label: COLOR, def: 'color',
+        options: [{ v: 'color', l: L('Цветной', 'Color') }, { v: 'greyscale', l: L('Серый', 'Gray') }, { v: 'blackwhite', l: L('Ч/б', 'B/W') }],
       },
-      { key: 'autoRotate', type: 'toggle', label: 'Поворачивать под страницу', def: false },
+      { key: 'autoRotate', type: 'toggle', label: L('Поворачивать под страницу', 'Rotate to fit the page'), def: false },
     ],
-    action: 'Сделать PDF',
+    action: MAKE_PDF,
   },
   {
     id: 'ebook-to-pdf', cat: 'topdf', icon: 'BookOpen', accept: '.epub,.fb2,.mobi,.azw3,.azw,.docx', kinds: 'EPUB, FB2, MOBI, AZW3', files: 'batch',
-    title: 'Электронная книга в PDF',
-    desc: 'EPUB, FB2, MOBI и AZW3 — в PDF для печати или читалки.',
+    title: L('Электронная книга в PDF', 'E-book to PDF'),
+    desc: L('EPUB, FB2, MOBI и AZW3 — в PDF для печати или читалки.', 'EPUB, FB2, MOBI and AZW3 to PDF, for printing or an e-reader.'),
     endpoint: 'convert/ebook/pdf',
     fields: [
-      { key: 'includeTableOfContents', type: 'toggle', label: 'Оглавление', def: true },
-      { key: 'includePageNumbers', type: 'toggle', label: 'Номера страниц', def: true },
-      { key: 'optimizeForEbook', type: 'toggle', label: 'Для электронной читалки', def: false },
+      { key: 'includeTableOfContents', type: 'toggle', label: L('Оглавление', 'Table of contents'), def: true },
+      { key: 'includePageNumbers', type: 'toggle', label: L('Номера страниц', 'Page numbers'), def: true },
+      { key: 'optimizeForEbook', type: 'toggle', label: L('Для электронной читалки', 'For an e-reader'), def: false },
     ],
     fixed: { embedAllFonts: 'false' },
-    action: 'Сделать PDF',
+    action: MAKE_PDF,
     slow: true,
   },
   {
     id: 'email-to-pdf', cat: 'topdf', icon: 'Mail', accept: '.eml,.msg', kinds: 'EML, MSG', files: 'batch',
-    title: 'Письмо в PDF',
-    desc: 'Сохранить письмо из почты (EML или MSG) как документ.',
+    title: L('Письмо в PDF', 'Email to PDF'),
+    desc: L('Сохранить письмо из почты (EML или MSG) как документ.', 'Save an email (EML or MSG) as a document.'),
     endpoint: 'convert/eml/pdf',
     fields: [
-      { key: 'includeAttachments', type: 'toggle', label: 'Вложить файлы из письма', def: true },
-      { key: 'includeAllRecipients', type: 'toggle', label: 'Показать копию и скрытую копию', def: false },
+      { key: 'includeAttachments', type: 'toggle', label: L('Вложить файлы из письма', 'Include the email’s attachments'), def: true },
+      { key: 'includeAllRecipients', type: 'toggle', label: L('Показать копию и скрытую копию', 'Show CC and BCC'), def: false },
     ],
-    action: 'Сделать PDF',
+    action: MAKE_PDF,
   },
 
   // ── From PDF ───────────────────────────────────────────────────────
   {
     id: 'pdf-to-word', cat: 'frompdf', icon: 'FileType', ...PDF, files: 'batch',
-    title: 'PDF в Word',
-    desc: 'Получить редактируемый документ. Сложная вёрстка может поплыть.',
+    title: L('PDF в Word', 'PDF to Word'),
+    desc: L('Получить редактируемый документ. Сложная вёрстка может поплыть.', 'Get a document you can edit. Complex layouts may shift.'),
     endpoint: 'convert/pdf/word',
-    fields: [{ key: 'outputFormat', type: 'segment', label: 'Формат', def: 'docx', options: [{ v: 'docx', l: 'DOCX' }, { v: 'odt', l: 'ODT' }] }],
-    action: 'Конвертировать',
+    fields: [{ key: 'outputFormat', type: 'segment', label: FORMAT, def: 'docx', options: [{ v: 'docx', l: 'DOCX' }, { v: 'odt', l: 'ODT' }] }],
+    action: CONVERT,
     slow: true,
   },
   {
     id: 'pdf-to-excel', cat: 'frompdf', icon: 'Sheet', ...PDF, files: 'batch',
-    title: 'PDF в Excel',
-    desc: 'Вытащить таблицы из PDF в таблицу XLSX.',
+    title: L('PDF в Excel', 'PDF to Excel'),
+    desc: L('Вытащить таблицы из PDF в таблицу XLSX.', 'Pull the tables out of a PDF into an XLSX spreadsheet.'),
     endpoint: 'convert/pdf/xlsx',
     fixed: { pageNumbers: 'all' },
-    action: 'Конвертировать',
+    action: CONVERT,
   },
   {
     id: 'pdf-to-ppt', cat: 'frompdf', icon: 'Presentation', ...PDF, files: 'batch',
-    title: 'PDF в PowerPoint',
-    desc: 'Каждая страница станет слайдом.',
+    title: L('PDF в PowerPoint', 'PDF to PowerPoint'),
+    desc: L('Каждая страница станет слайдом.', 'Every page becomes a slide.'),
     endpoint: 'convert/pdf/presentation',
-    fields: [{ key: 'outputFormat', type: 'segment', label: 'Формат', def: 'pptx', options: [{ v: 'pptx', l: 'PPTX' }, { v: 'odp', l: 'ODP' }] }],
-    action: 'Конвертировать',
+    fields: [{ key: 'outputFormat', type: 'segment', label: FORMAT, def: 'pptx', options: [{ v: 'pptx', l: 'PPTX' }, { v: 'odp', l: 'ODP' }] }],
+    action: CONVERT,
     slow: true,
   },
   {
     id: 'pdf-to-images', cat: 'frompdf', icon: 'Image', ...PDF, files: 'one',
-    title: 'PDF в картинки',
-    desc: 'Каждая страница — отдельная картинка, или все страницы одной лентой.',
+    title: L('PDF в картинки', 'PDF to images'),
+    desc: L('Каждая страница — отдельная картинка, или все страницы одной лентой.', 'Every page as an image of its own, or all pages as one long strip.'),
     endpoint: 'convert/pdf/img',
     fields: [
-      { key: 'imageFormat', type: 'segment', label: 'Формат', def: 'jpg', options: [{ v: 'jpg', l: 'JPG' }, { v: 'png', l: 'PNG' }, { v: 'webp', l: 'WebP' }] },
+      { key: 'imageFormat', type: 'segment', label: FORMAT, def: 'jpg', options: [{ v: 'jpg', l: 'JPG' }, { v: 'png', l: 'PNG' }, { v: 'webp', l: 'WebP' }] },
       {
-        key: 'dpi', type: 'segment', label: 'Качество', def: '150',
-        options: [{ v: '96', l: 'Экран' }, { v: '150', l: 'Обычное' }, { v: '300', l: 'Печать' }],
+        key: 'dpi', type: 'segment', label: L('Качество', 'Quality'), def: '150',
+        options: [{ v: '96', l: L('Экран', 'Screen') }, { v: '150', l: L('Обычное', 'Normal') }, { v: '300', l: L('Печать', 'Print') }],
       },
-      { key: 'singleOrMultiple', type: 'segment', label: 'Сколько картинок', def: 'multiple', options: [{ v: 'multiple', l: 'По странице' }, { v: 'single', l: 'Одна лента' }] },
-      { ...pagesField('pageNumbers', 'Только эти страницы', 'Пусто — все страницы.'), optional: true },
+      {
+        key: 'singleOrMultiple', type: 'segment', label: L('Сколько картинок', 'How many images'), def: 'multiple',
+        options: [{ v: 'multiple', l: L('По странице', 'One per page') }, { v: 'single', l: L('Одна лента', 'One strip') }],
+      },
+      { ...pagesField('pageNumbers', L('Только эти страницы', 'Only these pages'), L('Пусто — все страницы.', 'Leave empty for all pages.')), optional: true },
     ],
     fixed: { colorType: 'color' },
     map: (v) => (v.pageNumbers ? {} : { pageNumbers: 'all' }),
-    action: 'Сделать картинки',
+    action: L('Сделать картинки', 'Make images'),
   },
   {
     id: 'pdf-to-text', cat: 'frompdf', icon: 'Type', ...PDF, files: 'batch',
-    title: 'PDF в текст',
-    desc: 'Только текст: обычный TXT, RTF или Markdown с заголовками.',
+    title: L('PDF в текст', 'PDF to text'),
+    desc: L('Только текст: обычный TXT, RTF или Markdown с заголовками.', 'Just the text: plain TXT, RTF, or Markdown with headings.'),
     endpoint: (v) => (v.outputFormat === 'md' ? 'convert/pdf/markdown' : 'convert/pdf/text'),
-    fields: [{ key: 'outputFormat', type: 'segment', label: 'Формат', def: 'txt', options: [{ v: 'txt', l: 'TXT' }, { v: 'rtf', l: 'RTF' }, { v: 'md', l: 'Markdown' }] }],
+    fields: [{ key: 'outputFormat', type: 'segment', label: FORMAT, def: 'txt', options: [{ v: 'txt', l: 'TXT' }, { v: 'rtf', l: 'RTF' }, { v: 'md', l: 'Markdown' }] }],
     map: (v) => (v.outputFormat === 'md' ? { outputFormat: null } : {}),
-    action: 'Достать текст',
+    action: L('Достать текст', 'Extract text'),
   },
   {
     id: 'pdf-to-pdfa', cat: 'frompdf', icon: 'Archive', ...PDF, files: 'batch',
-    title: 'PDF в PDF/A',
-    desc: 'Архивный формат, который требуют суды, банки и госорганы.',
+    title: L('PDF в PDF/A', 'PDF to PDF/A'),
+    desc: L('Архивный формат, который требуют суды, банки и госорганы.', 'The archival format that courts, banks and government offices ask for.'),
     endpoint: 'convert/pdf/pdfa',
     fields: [{
-      key: 'outputFormat', type: 'segment', label: 'Версия', def: 'pdfa-2b',
+      key: 'outputFormat', type: 'segment', label: L('Версия', 'Version'), def: 'pdfa-2b',
       options: [{ v: 'pdfa-1', l: 'PDF/A-1b' }, { v: 'pdfa-2b', l: 'PDF/A-2b' }, { v: 'pdfa-3b', l: 'PDF/A-3b' }],
     }],
-    action: 'Конвертировать',
+    action: CONVERT,
     slow: true,
   },
 
   // ── Layout ─────────────────────────────────────────────────────────
   {
     id: 'watermark', cat: 'edit', icon: 'Stamp', ...PDF, files: 'batch',
-    title: 'Водяной знак',
-    desc: 'Надпись поверх страниц — например «Копия для банка».',
+    title: L('Водяной знак', 'Watermark'),
+    desc: L('Надпись поверх страниц — например «Копия для банка».', 'Text across the pages, such as “Copy for the bank”.'),
     endpoint: 'security/add-watermark',
     fields: [
-      { key: 'watermarkText', type: 'text', label: 'Текст', def: 'КОПИЯ', required: true },
-      { key: 'fontSize', type: 'range', label: 'Размер', def: 40, min: 12, max: 120, step: 2 },
-      { key: 'opacity', type: 'range', label: 'Заметность', def: 0.3, min: 0.1, max: 0.9, step: 0.05, pct: true },
-      { key: 'rotation', type: 'segment', label: 'Наклон', def: '45', options: [{ v: '0', l: 'Ровно' }, { v: '45', l: '45°' }, { v: '-45', l: '−45°' }] },
-      { key: 'customColor', type: 'color', label: 'Цвет', def: '#9aa3b2' },
-      { key: 'convertPDFToImage', type: 'toggle', label: 'Запечь в страницы (знак нельзя будет удалить)', def: false },
+      { key: 'watermarkText', type: 'text', label: L('Текст', 'Text'), def: L('КОПИЯ', 'COPY'), required: true },
+      { key: 'fontSize', type: 'range', label: L('Размер', 'Size'), def: 40, min: 12, max: 120, step: 2 },
+      { key: 'opacity', type: 'range', label: L('Заметность', 'Opacity'), def: 0.3, min: 0.1, max: 0.9, step: 0.05, pct: true },
+      { key: 'rotation', type: 'segment', label: TILT, def: '45', options: [{ v: '0', l: L('Ровно', 'None') }, { v: '45', l: '45°' }, { v: '-45', l: '−45°' }] },
+      { key: 'customColor', type: 'color', label: COLOR, def: '#9aa3b2' },
+      { key: 'convertPDFToImage', type: 'toggle', label: L('Запечь в страницы (знак нельзя будет удалить)', 'Bake it into the pages (it can’t be removed)'), def: false },
     ],
     fixed: { watermarkType: 'text', alphabet: 'roman', widthSpacer: '60', heightSpacer: '60' },
-    action: 'Поставить знак',
+    action: L('Поставить знак', 'Add watermark'),
   },
   {
     id: 'metadata', cat: 'edit', icon: 'Tags', ...PDF, files: 'batch',
-    title: 'Свойства документа',
-    desc: 'Поменять название и автора или стереть все сведения о файле.',
+    title: L('Свойства документа', 'Document properties'),
+    desc: L('Поменять название и автора или стереть все сведения о файле.', 'Change the title and author, or wipe everything the file says about itself.'),
     endpoint: 'misc/update-metadata',
     fields: [
-      { key: 'deleteAll', type: 'toggle', label: 'Стереть все свойства', def: true },
-      { key: 'title', type: 'text', label: 'Название', def: '', show: (v) => !v.deleteAll },
-      { key: 'author', type: 'text', label: 'Автор', def: '', show: (v) => !v.deleteAll },
-      { key: 'subject', type: 'text', label: 'Тема', def: '', show: (v) => !v.deleteAll },
-      { key: 'keywords', type: 'text', label: 'Ключевые слова', def: '', show: (v) => !v.deleteAll },
+      { key: 'deleteAll', type: 'toggle', label: L('Стереть все свойства', 'Wipe all properties'), def: true },
+      { key: 'title', type: 'text', label: L('Название', 'Title'), def: '', show: (v) => !v.deleteAll },
+      { key: 'author', type: 'text', label: L('Автор', 'Author'), def: '', show: (v) => !v.deleteAll },
+      { key: 'subject', type: 'text', label: L('Тема', 'Subject'), def: '', show: (v) => !v.deleteAll },
+      { key: 'keywords', type: 'text', label: L('Ключевые слова', 'Keywords'), def: '', show: (v) => !v.deleteAll },
     ],
     fixed: { trapped: 'False' },
-    action: 'Сохранить',
+    action: L('Сохранить', 'Save'),
   },
   {
     id: 'flatten', cat: 'edit', icon: 'Layers', ...PDF, files: 'batch',
-    title: 'Зафиксировать PDF',
-    desc: 'Сделать заполненную форму и пометки частью страницы, чтобы их нельзя было поменять.',
+    title: L('Зафиксировать PDF', 'Flatten PDF'),
+    desc: L('Сделать заполненную форму и пометки частью страницы, чтобы их нельзя было поменять.', 'Make a filled-in form and annotations part of the page, so they can’t be changed.'),
     endpoint: 'misc/flatten',
     fields: [{
-      key: 'flattenOnlyForms', type: 'segment', label: 'Что зафиксировать', def: 'true',
-      options: [{ v: 'true', l: 'Только поля формы' }, { v: 'false', l: 'Всю страницу картинкой' }],
+      key: 'flattenOnlyForms', type: 'segment', label: L('Что зафиксировать', 'What to flatten'), def: 'true',
+      options: [{ v: 'true', l: L('Только поля формы', 'Form fields only') }, { v: 'false', l: L('Всю страницу картинкой', 'The whole page, as an image') }],
     }],
-    action: 'Зафиксировать',
+    action: L('Зафиксировать', 'Flatten'),
   },
   {
     id: 'scan-look', cat: 'edit', icon: 'Printer', ...PDF, files: 'batch',
-    title: 'Как будто отсканировано',
-    desc: 'Сделать PDF похожим на скан: лёгкий наклон, шум, серая бумага.',
+    title: L('Как будто отсканировано', 'Make it look scanned'),
+    desc: L('Сделать PDF похожим на скан: лёгкий наклон, шум, серая бумага.', 'Make a PDF look like a scan: a slight tilt, some noise, gray paper.'),
     endpoint: 'misc/scanner-effect',
     fields: [
-      { key: 'quality', type: 'segment', label: 'Качество скана', def: 'medium', options: [{ v: 'high', l: 'Хорошее' }, { v: 'medium', l: 'Среднее' }, { v: 'low', l: 'Плохое' }] },
-      { key: 'rotation', type: 'segment', label: 'Наклон', def: 'slight', options: [{ v: 'none', l: 'Нет' }, { v: 'slight', l: 'Чуть-чуть' }, { v: 'moderate', l: 'Заметный' }] },
-      { key: 'colorspace', type: 'segment', label: 'Цвет', def: 'grayscale', options: [{ v: 'grayscale', l: 'Серый' }, { v: 'color', l: 'Цветной' }] },
+      {
+        key: 'quality', type: 'segment', label: L('Качество скана', 'Scan quality'), def: 'medium',
+        options: [{ v: 'high', l: L('Хорошее', 'Good') }, { v: 'medium', l: L('Среднее', 'Fair') }, { v: 'low', l: L('Плохое', 'Poor') }],
+      },
+      {
+        key: 'rotation', type: 'segment', label: TILT, def: 'slight',
+        options: [{ v: 'none', l: L('Нет', 'None') }, { v: 'slight', l: L('Чуть-чуть', 'Slight') }, { v: 'moderate', l: L('Заметный', 'Visible') }],
+      },
+      { key: 'colorspace', type: 'segment', label: COLOR, def: 'grayscale', options: [{ v: 'grayscale', l: L('Серый', 'Gray') }, { v: 'color', l: L('Цветной', 'Color') }] },
     ],
-    action: 'Сделать скан',
+    action: L('Сделать скан', 'Make the scan'),
   },
 
   // ── Security and privacy ───────────────────────────────────────────
   {
     id: 'protect', cat: 'security', icon: 'Lock', ...PDF, files: 'batch',
-    title: 'Поставить пароль',
-    desc: 'Без пароля документ не откроется. Можно запретить печать и правки.',
+    title: L('Поставить пароль', 'Add a password'),
+    desc: L('Без пароля документ не откроется. Можно запретить печать и правки.', 'The document won’t open without it. Printing and editing can be blocked too.'),
     endpoint: 'security/add-password',
     fields: [
-      { key: 'password', type: 'password', label: 'Пароль на открытие', def: '', required: true, autocomplete: 'new-password' },
-      { key: 'preventPrinting', type: 'toggle', label: 'Запретить печать', def: false },
-      { key: 'preventModify', type: 'toggle', label: 'Запретить правки', def: false },
-      { key: 'preventExtractContent', type: 'toggle', label: 'Запретить копировать текст', def: false },
+      { key: 'password', type: 'password', label: L('Пароль на открытие', 'Password to open'), def: '', required: true, autocomplete: 'new-password' },
+      { key: 'preventPrinting', type: 'toggle', label: L('Запретить печать', 'Block printing'), def: false },
+      { key: 'preventModify', type: 'toggle', label: L('Запретить правки', 'Block editing'), def: false },
+      { key: 'preventExtractContent', type: 'toggle', label: L('Запретить копировать текст', 'Block copying text'), def: false },
     ],
     fixed: { keyLength: '256' },
-    action: 'Поставить пароль',
+    action: L('Поставить пароль', 'Add password'),
   },
   {
     id: 'unlock', cat: 'security', icon: 'LockOpen', ...PDF, files: 'batch',
-    title: 'Снять пароль',
-    desc: 'Убрать пароль и ограничения с вашего документа. Пароль нужно знать.',
+    title: L('Снять пароль', 'Remove password'),
+    desc: L('Убрать пароль и ограничения с вашего документа. Пароль нужно знать.', 'Take the password and restrictions off your document. You need to know the password.'),
     endpoint: 'security/remove-password',
-    fields: [{ key: 'password', type: 'password', label: 'Текущий пароль', def: '', autocomplete: 'current-password', hint: 'Если стоят только ограничения на печать или правки, оставьте пустым.' }],
+    fields: [{
+      key: 'password', type: 'password', label: L('Текущий пароль', 'Current password'), def: '', autocomplete: 'current-password',
+      hint: L('Если стоят только ограничения на печать или правки, оставьте пустым.', 'If only printing or editing is restricted, leave it empty.'),
+    }],
     fixed: { removeAll: 'true' },
-    action: 'Снять пароль',
+    action: L('Снять пароль', 'Remove password'),
   },
   {
     id: 'redact', cat: 'security', icon: 'EyeOff', ...PDF, files: 'batch',
-    title: 'Закрасить данные',
-    desc: 'Навсегда скрыть номера паспортов, телефоны и имена перед отправкой.',
+    title: L('Закрасить данные', 'Redact'),
+    desc: L('Навсегда скрыть номера паспортов, телефоны и имена перед отправкой.', 'Black out passport numbers, phone numbers and names for good before you send a file.'),
     endpoint: 'security/auto-redact',
     fields: [
-      { key: 'listOfText', type: 'textarea', label: 'Что закрасить', def: '', required: true, hint: 'Каждое слово или фразу — с новой строки.', placeholder: 'Иванов\n4510 123456\n+7 900 000-00-00' },
-      { key: 'wholeWordSearch', type: 'toggle', label: 'Только целые слова', def: false },
-      { key: 'caseSensitive', type: 'toggle', label: 'Учитывать регистр', def: false },
-      { key: 'convertPDFToImage', type: 'toggle', label: 'Превратить страницы в картинки', def: true, hint: 'Так закрашенный текст точно нельзя достать. Текст в файле перестанет выделяться.' },
+      {
+        key: 'listOfText', type: 'textarea', label: L('Что закрасить', 'What to black out'), def: '', required: true,
+        hint: L('Каждое слово или фразу — с новой строки.', 'One word or phrase per line.'),
+        placeholder: L('Иванов\n4510 123456\n+7 900 000-00-00', 'Smith\nAB 123456\n+44 7700 900000'),
+      },
+      { key: 'wholeWordSearch', type: 'toggle', label: L('Только целые слова', 'Whole words only'), def: false },
+      { key: 'caseSensitive', type: 'toggle', label: L('Учитывать регистр', 'Match case'), def: false },
+      {
+        key: 'convertPDFToImage', type: 'toggle', label: L('Превратить страницы в картинки', 'Turn the pages into images'), def: true,
+        hint: L('Так закрашенный текст точно нельзя достать. Текст в файле перестанет выделяться.', 'Then the hidden text surely can’t be recovered. Text in the file will no longer be selectable.'),
+      },
     ],
     fixed: { useRegex: 'false', redactColor: '#000000', customPadding: '0' },
     // The engine splits on newlines; normalise stray spaces and blank lines.
     map: (v) => ({ listOfText: String(v.listOfText ?? '').split('\n').map((s) => s.trim()).filter(Boolean).join('\n') }),
-    action: 'Закрасить',
+    action: L('Закрасить', 'Redact'),
   },
   {
     id: 'sanitize', cat: 'security', icon: 'ShieldCheck', ...PDF, files: 'batch',
-    title: 'Очистить от скрытого',
-    desc: 'Убрать скрипты, вложенные файлы и сведения о том, кто и где делал документ.',
+    title: L('Очистить от скрытого', 'Remove hidden content'),
+    desc: L('Убрать скрипты, вложенные файлы и сведения о том, кто и где делал документ.', 'Strip scripts, embedded files and the details of who made the document, and where.'),
     endpoint: 'security/sanitize-pdf',
     fields: [
-      { key: 'removeJavaScript', type: 'toggle', label: 'Скрипты', def: true },
-      { key: 'removeEmbeddedFiles', type: 'toggle', label: 'Вложенные файлы', def: true },
-      { key: 'removeMetadata', type: 'toggle', label: 'Свойства документа', def: true },
-      { key: 'removeXMPMetadata', type: 'toggle', label: 'Служебные метаданные (XMP)', def: true },
-      { key: 'removeLinks', type: 'toggle', label: 'Ссылки', def: false },
+      { key: 'removeJavaScript', type: 'toggle', label: L('Скрипты', 'Scripts'), def: true },
+      { key: 'removeEmbeddedFiles', type: 'toggle', label: L('Вложенные файлы', 'Embedded files'), def: true },
+      { key: 'removeMetadata', type: 'toggle', label: L('Свойства документа', 'Document properties'), def: true },
+      { key: 'removeXMPMetadata', type: 'toggle', label: L('Служебные метаданные (XMP)', 'Internal metadata (XMP)'), def: true },
+      { key: 'removeLinks', type: 'toggle', label: L('Ссылки', 'Links'), def: false },
     ],
     fixed: { removeFonts: 'false' },
-    action: 'Очистить',
+    action: L('Очистить', 'Clean'),
   },
 
   // ── Images (browser) ───────────────────────────────────────────────
   {
     id: 'image-convert', cat: 'images', icon: 'ImageDown', accept: IMAGES.replace(',.tif,.tiff', ''), kinds: 'JPG, PNG, WebP, GIF, BMP', files: 'batch', mode: 'image',
-    title: 'Сжать или переделать картинки',
-    desc: 'Уменьшить фото и сменить формат: JPG, PNG, WebP.',
-    action: 'Сохранить',
+    title: L('Сжать или переделать картинки', 'Compress or convert images'),
+    desc: L('Уменьшить фото и сменить формат: JPG, PNG, WebP.', 'Shrink photos and change their format: JPG, PNG, WebP.'),
+    action: L('Сохранить', 'Save'),
   },
 ]
 
@@ -483,9 +518,13 @@ export const TOOL_BY_ID: Record<string, Tool> = Object.fromEntries(TOOLS.map((t)
 // Where a finished PDF can go next (the "continue with this file" row).
 export const NEXT_STEPS = ['compress', 'organize', 'merge', 'protect', 'watermark', 'ocr', 'redact', 'pdf-to-word']
 
+// Defaults are read in the language the tool was opened in (the watermark text).
 export function defaults(tool: Tool): Values {
   const v: Values = {}
-  for (const f of tool.fields || []) v[f.key] = Array.isArray(f.def) ? [...f.def] : f.def ?? ''
+  for (const f of tool.fields || []) {
+    const def = f.def
+    v[f.key] = Array.isArray(def) ? [...def] : def == null ? '' : typeof def === 'object' ? tx(def) : def
+  }
   return v
 }
 
@@ -496,13 +535,16 @@ export function visibleFields(tool: Tool, values: Values): Field[] {
 // Returns the first problem with the form, or null.
 export function validate(tool: Tool, values: Values, files: File[]): string | null {
   const min = tool.min ?? 1
-  if (files.length < min) return min > 1 ? `Добавьте хотя бы ${min} файла` : 'Добавьте файл'
+  if (files.length < min) return min > 1 ? T(`Добавьте хотя бы ${min} файла`, `Add at least ${min} files`) : T('Добавьте файл', 'Add a file')
   for (const f of visibleFields(tool, values)) {
     const val = values[f.key]
-    if (f.required && !String(val ?? '').trim()) return `Заполните поле «${f.label}»`
-    if (f.type === 'pages' && !f.optional && !String(val ?? '').trim()) return `Выберите страницы: «${f.label}»`
-    if (f.type === 'pages' && val && !/^[\d,\-\s]+$/.test(String(val))) return 'Номера страниц: только цифры, запятые и дефисы, например 1,3,5-9'
-    if (f.type === 'chips' && (!Array.isArray(val) || val.length < (f.min || 0))) return `Выберите хотя бы один вариант: «${f.label}»`
+    const label = tx(f.label)
+    if (f.required && !String(val ?? '').trim()) return T(`Заполните поле «${label}»`, `Fill in “${label}”`)
+    if (f.type === 'pages' && !f.optional && !String(val ?? '').trim()) return T(`Выберите страницы: «${label}»`, `Choose the pages: “${label}”`)
+    if (f.type === 'pages' && val && !/^[\d,\-\s]+$/.test(String(val))) {
+      return T('Номера страниц: только цифры, запятые и дефисы, например 1,3,5-9', 'Page numbers: digits, commas and hyphens only, e.g. 1,3,5-9')
+    }
+    if (f.type === 'chips' && (!Array.isArray(val) || val.length < (f.min || 0))) return T(`Выберите хотя бы один вариант: «${label}»`, `Pick at least one: “${label}”`)
   }
   return null
 }

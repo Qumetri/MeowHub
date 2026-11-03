@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { T } from '../lib/i18n'
 
 // One cheap ping so a stopped engine shows up before someone uploads a 100 MB scan.
 export default function EngineStatus() {
@@ -10,6 +11,10 @@ export default function EngineStatus() {
       .catch((e: Error) => { if (e.name !== 'AbortError') setState('down') })
     return () => ctl.abort()
   }, [])
-  const text = { checking: 'Проверяю движок…', up: 'Движок на связи', down: 'Движок не отвечает — серверные инструменты сейчас не сработают' }[state]
+  const text = {
+    checking: T('Проверяю движок…', 'Checking the engine…'),
+    up: T('Движок на связи', 'Engine is online'),
+    down: T('Движок не отвечает — серверные инструменты сейчас не сработают', 'The engine is not answering: server tools won’t work right now'),
+  }[state]
   return <p className={`engine engine-${state}`} role="status"><span className="dot" aria-hidden="true" />{text}</p>
 }

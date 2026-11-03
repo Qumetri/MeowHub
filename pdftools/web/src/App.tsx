@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { TOOL_BY_ID } from './tools'
+import { APP_NAME, tx, useLang } from './lib/i18n'
 
 export type OpenTool = (id: string | null, files?: File[] | null) => void
 import Home from './components/Home'
@@ -13,6 +14,8 @@ function readRoute(): string | null {
 
 export default function App() {
   const [toolId, setToolId] = useState(readRoute)
+  // Every screen reads the language while rendering, so a switch re-renders from here down.
+  const lang = useLang()
   // Files handed from one tool's result to the next ("continue with this file").
   const [carry, setCarry] = useState<File[] | null>(null)
 
@@ -24,9 +27,10 @@ export default function App() {
 
   useEffect(() => {
     const tool = toolId ? TOOL_BY_ID[toolId] : undefined
-    document.title = tool ? `${tool.title} — Канцелярия` : 'Канцелярия'
-    window.scrollTo(0, 0)
-  }, [toolId])
+    document.title = tool ? `${tx(tool.title)} — ${tx(APP_NAME)}` : tx(APP_NAME)
+  }, [toolId, lang])
+
+  useEffect(() => { window.scrollTo(0, 0) }, [toolId])
 
   const open = useCallback<OpenTool>((id, files = null) => {
     setCarry(files)

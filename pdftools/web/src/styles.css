@@ -83,8 +83,15 @@ button, input, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; border-radius: 6px; }
 h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.01em; margin: 0; }
 
-.page { max-width: 1160px; margin: 0 auto; padding: 28px 16px 96px; }
+.page { position: relative; max-width: 1160px; margin: 0 auto; padding: 28px 16px 96px; }
 @media (min-width: 720px) { .page { padding: 48px 32px 96px; } }
+
+/* RU | EN, top corner of every screen */
+.lang { position: absolute; top: 20px; right: 16px; z-index: 1; display: flex; gap: 2px; padding: 3px; background: var(--sheet-2); border: 1px solid var(--rule); border-radius: 10px; }
+.lang button { min-width: 44px; min-height: 34px; border: 0; border-radius: 7px; background: none; color: var(--muted); font-weight: 650; font-size: 13px; letter-spacing: 0.04em; cursor: pointer; }
+.lang button:hover { color: var(--text); }
+.lang button.on { background: var(--sheet); color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink) inset; }
+@media (min-width: 720px) { .lang { top: 40px; right: 32px; } }
 
 /* ── Masthead ─────────────────────────────────────────────────────── */
 .masthead { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; margin-bottom: 36px; }
@@ -93,10 +100,10 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.0
 .promises { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 8px; max-width: 62ch; color: var(--muted); }
 .promises li { display: flex; gap: 10px; align-items: flex-start; }
 .promises svg { flex: none; margin-top: 3px; color: var(--ink); }
-.masthead-seal { color: var(--ink); transform: rotate(-11deg); opacity: 0.9; margin: 6px 4px 0 0; }
+.masthead-seal { color: var(--ink); transform: rotate(-11deg); opacity: 0.9; margin: 52px 4px 0 0; } /* below the RU | EN switch */
 @media (max-width: 640px) {
   .masthead { grid-template-columns: 1fr; }
-  .masthead-seal { display: none; }
+  .masthead .masthead-seal { display: none; } /* outranks .seal { display: block } further down */
 }
 
 .seal { display: block; }

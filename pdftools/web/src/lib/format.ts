@@ -1,11 +1,14 @@
+import { getLang, locale } from './i18n'
+
 export function bytes(n: number | null | undefined): string {
   if (n == null) return ''
-  if (n < 1024) return `${n} Б`
-  const units = ['КБ', 'МБ', 'ГБ']
+  const en = getLang() === 'en'
+  if (n < 1024) return `${n} ${en ? 'B' : 'Б'}`
+  const units = en ? ['KB', 'MB', 'GB'] : ['КБ', 'МБ', 'ГБ']
   let v = n / 1024
   let i = 0
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v.toLocaleString('ru-RU', { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`
+  return `${v.toLocaleString(locale(), { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`
 }
 
 // Russian plural: plural(3, ['файл', 'файла', 'файлов'])
@@ -16,6 +19,11 @@ export function plural(n: number, forms: [one: string, few: string, many: string
   if (b > 1 && b < 5) return forms[1]
   if (b === 1) return forms[0]
   return forms[2]
+}
+
+// "3 файла" / "3 files"
+export function counted(n: number, ru: [one: string, few: string, many: string], en: [one: string, many: string]): string {
+  return `${n} ${getLang() === 'en' ? en[n === 1 ? 0 : 1] : plural(n, ru)}`
 }
 
 // {1,2,3,5,7,8} -> "1-3,5,7-8"

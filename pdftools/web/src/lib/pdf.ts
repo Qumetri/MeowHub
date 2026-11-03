@@ -5,6 +5,8 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 
+import { T } from './i18n'
+
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 export type PdfDoc = pdfjs.PDFDocumentProxy
@@ -38,8 +40,8 @@ export async function renderPage(doc: PdfDoc, pageNo: number, width: number, rot
 }
 
 export function friendlyPdfError(e: unknown): string {
-  if (e instanceof Error && e.name === 'PasswordException') return 'Файл защищён паролем — сначала снимите его инструментом «Снять пароль».'
-  return 'Этот файл не открывается как PDF. Попробуйте «Починить PDF».'
+  if (e instanceof Error && e.name === 'PasswordException') return T('Файл защищён паролем — сначала снимите его инструментом «Снять пароль».', 'The file is password-protected: take the password off first with Remove password.')
+  return T('Этот файл не открывается как PDF. Попробуйте «Починить PDF».', 'This file doesn’t open as a PDF. Try Repair PDF.')
 }
 
 export async function buildPdf(file: File, pages: PageSpec[]): Promise<Blob> {

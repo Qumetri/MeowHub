@@ -3,7 +3,8 @@ import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, 
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { buildPdf, friendlyPdfError, openPdf, type PageSpec, type PdfDoc } from '../lib/pdf'
-import { baseName, plural } from '../lib/format'
+import { baseName, counted } from '../lib/format'
+import { T, tx } from '../lib/i18n'
 import Icon from './Icon'
 import Dropzone from './Dropzone'
 import Thumb from './Thumb'
@@ -19,14 +20,14 @@ function PageCard({ p, index, doc, onRotate, onDelete }: CardProps) {
   const style = { transform: CSS.Transform.toString(s.transform), transition: s.transition }
   return (
     <li ref={s.setNodeRef} style={style} className={`org-page${s.isDragging ? ' dragging' : ''}`}>
-      <div className="org-handle" {...s.attributes} {...s.listeners} aria-label={`Страница ${p.n}, позиция ${index + 1}. Перетащите, чтобы переставить`}>
+      <div className="org-handle" {...s.attributes} {...s.listeners} aria-label={T(`Страница ${p.n}, позиция ${index + 1}. Перетащите, чтобы переставить`, `Page ${p.n}, position ${index + 1}. Drag to move it`)}>
         <Thumb doc={doc} n={p.n} rotation={p.rot} />
       </div>
       <div className="org-tools">
-        <span className="page-no">{index + 1}{p.n !== index + 1 && <small> · была {p.n}</small>}</span>
-        <button type="button" className="icon-btn" onClick={() => onRotate(p.key, 270)} aria-label="Повернуть против часовой"><Icon name="RotateCcw" size={16} /></button>
-        <button type="button" className="icon-btn" onClick={() => onRotate(p.key, 90)} aria-label="Повернуть по часовой"><Icon name="RotateCw" size={16} /></button>
-        <button type="button" className="icon-btn danger" onClick={() => onDelete(p.key)} aria-label="Удалить страницу"><Icon name="Trash2" size={16} /></button>
+        <span className="page-no">{index + 1}{p.n !== index + 1 && <small>{T(` · была ${p.n}`, ` · was ${p.n}`)}</small>}</span>
+        <button type="button" className="icon-btn" onClick={() => onRotate(p.key, 270)} aria-label={T('Повернуть против часовой', 'Rotate counter-clockwise')}><Icon name="RotateCcw" size={16} /></button>
+        <button type="button" className="icon-btn" onClick={() => onRotate(p.key, 90)} aria-label={T('Повернуть по часовой', 'Rotate clockwise')}><Icon name="RotateCw" size={16} /></button>
+        <button type="button" className="icon-btn danger" onClick={() => onDelete(p.key)} aria-label={T('Удалить страницу', 'Delete page')}><Icon name="Trash2" size={16} /></button>
       </div>
     </li>
   )
@@ -88,9 +89,11 @@ export default function Organizer({ tool, initialFiles, onOpen }: ToolBodyProps)
     setError(null)
     try {
       const blob = await buildPdf(file, pages)
-      setResult([{ blob, name: `${baseName(file.name)}-упорядочено.pdf`, source: file }])
+      setResult([{ blob, name: `${baseName(file.name)}-${T('упорядочено', 'organized')}.pdf`, source: file }])
     } catch (e) {
-      setError(/encrypt/i.test(String(e)) ? 'Файл зашифрован — сначала снимите пароль.' : 'Не получилось собрать PDF из этих страниц.')
+      setError(/encrypt/i.test(String(e))
+        ? T('Файл зашифрован — сначала снимите пароль.', 'The file is encrypted: remove the password first.')
+        : T('Не получилось собрать PDF из этих страниц.', 'Couldn’t build a PDF from these pages.'))
     } finally {
       setSaving(false)
     }
@@ -107,11 +110,14 @@ export default function Organizer({ tool, initialFiles, onOpen }: ToolBodyProps)
     <div className="organizer">
       <div className="org-bar">
         <span className="file-name" title={file.name}>{file.name}</span>
-        <span role="status">{doc ? `${pages.length} ${plural(pages.length, ['страница', 'страницы', 'страниц'])}` : 'Открываю…'}</span>
-        {removed.length > 0 && <button type="button" className="link-btn" onClick={undo}>Вернуть удалённую</button>}
-        <button type="button" className="link-btn" onClick={() => setFile(null)}>Другой файл</button>
+        <span role="status">{doc ? counted(pages.length, ['страница', 'страницы', 'страниц'], ['page', 'pages']) : T('Открываю…', 'Opening…')}</span>
+        {removed.length > 0 && <button type="button" className="link-btn" onClick={undo}>{T('Вернуть удалённую', 'Undo delete')}</button>}
+        <button type="button" className="link-btn" onClick={() => setFile(null)}>{T('Другой файл', 'Another file')}</button>
       </div>
-      <p className="files-hint">Перетащите страницу, чтобы переставить. На телефоне — задержите палец на странице. Всё происходит в браузере, файл никуда не отправляется.</p>
+      <p className="files-hint">
+        {T('Перетащите страницу, чтобы переставить. На телефоне — задержите палец на странице. Всё происходит в браузере, файл никуда не отправляется.',
+          'Drag a page to move it; on a phone, hold your finger on it first. It all happens in the browser, and the file goes nowhere.')}
+      </p>
 
       {error && <p className="alert" role="alert"><Icon name="CircleAlert" size={18} />{error}</p>}
 
@@ -127,9 +133,9 @@ export default function Organizer({ tool, initialFiles, onOpen }: ToolBodyProps)
 
       <div className="go go-sticky">
         <button type="button" className="btn btn-ink btn-big" onClick={save} disabled={!doc || saving || pages.length === 0}>
-          {saving ? 'Собираю…' : tool.action}
+          {saving ? T('Собираю…', 'Building…') : tx(tool.action)}
         </button>
-        {!changed && doc && <p className="field-hint">Пока ничего не изменено.</p>}
+        {!changed && doc && <p className="field-hint">{T('Пока ничего не изменено.', 'Nothing changed yet.')}</p>}
       </div>
     </div>
   )

@@ -256,7 +256,7 @@ you never hunt for a numeric chat ID. Full details in
 The `pdftools` profile is an iLovePDF for documents you would rather not upload anywhere: merge, split,
 compress, OCR into searchable PDFs, Word/Excel/PowerPoint ↔ PDF, page numbers, watermarks, passwords,
 and redaction of passport numbers before you send a scan. Thirty tools, page thumbnails to pick pages
-by clicking, and "continue with this file" to chain them.
+by clicking, and "continue with this file" to chain them. In English or Russian, following the browser.
 
 <img src="docs/img/pdftools.png" alt="The PDF tools page: a round stamp reading 'never leaves the server', a search box and tool cards grouped by task" width="100%">
 

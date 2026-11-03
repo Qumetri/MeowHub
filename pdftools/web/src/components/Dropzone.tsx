@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import Icon from './Icon'
+import { T } from '../lib/i18n'
 
 function accepts(file: File, accept: string | undefined): boolean {
   if (!accept) return true
@@ -31,7 +32,9 @@ export default function Dropzone({ accept, kinds, multiple, compact, onFiles }: 
     const all = [...list]
     const ok = all.filter((f) => accepts(f, accept))
     const bad = all.length - ok.length
-    setRejected(bad ? `${bad === 1 ? 'Один файл не подошёл' : `Не подошло файлов: ${bad}`} — нужен ${kinds}.` : null)
+    setRejected(bad
+      ? T(`${bad === 1 ? 'Один файл не подошёл' : `Не подошло файлов: ${bad}`} — нужен ${kinds}.`, `${bad === 1 ? 'One file' : `${bad} files`} didn’t fit: ${kinds} needed.`)
+      : null)
     if (ok.length) onFiles(multiple ? ok : ok.slice(0, 1))
   }
 
@@ -52,15 +55,15 @@ export default function Dropzone({ accept, kinds, multiple, compact, onFiles }: 
       />
       {compact ? (
         <button type="button" className="btn btn-quiet" onClick={() => input.current?.click()}>
-          <Icon name="Plus" size={18} />Добавить ещё
+          <Icon name="Plus" size={18} />{T('Добавить ещё', 'Add more')}
         </button>
       ) : (
         <>
           <span className="tray-icon"><Icon name="Upload" size={28} /></span>
-          <p className="tray-title">Перетащите сюда {multiple ? 'файлы' : 'файл'}</p>
-          <p className="tray-hint">{kinds}{multiple ? ', можно несколько' : ''}</p>
+          <p className="tray-title">{multiple ? T('Перетащите сюда файлы', 'Drop files here') : T('Перетащите сюда файл', 'Drop a file here')}</p>
+          <p className="tray-hint">{kinds}{multiple ? T(', можно несколько', ', several at once') : ''}</p>
           <button type="button" className="btn btn-ink" onClick={() => input.current?.click()}>
-            Выбрать {multiple ? 'файлы' : 'файл'}
+            {multiple ? T('Выбрать файлы', 'Choose files') : T('Выбрать файл', 'Choose a file')}
           </button>
         </>
       )}

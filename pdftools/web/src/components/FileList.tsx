@@ -3,6 +3,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import { bytes, type FileItem } from '../lib/format'
+import { T } from '../lib/i18n'
 
 interface RowProps {
   item: FileItem
@@ -19,7 +20,7 @@ function Row({ item, index, total, sortable, onMove, onRemove }: RowProps) {
   return (
     <li ref={s.setNodeRef} style={style} className={`file-row${s.isDragging ? ' dragging' : ''}`}>
       {sortable && (
-        <button type="button" className="grip" aria-label={`Перетащить «${item.file.name}»`} {...s.attributes} {...s.listeners}>
+        <button type="button" className="grip" aria-label={T(`Перетащить «${item.file.name}»`, `Drag “${item.file.name}”`)} {...s.attributes} {...s.listeners}>
           <Icon name="GripVertical" size={18} />
         </button>
       )}
@@ -28,15 +29,15 @@ function Row({ item, index, total, sortable, onMove, onRemove }: RowProps) {
       <span className="file-size">{bytes(item.file.size)}</span>
       {sortable && (
         <span className="file-move">
-          <button type="button" className="icon-btn" disabled={index === 0} onClick={() => onMove(index, index - 1)} aria-label="Выше">
+          <button type="button" className="icon-btn" disabled={index === 0} onClick={() => onMove(index, index - 1)} aria-label={T('Выше', 'Move up')}>
             <Icon name="ArrowUp" size={16} />
           </button>
-          <button type="button" className="icon-btn" disabled={index === total - 1} onClick={() => onMove(index, index + 1)} aria-label="Ниже">
+          <button type="button" className="icon-btn" disabled={index === total - 1} onClick={() => onMove(index, index + 1)} aria-label={T('Ниже', 'Move down')}>
             <Icon name="ArrowDown" size={16} />
           </button>
         </span>
       )}
-      <button type="button" className="icon-btn" onClick={() => onRemove(item.id)} aria-label={`Убрать «${item.file.name}»`}>
+      <button type="button" className="icon-btn" onClick={() => onRemove(item.id)} aria-label={T(`Убрать «${item.file.name}»`, `Remove “${item.file.name}”`)}>
         <Icon name="X" size={16} />
       </button>
     </li>
@@ -59,13 +60,13 @@ export default function FileList({ items, sortable, onChange }: { items: FileIte
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-        <ol className="files" aria-label="Выбранные файлы">
+        <ol className="files" aria-label={T('Выбранные файлы', 'Chosen files')}>
           {items.map((item, i) => (
             <Row key={item.id} item={item} index={i} total={items.length} sortable={sortable} onMove={move} onRemove={remove} />
           ))}
         </ol>
       </SortableContext>
-      {sortable && items.length > 1 && <p className="files-hint">Файлы пойдут в этом порядке. Перетащите строку или нажмите стрелки.</p>}
+      {sortable && items.length > 1 && <p className="files-hint">{T('Файлы пойдут в этом порядке. Перетащите строку или нажмите стрелки.', 'Files go in this order. Drag a row or use the arrows.')}</p>}
     </DndContext>
   )
 }

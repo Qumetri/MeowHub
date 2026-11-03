@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { renderPage, type PdfDoc } from '../lib/pdf'
+import { T } from '../lib/i18n'
 
 // A page thumbnail that renders only once it scrolls near the viewport.
 export default function Thumb({ doc, n, rotation = 0, width = 132 }: { doc: PdfDoc; n: number; rotation?: number; width?: number }) {
@@ -28,5 +29,5 @@ export default function Thumb({ doc, n, rotation = 0, width = 132 }: { doc: PdfD
     return () => { alive = false }
   }, [seen, doc, n, rotation, width])
 
-  return <div ref={box} className="thumb-box">{failed && <span className="thumb-failed">не открылась</span>}</div>
+  return <div ref={box} className="thumb-box">{failed && <span className="thumb-failed">{T('не открылась', 'won’t open')}</span>}</div>
 }

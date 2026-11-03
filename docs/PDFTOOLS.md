@@ -15,8 +15,12 @@ bank statements. Thirty tools on one page:
 
 <img src="img/pdftools-pages.png" alt="Remove pages: page thumbnails, the picked page marked with a yellow highlighter, the options panel" width="100%">
 
-The page is in **Russian**. All the copy lives in `pdftools/web/src/tools.ts` and the components, so
-translating is a text edit.
+The page speaks **English and Russian**. It opens in the browser's language (the first of the two in its
+list, English when neither is there); the RU | EN switch in the corner overrides that and is remembered,
+and `?lang=en` / `?lang=ru` in a link does the same for one visit. Every text sits next to its use as
+`T('по-русски', 'in English')` — or `L(ru, en)` in the tool list, `pdftools/web/src/tools.ts` — so the
+compiler refuses a text with a language missing (`src/lib/i18n.ts`). Search finds a tool by either
+language's words.
 
 ## Enable it
 

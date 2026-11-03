@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { openPdf, type PdfDoc } from '../lib/pdf'
-import { fromRanges, plural, toRanges } from '../lib/format'
+import { counted, fromRanges, toRanges } from '../lib/format'
+import { T } from '../lib/i18n'
 import Thumb from './Thumb'
 
 // Click pages to select them; the selection is written back as "1-3,5" into the pages field,
@@ -22,8 +23,8 @@ export default function PagePicker({ file, value, onChange, verb }: Props) {
   const count = doc?.numPages || 0
   const selected = useMemo(() => fromRanges(value, count || Infinity), [value, count])
 
-  if (failed) return <p className="note">Страницы этого файла не показать — впишите номера в поле справа.</p>
-  if (!doc) return <p className="note" role="status">Открываю страницы…</p>
+  if (failed) return <p className="note">{T('Страницы этого файла не показать — впишите номера в поле справа.', 'Can’t show this file’s pages: type the numbers into the field instead.')}</p>
+  if (!doc) return <p className="note" role="status">{T('Открываю страницы…', 'Opening pages…')}</p>
 
   const toggle = (n: number) => {
     const next = new Set(selected)
@@ -36,13 +37,15 @@ export default function PagePicker({ file, value, onChange, verb }: Props) {
       <div className="picker-bar">
         <span role="status">
           {selected.size
-            ? `${verb}: ${selected.size} ${plural(selected.size, ['страница', 'страницы', 'страниц'])} из ${count}`
-            : `${count} ${plural(count, ['страница', 'страницы', 'страниц'])} — нажмите на нужные`}
+            ? T(`${verb}: ${counted(selected.size, ['страница', 'страницы', 'страниц'], ['page', 'pages'])} из ${count}`,
+              `${verb}: ${counted(selected.size, ['страница', 'страницы', 'страниц'], ['page', 'pages'])} of ${count}`)
+            : T(`${counted(count, ['страница', 'страницы', 'страниц'], ['page', 'pages'])} — нажмите на нужные`,
+              `${counted(count, ['страница', 'страницы', 'страниц'], ['page', 'pages'])}: click the ones you need`)}
         </span>
         <span className="picker-actions">
-          <button type="button" className="link-btn" onClick={() => onChange(toRanges(new Set(Array.from({ length: count }, (_, i) => i + 1).filter((n) => n % 2))))}>Нечётные</button>
-          <button type="button" className="link-btn" onClick={() => onChange(toRanges(new Set(Array.from({ length: count }, (_, i) => i + 1).filter((n) => n % 2 === 0))))}>Чётные</button>
-          {selected.size > 0 && <button type="button" className="link-btn" onClick={() => onChange('')}>Сбросить</button>}
+          <button type="button" className="link-btn" onClick={() => onChange(toRanges(new Set(Array.from({ length: count }, (_, i) => i + 1).filter((n) => n % 2))))}>{T('Нечётные', 'Odd')}</button>
+          <button type="button" className="link-btn" onClick={() => onChange(toRanges(new Set(Array.from({ length: count }, (_, i) => i + 1).filter((n) => n % 2 === 0))))}>{T('Чётные', 'Even')}</button>
+          {selected.size > 0 && <button type="button" className="link-btn" onClick={() => onChange('')}>{T('Сбросить', 'Clear')}</button>}
         </span>
       </div>
       <ul className="pages">
@@ -52,7 +55,7 @@ export default function PagePicker({ file, value, onChange, verb }: Props) {
               type="button"
               className={`pg${selected.has(n) ? ' marked' : ''}`}
               aria-pressed={selected.has(n)}
-              aria-label={`Страница ${n}`}
+              aria-label={T(`Страница ${n}`, `Page ${n}`)}
               onClick={() => toggle(n)}
             >
               <Thumb doc={doc} n={n} />

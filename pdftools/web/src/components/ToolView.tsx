@@ -3,13 +3,15 @@ import { CATEGORIES, buildForm, defaults, endpointOf, validate, visibleFields, t
 import { ToolError, runTool, type ProgressEvent } from '../lib/api'
 import type { OpenTool } from '../App'
 import type { ToolBodyProps } from './ImageTool'
-import { baseName, isPdf, plural, wrap } from '../lib/format'
+import { baseName, counted, isPdf, wrap } from '../lib/format'
+import { T, tx } from '../lib/i18n'
 import Icon from './Icon'
 import Dropzone from './Dropzone'
 import FileList from './FileList'
 import Field from './Field'
 import Result, { type ResultItem } from './Result'
 import ImageTool from './ImageTool'
+import LangSwitch from './LangSwitch'
 
 // pdf.js is ~1.5 MB: load it only on screens that show pages.
 const PagePicker = lazy(() => import('./PagePicker.jsx'))
@@ -20,13 +22,13 @@ export function ToolHeader({ tool, onOpen }: { tool: Tool; onOpen: OpenTool }) {
   return (
     <header className={`tool-head hue-${cat?.hue ?? 'ink'}`}>
       <a className="back" href="#" onClick={(e) => { e.preventDefault(); onOpen(null) }}>
-        <Icon name="ArrowLeft" size={18} />Все инструменты
+        <Icon name="ArrowLeft" size={18} />{T('Все инструменты', 'All tools')}
       </a>
       <div className="tool-title">
         <span className="tile-icon"><Icon name={tool.icon} size={26} /></span>
         <div>
-          <h1>{tool.title}</h1>
-          <p>{tool.desc}</p>
+          <h1>{tx(tool.title)}</h1>
+          <p>{tx(tool.desc)}</p>
         </div>
       </div>
     </header>
@@ -39,16 +41,17 @@ type BusyState = { i: number; n: number } & (ProgressEvent | { phase: 'upload'; 
 function Progress({ state, slow, onCancel }: { state: BusyState; slow?: boolean; onCancel: () => void }) {
   const { i, n, phase } = state
   const ratio = 'ratio' in state ? state.ratio : null
-  const what = phase === 'upload' ? `Отправляю на сервер${ratio != null ? ` — ${Math.round(ratio * 100)}%` : ''}`
-    : phase === 'download' ? 'Забираю результат' : 'Обрабатываю'
+  const pct = ratio != null ? ` — ${Math.round(ratio * 100)}%` : ''
+  const what = phase === 'upload' ? T(`Отправляю на сервер${pct}`, `Uploading${pct}`)
+    : phase === 'download' ? T('Забираю результат', 'Fetching the result') : T('Обрабатываю', 'Processing')
   return (
     <div className="progress" role="status" aria-live="polite">
-      <p className="progress-what">{what}{n > 1 ? ` · файл ${i + 1} из ${n}` : ''}</p>
+      <p className="progress-what">{what}{n > 1 ? T(` · файл ${i + 1} из ${n}`, ` · file ${i + 1} of ${n}`) : ''}</p>
       <div className={`progress-track${phase === 'upload' ? '' : ' busy'}`}>
         <span className="progress-fill" style={phase === 'upload' && ratio != null ? { transform: `scaleX(${ratio})` } : undefined} />
       </div>
-      {slow && phase === 'work' && <p className="field-hint">Это может занять пару минут на больших файлах.</p>}
-      <button type="button" className="btn btn-quiet" onClick={onCancel}>Отменить</button>
+      {slow && phase === 'work' && <p className="field-hint">{T('Это может занять пару минут на больших файлах.', 'Big files can take a couple of minutes.')}</p>}
+      <button type="button" className="btn btn-quiet" onClick={onCancel}>{T('Отменить', 'Cancel')}</button>
     </div>
   )
 }
@@ -98,8 +101,10 @@ function ServerTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
     } catch (err) {
       const e = err as Error
       if (e.name !== 'AbortError') {
-        const which = jobs.length > 1 ? ` (файл «${jobs[out.length]?.[0]?.name}»)` : ''
-        const hint = e instanceof ToolError && e.code === 'password' && tool.id !== 'unlock' ? ' Сначала снимите его инструментом «Снять пароль».' : ''
+        const name = jobs[out.length]?.[0]?.name
+        const which = jobs.length > 1 ? T(` (файл «${name}»)`, ` (file “${name}”)`) : ''
+        const hint = e instanceof ToolError && e.code === 'password' && tool.id !== 'unlock'
+          ? T(' Сначала снимите его инструментом «Снять пароль».', ' Take it off first with Remove password.') : ''
         setError(`${e.message}${hint}${which}`)
         if (out.length) setResults(out)
       }
@@ -111,7 +116,7 @@ function ServerTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
   if (results) {
     return (
       <>
-        {error && <p className="alert" role="alert"><Icon name="CircleAlert" size={18} />{error} Остальные файлы готовы.</p>}
+        {error && <p className="alert" role="alert"><Icon name="CircleAlert" size={18} />{error}{T(' Остальные файлы готовы.', ' The other files are ready.')}</p>}
         <Result
           tool={tool}
           results={results}
@@ -134,12 +139,12 @@ function ServerTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
               <FileList items={items} sortable={tool.files === 'many'} onChange={setItems} />
               {multiple && <Dropzone accept={tool.accept} kinds={tool.kinds} multiple compact onFiles={addFiles} />}
               {pickerFile && pagesField && (
-                <Suspense fallback={<p className="note" role="status">Открываю страницы…</p>}>
+                <Suspense fallback={<p className="note" role="status">{T('Открываю страницы…', 'Opening pages…')}</p>}>
                   <PagePicker
                     file={pickerFile}
                     value={String(values[pagesField.key] ?? '')}
                     onChange={set(pagesField.key)}
-                    verb={pagesField.label}
+                    verb={tx(pagesField.label)}
                   />
                 </Suspense>
               )}
@@ -147,7 +152,7 @@ function ServerTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
           )}
       </div>
 
-      <aside className="bench-side" aria-label="Настройки">
+      <aside className="bench-side" aria-label={T('Настройки', 'Settings')}>
         {fields.length > 0 && (
           <div className="options">
             {fields.map((f) => <Field key={f.key} f={f} value={values[f.key]} onChange={set(f.key)} />)}
@@ -159,8 +164,8 @@ function ServerTool({ tool, initialFiles, onOpen }: ToolBodyProps) {
             ? <Progress state={busy} slow={tool.slow} onCancel={() => ctl.current?.abort()} />
             : (
               <button type="button" className="btn btn-ink btn-big" onClick={run} aria-disabled={!!problem}>
-                {tool.action}
-                {items.length > 1 && tool.files === 'batch' ? ` · ${items.length} ${plural(items.length, ['файл', 'файла', 'файлов'])}` : ''}
+                {tx(tool.action)}
+                {items.length > 1 && tool.files === 'batch' ? ` · ${counted(items.length, ['файл', 'файла', 'файлов'], ['file', 'files'])}` : ''}
               </button>
             )}
           {!busy && problem && items.length > 0 && <p className="field-hint">{problem}</p>}
@@ -174,8 +179,9 @@ export default function ToolView({ tool, initialFiles, onOpen }: ToolBodyProps) 
   const Body = tool.mode === 'organize' ? Organizer : tool.mode === 'image' ? ImageTool : ServerTool
   return (
     <div className="page">
+      <LangSwitch />
       <ToolHeader tool={tool} onOpen={onOpen} />
-      <Suspense fallback={<p className="note" role="status">Загружаю…</p>}>
+      <Suspense fallback={<p className="note" role="status">{T('Загружаю…', 'Loading…')}</p>}>
         <Body tool={tool} initialFiles={initialFiles} onOpen={onOpen} />
       </Suspense>
     </div>
