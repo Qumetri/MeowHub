@@ -2,6 +2,7 @@
 .env
 secrets/
 dashboard/.env.local
+dashboard/src/*.local.*          # owner-only blocks (e.g. a personal support block), never published
 dashboard/dist/
 dashboard/node_modules/
 helper/webapp/dist/
