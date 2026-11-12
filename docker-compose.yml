@@ -222,6 +222,7 @@ services:
       # Payments (docs/HELPER.md "Payments"): Stars need nothing; CryptoBot needs a Crypto Pay app token
       CRYPTOPAY_TOKEN: ${CRYPTOPAY_TOKEN:-}
       CRYPTOPAY_TESTNET: ${CRYPTOPAY_TESTNET:-}
+      DONATE_LINK: ${DONATE_LINK:-}
       BOT_APP_PATH: ${BOT_APP_PATH:?BOT_APP_PATH must be set and non-empty (run ./bootstrap.sh)}
       VIDEO_PATH: ${VIDEO_PATH:-}         # the guest video page; only shown to the owner
       BOT_ADMIN_KEY: ${BOT_ADMIN_KEY:?BOT_ADMIN_KEY must be set and non-empty (run ./bootstrap.sh)}

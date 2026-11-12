@@ -340,7 +340,7 @@ html[data-mode='browser'] .seg button.on { background: rgba(255, 255, 255, 0.12)
   --pass-bg: linear-gradient(150deg, #0e8a80 0%, #1d5aa0 55%, #3b2f94 100%);
   --pass-glow: rgba(40, 70, 170, 0.75);
   position: relative; overflow: hidden; isolation: isolate; color: #fff;
-  min-height: 232px; padding: 20px 22px; border-radius: 24px;
+  min-height: 172px; padding: 16px 20px; border-radius: 22px;
   display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
   background: var(--pass-bg);
   box-shadow: 0 24px 40px -24px var(--pass-glow), inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 -1px 0 rgba(0, 0, 0, 0.12);
@@ -359,10 +359,10 @@ html[data-mode='browser'] .seg button.on { background: rgba(255, 255, 255, 0.12)
 .pass__top { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
 .pass__brand { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
 .pass__name { font-size: 15px; font-weight: 500; opacity: 0.88; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pass__mid { display: flex; align-items: baseline; gap: 12px; margin-top: 8px; }
-.pass__num { font: 800 112px/0.95 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.22); }
-.pass__num.sm { font-size: 88px; }
-.pass__unit { font-size: 20px; font-weight: 600; opacity: 0.85; }
+.pass__mid { display: flex; align-items: baseline; gap: 10px; margin-top: 4px; }
+.pass__num { font: 800 80px/0.95 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.22); }
+.pass__num.sm { font-size: 64px; }
+.pass__unit { font-size: 18px; font-weight: 600; opacity: 0.85; }
 .pass__line { font-size: 15px; font-weight: 500; opacity: 0.92; }
 @keyframes pass-in {
   0% { opacity: 0; transform: perspective(900px) translateY(34px) rotateX(16deg) scale(0.95); }
@@ -448,7 +448,7 @@ html[data-mode='browser'] .seg button.on { background: rgba(255, 255, 255, 0.12)
 .tip b { font-size: 13px; }
 
 @media (max-width: 520px) {
-  .pass__num { font-size: 100px; }
+  .pass__num { font-size: 72px; }
   html[data-mode='browser'] .page { padding: 18px 16px 48px; }
   .topbar__in { padding: 10px 16px; }
 }
@@ -705,4 +705,5 @@ html[data-mode='browser'] .keycard { backdrop-filter: blur(12px); }
 /* donations */
 .donate { padding: 4px 16px 14px; display: grid; gap: 10px; }
 .donate .input--num { max-width: 140px; }
+.sec--donate { margin-top: 18px; }   /* right under the pass on Home, no heading */
 .payprices__f--wide .input { width: 220px; }

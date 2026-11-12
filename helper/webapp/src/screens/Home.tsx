@@ -6,7 +6,7 @@ import { haptic, isTg } from '../tg'
 import { canDownload, fmtDate, hasService, personName, svcList, uiState } from '../util'
 import { useApp } from '../ctx'
 import { ContactCell, LangSection, contactVars } from './shared'
-import Donate from './Donate'
+import Donate, { canDonate } from './Donate'
 import type { IconName } from '../icons'
 import type { Screen } from '../types'
 
@@ -51,6 +51,8 @@ export default function Home() {
   return (
     <div className="page">
       <Pass member={m} name={name} />
+
+      {isTg && canDonate(me.pay) && <Donate offer={me.pay} compact />}
 
       <div className={'actions' + (hasDl ? ' actions--5' : '')}>
         <ActionBtn icon="shield" label={t('action.vpn')} dim={!hasVpn} onClick={guard(hasVpn, 'vpn')} />
@@ -103,8 +105,6 @@ export default function Home() {
           sub={m.username ? '@' + m.username : undefined} />
         <Cell icon="calendar" tone="mute" title={t('home.since')} value={fmtDate(m.created_ts, true)} />
       </Section>
-
-      {isTg && !!me.pay?.donate?.length && <Donate amounts={me.pay.donate} />}
 
       <LangSection />
     </div>

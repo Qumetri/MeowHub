@@ -86,11 +86,12 @@ export default function Payments() {
   const amountsOk = parsed.length >= 1 && parsed.length <= 6 && parsed.every((n) => Number.isInteger(n) && n >= 1 && n <= 10000)
   const donRow = (
     <div>
-      <Cell icon="gift" tone={don.enabled && data.settings.stars.enabled ? 'accent' : 'mute'} title={t('pa.donate')}
-        sub={data.settings.stars.enabled ? t('pa.donate_sub') : t('pa.donate_needs_stars')}
+      <Cell icon="gift" tone={don.enabled ? 'accent' : 'mute'} title={t('pa.donate')}
+        sub={data.settings.stars.enabled || data.settings.crypto.enabled ? t('pa.donate_sub') : t('pa.donate_needs_stars')}
         right={<Switch checked={don.enabled} disabled={busy !== ''} label={t('pa.donate')}
           onChange={(v) => { void save('donate', { enabled: v }, 'donate:sw') }} />}>
         {donTotal && <span className="cell__sub">{t('pa.total', { n: donTotal.count, unit: plural(donTotal.count, t('pa.unit_pay').split('|')), sum: fmt('donate', donTotal.amount) })}</span>}
+        {data.totals.donate_crypto && <span className="cell__sub">{t('pa.donate_crypto_total', { sum: `$${data.totals.donate_crypto.amount.toFixed(2)}` })}</span>}
       </Cell>
       <div className="payprices">
         <label className="payprices__f payprices__f--wide">

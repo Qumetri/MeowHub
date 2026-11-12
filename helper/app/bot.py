@@ -845,11 +845,13 @@ class Helper:
         self.core.payments.credit("stars", charge, uid, plan, sp.get("total_amount", 0), user=frm, bot=self.kind)
 
     def _pay_announce(self, provider, uid, plan, amount, member, user):
-        if provider == "donate":
+        if provider == "donate" or plan == "donate":
+            sum_ = payments.fmt_amount("stars" if provider == "donate" else provider, amount)
+            if uid == payments.HUB_UID:                     # anonymous, from the hub page
+                return self.usage.report("pay", uid, lambda LL, who: tr(LL, "usage.donate_hub", amount=sum_), user=user)
             L = i18n.lang_of(self.store, uid, (member or {}).get("lang"))
-            stars = payments.fmt_amount("stars", amount)
-            self.notify(uid, tr(L, "donate.thanks", amount=stars))
-            return self.usage.report("pay", uid, lambda LL, who: tr(LL, "usage.donate", who=who, amount=stars), user=user)
+            self.notify(uid, tr(L, "donate.thanks", amount=sum_))
+            return self.usage.report("pay", uid, lambda LL, who: tr(LL, "usage.donate", who=who, amount=sum_), user=user)
         exp = member["expires_ts"]
         L = i18n.lang_of(self.store, uid, member.get("lang"))
         self.notify(uid, tr(L, "pay.done", plan=tr(L, "pay.plan." + plan), amount=payments.fmt_amount(provider, amount),

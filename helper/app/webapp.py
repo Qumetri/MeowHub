@@ -48,6 +48,8 @@ CHUNK = 256 * 1024
 TOUCH_EVERY = 600                    # seconds between "app" activity bumps per uid
 GUEST_TTL = 180 * 86400              # the video page's anonymous id (X-Guest), renewed on expiry
 GUEST_NEW_PER_HOUR = 20              # new anonymous ids per IP and hour
+HUB_DONATE_PER_HOUR = 6              # crypto donation invoices per IP and hour (hub page)
+HUB_DONATE_PER_DAY = 100             # ... and in total per day
 AVATAR_TTL = 24 * 3600
 GETME_TTL = 600
 LOCKED_TTL = 60
@@ -429,6 +431,7 @@ class App:
         self._touched = {}
         self._lock = threading.Lock()
         self._guest_new = {}                # ip -> recent X-Guest issue times
+        self._hub_donate = {}               # ip -> recent hub donation invoice times ("" = all)
         self._locked = {}                   # mxid -> (ts, bool|None)
         self._getme = {}                    # bot id -> (ts, dict)
         self._alocks = {}
@@ -796,6 +799,11 @@ class App:
                                       payload=pay.donate_payload(ctx.uid, amount), provider_token="",
                                       currency="XTR", prices=[{"label": i18n.tr(L, "donate.label"), "amount": amount}])
                 return jr({"provider": "stars", "link": link})
+            if provider == "donate_crypto":
+                back = f"https://t.me/{self.h.share_username()}" if self.h.share_username() else None
+                url = pay.crypto_donate(ctx.uid, b.get("amount"), user=ctx.user, back_url=back,
+                                        description=i18n.tr(L, "donate.desc"))
+                return jr({"provider": "crypto", "url": url})
             if provider == "crypto":
                 name = i18n.tr(L, "pay.plan." + str(plan)) if plan in paym.PLANS else ""
                 back = f"https://t.me/{self.h.share_username()}" if self.h.share_username() else None
@@ -1438,6 +1446,34 @@ class App:
         gid = -(secrets.randbelow(2 ** 40) + 1)
         return jr({"token": signed.token("guest", "web", gid, GUEST_TTL, store=self.h.store)})
 
+    # Hub page "support me" block: GET says whether crypto donations are on (and the chips), POST {amount}
+    # makes an anonymous CryptoBot invoice (uid payments.HUB_UID) for the browser version of @CryptoBot.
+    # Reached through the video page's route, which already passes /api/pub/*.
+    def api_pub_donate_info(self, req, ctx):
+        pay = getattr(self.h, "payments", None)
+        on = pay is not None and pay.donate_crypto_enabled()
+        return jr({"crypto": on, "amounts": list(paym.DONATE_USD) if on else []})
+
+    def api_pub_donate(self, req, ctx):
+        pay = getattr(self.h, "payments", None)
+        if pay is None:
+            raise ApiError(503, "bot_not_ready", "api.dl_starting")
+        ip, now = req.client_ip(), time.time()
+        with self._lock:
+            if len(self._hub_donate) > 10000:
+                self._hub_donate = {k: v for k, v in self._hub_donate.items() if v and now - v[-1] < 86400}
+            mine = [t for t in self._hub_donate.get(ip, []) if now - t < 3600]
+            day = [t for t in self._hub_donate.get("", []) if now - t < 86400]
+            if len(mine) >= HUB_DONATE_PER_HOUR or len(day) >= HUB_DONATE_PER_DAY:
+                raise ApiError(429, "too_many", "pay.err.too_many")
+            self._hub_donate[ip], self._hub_donate[""] = mine + [now], day + [now]
+        try:
+            url = pay.crypto_donate(paym.HUB_UID, req.json().get("amount"), user={"hub": True},
+                                    description=i18n.tr(ctx.lang, "donate.desc"), web=True)
+        except paym.PayError as e:
+            raise ApiError(e.status, e.code, "pay.err." + e.code, c="") from None
+        return jr({"url": url})
+
     def api_pub_dl_presets(self, req, ctx):
         self.need_pub_dl(ctx)
         return jr(dlm.presets_payload(ctx.lang, guest=True))
@@ -1867,6 +1903,8 @@ ROUTES = [
     ("GET", r"/api/admin/dl-public", "any", "api_admin_dl_public"),
     ("POST", r"/api/admin/dl-public", "any", "api_admin_dl_public"),
     ("POST", r"/api/pub/hello", "public", "api_pub_hello"),
+    ("GET", r"/api/pub/donate", "public", "api_pub_donate_info"),
+    ("POST", r"/api/pub/donate", "public", "api_pub_donate"),
     ("GET", r"/api/pub/dl/presets", "guest", "api_pub_dl_presets"),
     ("POST", r"/api/pub/dl", "guest", "api_pub_dl_new"),
     ("GET", r"/api/pub/dl", "guest", "api_pub_dl_list"),

@@ -63,6 +63,10 @@ export interface PayOffer {
   plans: PayPlan[]
   /** ★ amounts offered for a donation; null while donations are off */
   donate?: number[] | null
+  /** $ amounts for a CryptoBot donation; null while donations or CryptoBot are off */
+  donate_usd?: number[] | null
+  /** the owner's external donation page (DONATE_LINK), null when unset or donations are off */
+  donate_link?: string | null
 }
 export type PayInvoice = { provider: 'stars'; link: string } | { provider: 'crypto'; url: string }
 export interface PayCheck { paid: number; member: Member | null }
@@ -74,7 +78,7 @@ export interface PaymentsAdmin {
   crypto_token: boolean
   crypto_testnet: boolean
   plans: { id: PlanId; days: number }[]
-  totals: Partial<Record<PayProvider | 'donate', { count: number; amount: number }>>
+  totals: Partial<Record<PayProvider | 'donate' | 'donate_crypto', { count: number; amount: number }>>
   recent: PaymentRow[]
 }
 

@@ -301,7 +301,7 @@ at your IP — and again when it's fixed. It also lists the hub's links and hand
 **you, and only you**, the logins for your services, in a message that deletes
 itself after a minute.
 
-<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card, the Extend screen with prices in Telegram Stars and dollars, and photo upscaling with a picture in progress" width="100%">
+<img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card with the Support block under it, the Extend screen with prices in Telegram Stars and dollars, and photo upscaling with a picture in progress" width="100%">
 
 It can also **let other people in**. You mint an access code; whoever redeems it
 becomes a member for 30 days (or as long as you choose) and gets, from a
@@ -334,7 +334,8 @@ stars land on the member bot's balance) or in **crypto through CryptoBot** (USDT
 TON, BTC and more; one API token). Access is extended the moment the payment
 arrives, every payment is credited exactly once, and you get a notice. Stars can be
 refunded with `/refund`, and `/paysupport` answers payment questions as Telegram
-requires. A **Support the project** button takes Stars donations of any amount.
+requires. A **Support the project** block takes donations in Stars or crypto, plus an
+optional link to your Buy Me a Coffee / Ko-fi page.
 Prices, both providers and donations are switched and edited on the Bots page; all
 of it starts off, and your own "pay me directly" contact stays on the screen.
 

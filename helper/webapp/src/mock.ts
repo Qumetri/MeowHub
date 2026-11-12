@@ -51,6 +51,8 @@ const PAY: PaymentsAdmin['settings'] = {
 const payOffer = (): PayOffer | null => (!PAY.stars.enabled && !PAY.crypto.enabled ? null : {
   stars: PAY.stars.enabled, crypto: PAY.crypto.enabled,
   donate: PAY.donate.enabled && PAY.stars.enabled ? PAY.donate.amounts : null,
+  donate_usd: PAY.donate.enabled && PAY.crypto.enabled ? [2, 5, 10] : null,
+  donate_link: PAY.donate.enabled ? 'https://example.org/support' : null,
   plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id], stars: PAY.stars.prices[id], usd: PAY.crypto.prices[id] })),
 })
 
@@ -370,6 +372,7 @@ export async function handle(method: string, path: string, rawBody?: unknown): P
   }
 
   if (path === 'pay' && method === 'POST' && body.provider === 'donate') return { provider: 'stars', link: 'https://t.me/$mockDonation' }
+  if (path === 'pay' && method === 'POST' && body.provider === 'donate_crypto') return { provider: 'crypto', url: 'https://t.me/CryptoBot?start=mock' }
   if (path === 'pay' && method === 'POST') {
     const plan = body.plan as PlanId
     if (!(plan in PLAN_DAYS)) return err(400, 'bad_plan', tr('Такого тарифа нет.', 'There is no such plan.'))
@@ -657,7 +660,7 @@ function adminPay(): PaymentsAdmin {
   return {
     settings: PAY, crypto_token: true, crypto_testnet: false,
     plans: (Object.keys(PLAN_DAYS) as PlanId[]).map((id) => ({ id, days: PLAN_DAYS[id] })),
-    totals: { stars: { count: 3, amount: 470 }, crypto: { count: 1, amount: 5 }, donate: { count: 2, amount: 350 } },
+    totals: { stars: { count: 3, amount: 470 }, crypto: { count: 1, amount: 5 }, donate: { count: 2, amount: 350 }, donate_crypto: { count: 1, amount: 10 } },
     recent: [
       { id: 'stars:a', uid: 100200301, name: 'Алексей Громов', provider: 'stars', plan: 'm1', days: 30, amount: '100', ts: ago(3), refunded: 0 },
       { id: 'crypto:7', uid: 100200302, name: 'Мария Соколова', provider: 'crypto', plan: 'm3', days: 90, amount: '5.00', ts: ago(30), refunded: 0 },

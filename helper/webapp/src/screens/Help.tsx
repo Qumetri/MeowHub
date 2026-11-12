@@ -5,7 +5,7 @@ import { t } from '../i18n'
 import { haptic, isTg } from '../tg'
 import { useApp } from '../ctx'
 import { ContactCell, Title, contactHandle, contactVars } from './shared'
-import Donate from './Donate'
+import Donate, { canDonate } from './Donate'
 
 export default function Help() {
   const { me } = useApp()
@@ -28,7 +28,7 @@ export default function Help() {
           </div>
         ))}
       </Section>
-      {isTg && !!me.pay?.donate?.length && <Donate amounts={me.pay.donate} />}
+      {isTg && canDonate(me.pay) && <Donate offer={me.pay} />}
     </div>
   )
 }

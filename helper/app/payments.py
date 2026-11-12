@@ -14,8 +14,13 @@ added), an event `pay`, and a usage notice to the owner and admins.
     (no webhook, no new route). Needs CRYPTOPAY_TOKEN in .env (@CryptoBot → Crypto Pay →
     Create App); CRYPTOPAY_TESTNET=1 talks to @CryptoTestnetBot instead.
 
-Donations (`donate`): a free amount in Stars from anyone with the app, through the same invoice /
-pre-checkout / successful_payment path; recorded in `payments` with plan `donate`, no days added.
+Donations (plan `donate`, no days added):
+  * Stars (provider `donate`): a free amount from anyone with the app, through the same invoice /
+    pre-checkout / successful_payment path.
+  * Crypto (provider `crypto`, plan `donate`): a USD amount through a CryptoBot invoice, from the app
+    (the member's uid) or anonymously from the hub page (uid HUB_UID = 0, POST /api/pub/donate).
+  * DONATE_LINK in .env (e.g. a Buy Me a Coffee page) is offered as a plain link next to them.
+  All of it follows the owner's `donate` switch; Stars donations also need Stars on, crypto ones CryptoBot.
 
 Owner settings: settings `payments` = {"stars": {"enabled", "prices"}, "crypto": {...},
 "donate": {"enabled", "amounts"}}. Everything is off until the owner switches it on (service toggle convention).
@@ -39,6 +44,9 @@ DEFAULT_PRICES = {"stars": {"m1": 100, "m3": 270, "m12": 960},   # ★ (reports/
                   "crypto": {"m1": 2.0, "m3": 5.0, "m12": 18.0}}  # USD
 DONATE_AMOUNTS = [50, 100, 250, 500]                 # ★ chips offered in the app
 DONATE_MAX = 10000
+DONATE_USD = [2, 5, 10]                              # $ chips for a crypto donation
+DONATE_USD_MAX = 1000
+HUB_UID = 0                                          # an anonymous crypto donation from the hub page
 CRYPTO_ASSETS = "USDT,TON,BTC,ETH,LTC,TRX,USDC"
 CRYPTO_TTL = 3600                                     # an unpaid CryptoBot invoice expires after an hour
 POLL_EVERY = 20
@@ -154,9 +162,18 @@ class Payments:
         return cfg
 
     def donate_enabled(self):
-        """Donations go through Stars, so both switches must be on."""
+        """Stars donations: the donate switch and Stars must both be on."""
         cfg = self.settings()
         return cfg["donate"]["enabled"] and cfg["stars"]["enabled"]
+
+    def donate_crypto_enabled(self):
+        """Crypto donations: the donate switch and CryptoBot (with its token) must both be on."""
+        return self.settings()["donate"]["enabled"] and self.enabled("crypto")
+
+    def donate_link(self):
+        """The owner's external donation page (DONATE_LINK), offered while the donate switch is on."""
+        link = os.environ.get("DONATE_LINK", "").strip()
+        return link if link.startswith("https://") and self.settings()["donate"]["enabled"] else None
 
     @staticmethod
     def crypto_token():
@@ -171,9 +188,12 @@ class Payments:
         cfg = self.settings()
         on = {p: self.enabled(p) for p in PROVIDERS}
         donate = cfg["donate"]["amounts"] if self.donate_enabled() else None
-        if (not any(on.values()) and not donate) or uid is None:
+        donate_usd = list(DONATE_USD) if self.donate_crypto_enabled() else None
+        link = self.donate_link()
+        if (not any(on.values()) and not donate and not donate_usd and not link) or uid is None:
             return None
         return {"stars": on["stars"], "crypto": on["crypto"], "donate": donate,
+                "donate_usd": donate_usd, "donate_link": link,
                 "plans": [{"id": k, "days": d, "stars": cfg["stars"]["prices"][k],
                            "usd": cfg["crypto"]["prices"][k]} for k, d in PLANS.items()]}
 
@@ -194,7 +214,7 @@ class Payments:
     def credit(self, provider, ref, uid, plan, amount, user=None, bot=""):
         """('paid', member) the first time, ('dup', member) for a payment already counted.
         A donation (provider `donate`) is recorded the same way but adds no days."""
-        donation = provider == "donate"
+        donation = provider == "donate" or plan == "donate"
         uid, days, now = int(uid), 0 if donation else PLANS[plan], int(time.time())
         db = self.s.db
         with self.s.lock:
@@ -205,7 +225,8 @@ class Payments:
                                  (f"{provider}:{ref}", uid, provider, plan, days, str(amount), bot, now))
                 fresh = cur.rowcount == 1
                 if fresh and donation:
-                    self.m._log_db(db, uid, "donate", fmt_amount("stars", amount))
+                    if uid > 0:                             # the hub's anonymous donations have no member
+                        self.m._log_db(db, uid, "donate", fmt_amount("stars" if provider == "donate" else provider, amount))
                 elif fresh:
                     import members as mem                   # the module, for DEFAULT_SERVICES
                     self.m._apply(db, uid, user, days, mem.DEFAULT_SERVICES, now)
@@ -215,7 +236,7 @@ class Payments:
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
-        member = self.m._row(row)
+        member = self.m._row(row) if row is not None else None
         if not fresh:
             return "dup", member
         if not donation:
@@ -247,9 +268,10 @@ class Payments:
 
     def stats(self, limit=20):
         rows = [dict(r) for r in self.s.q("SELECT * FROM payments ORDER BY ts DESC LIMIT ?", limit)]
-        tot = self.s.q("SELECT provider, COUNT(*) AS n, SUM(CAST(amount AS REAL)) AS total "
-                       "FROM payments WHERE refunded=0 GROUP BY provider")
-        return {"totals": {r["provider"]: {"count": r["n"], "amount": r["total"] or 0} for r in tot},
+        # crypto donations are their own bucket ("donate_crypto", USD) next to Stars donations ("donate", ★)
+        tot = self.s.q("SELECT CASE WHEN provider='crypto' AND plan='donate' THEN 'donate_crypto' ELSE provider END AS k, "
+                       "COUNT(*) AS n, SUM(CAST(amount AS REAL)) AS total FROM payments WHERE refunded=0 GROUP BY k")
+        return {"totals": {r["k"]: {"count": r["n"], "amount": r["total"] or 0} for r in tot},
                 "recent": rows}
 
     # ---------------------------------------------------------------- stars --
@@ -350,6 +372,29 @@ class Payments:
             raise PayError("crypto_failed", 502)
         self.s.q("INSERT OR REPLACE INTO crypto_invoices(invoice_id,uid,plan,amount,url,status,created_ts,expires_ts,user_json) "
                  "VALUES(?,?,?,?,?,'active',?,?,?)", int(inv["invoice_id"]), int(uid), plan, str(price), url,
+                 now, now + CRYPTO_TTL, json.dumps(user or {}))
+        return url
+
+    def crypto_donate(self, uid, usd, user=None, description="", back_url=None, web=False):
+        """A CryptoBot invoice for a donation of `usd` dollars; returns its URL. `web` picks the
+        browser version of @CryptoBot (the hub page) instead of the Telegram one."""
+        if not self.donate_crypto_enabled():
+            raise PayError("off", 403)
+        if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not 1 <= usd <= DONATE_USD_MAX:
+            raise PayError("bad_amount")
+        usd = round(float(usd), 2)
+        now = int(time.time())
+        inv = self.crypto_call("createInvoice", currency_type="fiat", fiat="USD", amount=f"{usd:.2f}",
+                               accepted_assets=CRYPTO_ASSETS, description=description[:1024] or None,
+                               payload=f"cd:{int(uid)}", expires_in=CRYPTO_TTL, allow_comments="true",
+                               allow_anonymous="true",
+                               paid_btn_name="openBot" if back_url else None, paid_btn_url=back_url)
+        keys = ("web_app_invoice_url", "bot_invoice_url") if web else ("mini_app_invoice_url", "bot_invoice_url")
+        url = next((inv.get(k) for k in keys if inv.get(k)), "")
+        if not url:
+            raise PayError("crypto_failed", 502)
+        self.s.q("INSERT OR REPLACE INTO crypto_invoices(invoice_id,uid,plan,amount,url,status,created_ts,expires_ts,user_json) "
+                 "VALUES(?,?,'donate',?,?,'active',?,?,?)", int(inv["invoice_id"]), int(uid), f"{usd:g}", url,
                  now, now + CRYPTO_TTL, json.dumps(user or {}))
         return url
 

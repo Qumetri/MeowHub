@@ -234,5 +234,59 @@ class PaymentsTest(unittest.TestCase):
         self.assertIsNone(self.mm.get(71))
 
 
+    # ---------------------------------------------------------- crypto donations --
+    def _crypto_donate_fake(self, inv_id):
+        def fake(method, **p):
+            if method == "createInvoice":
+                self.created = p
+                return {"invoice_id": inv_id, "status": "active", "mini_app_invoice_url": "https://t.me/CryptoBot/app?startapp=d",
+                        "web_app_invoice_url": "https://app.send.tg/invoices/d", "bot_invoice_url": "https://t.me/CryptoBot?start=d"}
+            return {"items": [{"invoice_id": inv_id, "status": "paid"}]}
+        return fake
+
+    def test_crypto_donation_needs_donate_and_crypto(self):
+        with mock.patch.dict(os.environ, {"CRYPTOPAY_TOKEN": "t", "DONATE_LINK": "https://example.org/me"}):
+            self.assertFalse(self.pay().donate_crypto_enabled())
+            self.assertIsNone(self.pay().offer(5))
+            self.pay().configure("donate", enabled=True)                 # Stars off: link only
+            o = self.pay().offer(5)
+            self.assertEqual((o["donate"], o["donate_usd"], o["donate_link"]), (None, None, "https://example.org/me"))
+            self.pay().configure("crypto", enabled=True)
+            self.assertEqual(self.pay().offer(5)["donate_usd"], pm.DONATE_USD)
+            for bad in (0, 0.5, 1001, True, "5", float("nan")):
+                with self.assertRaises(pm.PayError):
+                    self.pay().crypto_donate(5, bad)
+            self.pay().configure("donate", enabled=False)
+            with self.assertRaises(pm.PayError):
+                self.pay().crypto_donate(5, 5)
+
+    def test_member_crypto_donation_no_days_thanks_once(self):
+        self.make_member(74, days=5)
+        exp = self.mm.get(74)["expires_ts"]
+        with mock.patch.dict(os.environ, {"CRYPTOPAY_TOKEN": "t"}):
+            self.pay().configure("crypto", enabled=True)
+            self.pay().configure("donate", enabled=True)
+            with mock.patch.object(self.pay(), "crypto_call", side_effect=self._crypto_donate_fake(601)):
+                url = self.pay().crypto_donate(74, 5)
+                self.assertEqual(url, "https://t.me/CryptoBot/app?startapp=d")
+                self.assertEqual((self.created["amount"], self.created["payload"]), ("5.00", "cd:74"))
+                self.assertEqual(self.pay().crypto_poll(), 1)
+                self.assertEqual(self.pay().crypto_poll(), 0)
+        self.assertEqual(self.mm.get(74)["expires_ts"], exp)
+        self.assertEqual(len([s for s in self.b.sent(74) if "Спасибо за поддержку — $5" in s[2]]), 1)
+        self.assertIn("поддержал(а) проект: $5", self.wait_owner(1)[-1][2])
+        self.assertEqual(self.pay().stats()["totals"]["donate_crypto"], {"count": 1, "amount": 5.0})
+
+    def test_hub_crypto_donation_is_anonymous(self):
+        with mock.patch.dict(os.environ, {"CRYPTOPAY_TOKEN": "t"}):
+            self.pay().configure("crypto", enabled=True)
+            self.pay().configure("donate", enabled=True)
+            with mock.patch.object(self.pay(), "crypto_call", side_effect=self._crypto_donate_fake(602)):
+                url = self.pay().crypto_donate(pm.HUB_UID, 10, user={"hub": True}, web=True)
+                self.assertEqual(url, "https://app.send.tg/invoices/d")
+                self.assertEqual(self.pay().crypto_poll(), 1)
+        self.assertIsNone(self.mm.get(0))
+        self.assertIn("Кто-то с хаба поддержал проект через CryptoBot: $10", self.wait_owner(1)[-1][2])
+
 if __name__ == "__main__":
     unittest.main()

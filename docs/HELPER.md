@@ -648,9 +648,21 @@ hooks in `bot.py` and `webapp.py`, UI in `webapp/src/screens/Code.tsx` and `admi
   `OWNER_CONTACT` and pings the owner. `/refund <telegram id>` in the service bot returns that
   person's last Stars payment (`refundStarPayment`, from the bot that received it) and takes the
   days back. CryptoBot payments are refunded by hand in @CryptoBot.
-- **Donations**: a "Support the project" button on Home and in Help (Telegram only) takes any amount
-  of Stars (preset chips are editable on the admin page). Same invoice path, payload `dn:…`, recorded in
-  `payments` as plan `donate` with no days; the donor gets a thank-you, the owner a notice. Needs Stars on.
+- **Donations**: a "Support the project" block right under the pass on Home (and in Help; Telegram
+  only), all behind the owner's `donate` switch, never touching anyone's term:
+  - **Stars**, any amount (preset chips are editable on the admin page). Same invoice path, payload
+    `dn:…`, recorded in `payments` as plan `donate` with no days. Needs Stars on.
+  - **Crypto** in USD through CryptoBot: chips $2 / $5 / $10 (`DONATE_USD`) plus a custom $1–1000,
+    `POST /api/pay {provider: "donate_crypto", amount}`, payload `cd:<uid>`; the invoice poller credits it
+    as provider `crypto`, plan `donate`, 0 days. Needs CryptoBot on. The admin page totals it separately.
+  - **`DONATE_LINK`** (optional, `https://…`, e.g. Buy Me a Coffee or Ko-fi) shows as a plain link row.
+  The donor gets a thank-you, the owner a notice.
+- **Donations from a web page**: `GET /api/pub/donate` answers `{crypto, amounts}` and `POST /api/pub/donate
+  {amount}` returns the URL of an anonymous CryptoBot invoice (uid 0, the browser version of @CryptoBot),
+  at most 6 per IP an hour and 100 a day. It is public and rides the video page's route, which already
+  passes `/api/pub/*`, so your own hub block (a gitignored `dashboard/src/*.local.tsx`, see
+  [OPERATIONS.md](OPERATIONS.md)) can offer crypto without Telegram. The owner gets "someone on the hub
+  supported the project".
 - Rules worth knowing before switching Stars on: digital goods in bots must be sold for Stars,
   `/paysupport` must work, and Stars on a bot's balance belong to that bot's owner account.
 

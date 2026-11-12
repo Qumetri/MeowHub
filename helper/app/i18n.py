@@ -430,7 +430,10 @@ _("donate.label", "Пожертвование", "Donation")
 _("donate.thanks", "💛 Спасибо за поддержку — {amount}! Это правда помогает держать сервер.",
   "💛 Thank you for your support — {amount}! It really helps keep the server running.")
 _("usage.donate", "💛 {who} поддержал(а) проект: {amount}.", "💛 {who} supported the project: {amount}.")
-_("pay.err.bad_amount", "Сумма — от 1 до 10 000 звёзд.", "The amount must be 1 to 10,000 Stars.")
+_("pay.err.bad_amount", "Сумма — от 1 до 10 000 звёзд или от $1 до $1000.", "The amount must be 1 to 10,000 Stars or $1 to $1000.")
+_("pay.err.too_many", "Слишком много счетов подряд. Попробуй через час.", "Too many invoices in a row. Try again in an hour.")
+_("usage.donate_hub", "💛 Кто-то с хаба поддержал проект через CryptoBot: {amount}.",
+  "💛 Someone on the hub supported the project through CryptoBot: {amount}.")
 _("refund.usage", "Возврат последней оплаты звёздами: <code>/refund &lt;Telegram ID&gt;</code>",
   "Refund the last Stars payment: <code>/refund &lt;Telegram ID&gt;</code>")
 _("refund.none", "У этого человека нет оплат, которые можно вернуть.", "This person has no payments to refund.")
