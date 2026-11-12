@@ -83,12 +83,6 @@ const paths = {
       <path d="M5 19h14" />
     </>
   ),
-  film: (
-    <>
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M7.5 3v18M16.5 3v18M3 12h18M3 7.5h4.5M3 16.5h4.5M16.5 7.5H21M16.5 16.5H21" />
-    </>
-  ),
   home: (
     <>
       <path d="M4 11.5 12 5l8 6.5" />
@@ -128,6 +122,44 @@ const paths = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M3.5 12h17M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5s1.2-6.1 3.5-8.5Z" />
+    </>
+  ),
+  ship: (
+    <>
+      <path d="M3 14h18l-2.5 4.5h-13z" />
+      <path d="M6.5 14v-4h11v4" />
+      <path d="M9.5 10V6.5h5V10" />
+      <path d="M3 21c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1" />
+    </>
+  ),
+  magnet: (
+    <>
+      <path d="M6 3h4v8a2 2 0 0 0 4 0V3h4v8a6 6 0 0 1-12 0z" />
+      <path d="M6 7h4M14 7h4" />
+      <path d="M12 19v2M8.5 18.5l-1 1.7M15.5 18.5l1 1.7" />
+    </>
+  ),
+  film: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 4v16M17 4v16M3 8h4M3 12h4M3 16h4M17 8h4M17 12h4M17 16h4" />
+    </>
+  ),
+  // a phone on its side with a turn arrow: "best in landscape"
+  rotate: (
+    <>
+      <rect x="2.5" y="11" width="14" height="8.5" rx="1.8" />
+      <path d="M5.5 15.25h.01" />
+      <path d="M12 3.5a7.5 7.5 0 0 1 8 7.5" />
+      <path d="m17.6 9.6 2.4 1.9 2-2.3" />
+    </>
+  ),
+  duck: (
+    <>
+      <circle cx="9" cy="7.5" r="3.5" />
+      <path d="M12.3 6.8 16 7.6l-3.6 1.2" />
+      <path d="M6.5 10.6C4.7 11.3 3.5 12.8 3.5 15c0 3 2.8 5 7.5 5 4.6 0 8-2.4 8-6.2 0-1.1-.3-2-.9-2.8-1.4 1.3-3.5 2-6.1 2" />
+      <path d="M9.5 15.5c1.4.7 3 .7 4.5-.3" />
     </>
   ),
 } satisfies Record<string, ReactNode>

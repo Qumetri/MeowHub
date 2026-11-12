@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { isIdle } from './idle'
 
 // The page background is a pond at night: the old gradient blobs are now
 // light on the water, a few lily pads drift, and the surface ripples where the
@@ -76,7 +77,7 @@ export default function Pond() {
 
     let rain = 0
     const drop = () => {
-      if (!document.hidden) {
+      if (!document.hidden && !isIdle()) {
         ripple(Math.random() * window.innerWidth, Math.random() * window.innerHeight, 140, 0.18, 2, 2200)
       }
       rain = window.setTimeout(drop, 4000 + Math.random() * 5000)

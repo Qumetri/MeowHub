@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import Duck, { DuckDefs } from './Duck'
 import Icon from './Icon'
 import Parade from './Parade'
 import Pond from './Pond'
 import Stats from './Stats'
-import { services, type Service } from './services'
+import { sections, services, type Service } from './services'
+
+// Optional local-only blocks (gitignored ./*.local.tsx, e.g. the owner's support block): a fresh clone
+// has none and renders nothing extra. A block may export `after = '<section id>'` to sit under that
+// section; otherwise it goes below the last one.
+type LocalBlock = { default: () => React.JSX.Element; after?: string }
+const localBlocks = Object.values(import.meta.glob<LocalBlock>('./*.local.tsx', { eager: true }))
+const blocksAfter = (id?: string) =>
+  localBlocks.filter((b) => (id ? b.after === id : !sections.some((sec) => sec.id === b.after)))
+    .map((b, i) => <b.default key={`${id ?? 'end'}-${i}`} />)
 
 const container: Variants = {
   hidden: {},
@@ -90,20 +99,34 @@ function Card({ service }: { service: Service }) {
         className="card"
         {...(live && { href: service.url, target: '_blank', rel: 'noreferrer' })}
       >
-        <div className="card__icon">
-          <Icon name={service.icon} />
+        <div className="card__top">
+          {service.landscape && (
+            <span className="card__flip" role="img" aria-label="Best in landscape" title="Best in landscape">
+              <Icon name="rotate" />
+            </span>
+          )}
+          <div className="card__icon">
+            <Icon name={service.icon} />
+          </div>
+          {live ? (
+            <span className="badge badge--live">
+              <span className="dot" /> Live
+            </span>
+          ) : (
+            <span className="badge badge--soon">Soon</span>
+          )}
         </div>
         <div className="card__body">
-          <h2>{service.name}</h2>
+          <h2>
+            {service.short ? (
+              <>
+                <span className="name--full">{service.name}</span>
+                <span className="name--short">{service.short}</span>
+              </>
+            ) : service.name}
+          </h2>
           <p>{service.description}</p>
         </div>
-        {live ? (
-          <span className="badge badge--live">
-            <span className="dot" /> Live
-          </span>
-        ) : (
-          <span className="badge badge--soon">Coming soon</span>
-        )}
         {live && (
           <svg className="card__arrow" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -187,16 +210,33 @@ export default function App() {
 
         <Stats />
 
-        <motion.section
-          className="grid"
-          variants={container}
-          initial="hidden"
-          animate="show"
-        >
-          {services.map((s) => (
-            <Card key={s.id} service={s} />
-          ))}
-        </motion.section>
+        {sections.map((sec) => {
+          const cards = services.filter((s) => s.section === sec.id)
+          return cards.length === 0 ? null : (
+            <Fragment key={sec.id}>
+            <section className="group" aria-labelledby={`sec-${sec.id}`}>
+              <div className="group__head">
+                <h2 id={`sec-${sec.id}`}>{sec.title}</h2>
+                <span className="group__hint">{sec.hint}</span>
+                <span className="group__count">{cards.length}</span>
+              </div>
+              <motion.div
+                className="grid"
+                variants={container}
+                initial="hidden"
+                animate="show"
+              >
+                {cards.map((s) => (
+                  <Card key={s.id} service={s} />
+                ))}
+              </motion.div>
+            </section>
+            {blocksAfter(sec.id)}
+            </Fragment>
+          )
+        })}
+
+        {blocksAfter()}
 
         <footer>Served by Caddy from {DOMAIN}</footer>
       </main>

@@ -46,9 +46,27 @@ template change until you touch it — if a render seems ignored, that's why.)
 ## Adding a service to the hub page
 
 Edit `dashboard/src/services.ts`, then `cd dashboard && npm run build`. Cards
-are data — id, name, description, url, icon, gradient, status — typed as `Service`, so a
+are data — id, name, description, url, icon, gradient, status, section — typed as `Service`, so a
 missing field or an icon name that isn't in `Icon.tsx` fails the build. `status: 'soon'`
 renders a dimmed placeholder.
+
+- **`section`** puts the card under `projects` (My projects), `services` (Self-hosted
+  services) or `admin` (Admin panels); titles and order are in `sections` in the same
+  file, and an empty section is not shown. Cards keep the array order inside a section.
+- **`short`** (optional) is a shorter name for the phone layout, where a card is a
+  third of the screen wide.
+- **`landscape: true`** (optional) shows a small "turn your phone" icon on the card on phones,
+  for pages that need a wide screen.
+
+**Private blocks.** Any `dashboard/src/*.local.tsx` is picked up at build time and
+rendered under the section named by its `export const after = '<section id>'` (or at
+the end). The pattern is gitignored, so a personal block (a donation box, family links)
+never reaches the repository. A fresh clone has none and renders nothing extra.
+
+**Keep it light.** Every animation is transform/opacity only (no animated blur, filters or
+background-position), and anything that runs forever must stop in idle mode: `src/idle.ts`
+sets `html[data-idle]` after 30 s without input or while the tab is hidden and pauses all
+running animations; components can subscribe with `onIdleChange`.
 
 URLs come from build-time env vars written by `bootstrap.sh` into
 `dashboard/.env.local`, so the bundle is not tied to one domain.

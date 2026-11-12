@@ -98,10 +98,13 @@ export default function Parade() {
     const box = refs.current[0]?.parentElement
     if (!box) return
     let anims: Animation[] = []
+    // no parade on phones (owner, 2026-11-10): CSS hides it, and nothing is animated while it is hidden
+    const phone = window.matchMedia('(max-width: 640px)')
 
     const layout = () => {
       anims.forEach((a) => a.cancel())
       anims = []
+      if (phone.matches) return
       const w = box.clientWidth
       const h = box.clientHeight
       const size = w < 640 ? 22 : 30

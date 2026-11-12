@@ -17,7 +17,21 @@ export interface Service {
   /** [from, to] colours of the card's light */
   gradient: [string, string]
   status: 'live' | 'soon'
+  section: SectionId
+  /** shorter name for the phone layout, where a card is a third of the screen */
+  short?: string
+  /** works best with the phone turned sideways: phones show a small rotate icon on the card */
+  landscape?: boolean
 }
+
+export type SectionId = 'projects' | 'services' | 'admin'
+
+/** Page order of the sections; each card says which one it belongs to. Empty sections are not shown. */
+export const sections: { id: SectionId; title: string; hint: string }[] = [
+  { id: 'projects', title: 'My projects', hint: 'Things I built, running here' },
+  { id: 'services', title: 'Self-hosted services', hint: 'Everyday tools on the home server' },
+  { id: 'admin', title: 'Admin panels', hint: 'Keys, bots and automations' },
+]
 
 const E = import.meta.env
 const BASE    = E.VITE_BASE_DOMAIN   || 'localhost'
@@ -39,96 +53,6 @@ const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
 export const services: Service[] = [
   {
-    id: 'nextcloud',
-    name: 'Nextcloud',
-    description: 'Files, sync & office',
-    url: `https://${CLOUD}`,
-    icon: 'cloud',
-    gradient: ['#0082c9', '#00c6fb'],
-    status: 'live',
-  },
-  {
-    id: 'immich',
-    name: 'Immich',
-    description: 'Photos & videos',
-    url: `https://${PHOTOS}`,
-    icon: 'photo',
-    gradient: ['#fa2921', '#ffb400'],
-    status: 'live',
-  },
-  {
-    id: 'plex',
-    name: 'Plex',
-    description: 'Movies, TV & music',
-    url: 'https://app.plex.tv/desktop',
-    icon: 'play',
-    gradient: ['#e5a00d', '#f8d074'],
-    status: 'live',
-  },
-  {
-    id: '3xui',
-    name: '3x-ui',
-    description: 'Xray panel',
-    url: `https://${BASE}:${XUI_PORT}/${XUI_PATH}/`,
-    icon: 'shield',
-    gradient: ['#7928ca', '#ff0080'],
-    status: 'live',
-  },
-  {
-    id: 'amneziawg',
-    name: 'AmneziaWG',
-    description: 'VPN peer manager',
-    url: `https://${BASE}/${AWG}/`,
-    icon: 'key',
-    gradient: ['#4338ca', '#a5b4fc'],
-    status: 'live',
-  },
-  {
-    id: 'matrix',
-    name: 'Matrix Chat',
-    description: 'Private messenger',
-    url: `https://${MATRIX}`,
-    icon: 'chat',
-    gradient: ['#0dbd8b', '#16d4a4'],
-    status: 'live',
-  },
-  {
-    id: 'crypto',
-    name: 'Crypto Tracker',
-    description: 'Prices & Telegram alerts',
-    url: `https://${BASE}/${CRYPTO}/`,
-    icon: 'chart',
-    gradient: ['#f7931a', '#fbbf24'],
-    status: CRYPTO ? 'live' : 'soon',
-  },
-  {
-    id: 'sensor',
-    name: 'Room Sensor',
-    description: 'ESP32 temperature & humidity',
-    url: `https://${BASE}/${SENSOR}/`,
-    icon: 'thermometer',
-    gradient: ['#e4572e', '#3b82f6'],
-    status: SENSOR ? 'live' : 'soon',
-  },
-  {
-    id: 'n8n',
-    name: 'n8n',
-    description: 'Workflow automation',
-    url: `https://${BASE}/${N8N}/`,
-    icon: 'flow',
-    gradient: ['#ea4b71', '#ff8da1'],
-    status: N8N ? 'live' : 'soon',
-  },
-  {
-    id: 'metube',
-    name: 'MeTube',
-    description: 'YouTube downloader',
-    url: `https://${BASE}/${METUBE}/`,
-    icon: 'download',
-    gradient: ['#ff0000', '#ff6d6d'],
-    status: 'live',
-  },
-  {
     // The helper bot's downloader as a page for anyone (docs/HELPER.md "Video page");
     // the owner switches it on in /services.
     id: 'video',
@@ -138,6 +62,17 @@ export const services: Service[] = [
     icon: 'film',
     gradient: ['#ff3d6e', '#ffb36b'],
     status: VIDEO ? 'live' : 'soon',
+    section: 'services',
+  },
+  {
+    id: 'metube',
+    name: 'MeTube',
+    description: 'YouTube downloader',
+    url: `https://${BASE}/${METUBE}/`,
+    icon: 'download',
+    gradient: ['#ff0000', '#ff6d6d'],
+    status: 'live',
+    section: 'services',
   },
   {
     id: 'upscale',
@@ -147,6 +82,7 @@ export const services: Service[] = [
     icon: 'upscale',
     gradient: ['#1b5e8a', '#ffd23f'],
     status: UPSCALE ? 'live' : 'soon',
+    section: 'services',
   },
   {
     id: 'pdftools',
@@ -156,15 +92,57 @@ export const services: Service[] = [
     icon: 'docs',
     gradient: ['#3a2fc7', '#ffe45c'],
     status: PDF ? 'live' : 'soon',
+    section: 'services',
   },
   {
-    id: 'bots',
-    name: 'Bots',
-    description: 'Members, codes & bot stats',
-    url: `https://${BASE}/${BOTS}/`,
-    icon: 'bot',
-    gradient: ['#229ed9', '#7dd3fc'],
-    status: BOTS ? 'live' : 'soon',
+    id: 'nextcloud',
+    name: 'Nextcloud',
+    description: 'Files, sync & office',
+    url: `https://${CLOUD}`,
+    icon: 'cloud',
+    gradient: ['#0082c9', '#00c6fb'],
+    status: 'live',
+    section: 'services',
+  },
+  {
+    id: 'immich',
+    name: 'Immich',
+    description: 'Photos & videos',
+    url: `https://${PHOTOS}`,
+    icon: 'photo',
+    gradient: ['#fa2921', '#ffb400'],
+    status: 'live',
+    section: 'services',
+  },
+  {
+    id: 'plex',
+    name: 'Plex',
+    description: 'Movies, TV & music',
+    url: 'https://app.plex.tv/desktop',
+    icon: 'play',
+    gradient: ['#e5a00d', '#f8d074'],
+    status: 'live',
+    section: 'services',
+  },
+  {
+    id: 'matrix',
+    name: 'Matrix Chat',
+    description: 'Private messenger',
+    url: `https://${MATRIX}`,
+    icon: 'chat',
+    gradient: ['#0dbd8b', '#16d4a4'],
+    status: 'live',
+    section: 'services',
+  },
+  {
+    id: 'crypto',
+    name: 'Crypto Tracker',
+    description: 'Prices & Telegram alerts',
+    url: `https://${BASE}/${CRYPTO}/`,
+    icon: 'chart',
+    gradient: ['#f7931a', '#fbbf24'],
+    status: CRYPTO ? 'live' : 'soon',
+    section: 'services',
   },
   {
     // Optional (ENABLE_HOMEASSISTANT, docs/HOMEASSISTANT.md): the path sets the gate cookie.
@@ -175,5 +153,56 @@ export const services: Service[] = [
     icon: 'home',
     gradient: ['#18bcf2', '#7ee0ff'],
     status: HA ? 'live' : 'soon',
+    section: 'services',
+  },
+  {
+    id: 'sensor',
+    name: 'Room Sensor',
+    description: 'ESP32 temperature & humidity',
+    url: `https://${BASE}/${SENSOR}/`,
+    icon: 'thermometer',
+    gradient: ['#e4572e', '#3b82f6'],
+    status: SENSOR ? 'live' : 'soon',
+    section: 'projects',
+  },
+  {
+    id: '3xui',
+    name: '3x-ui',
+    description: 'Xray panel',
+    url: `https://${BASE}:${XUI_PORT}/${XUI_PATH}/`,
+    icon: 'shield',
+    gradient: ['#7928ca', '#ff0080'],
+    status: 'live',
+    section: 'admin',
+  },
+  {
+    id: 'amneziawg',
+    name: 'AmneziaWG',
+    description: 'VPN peer manager',
+    url: `https://${BASE}/${AWG}/`,
+    icon: 'key',
+    gradient: ['#4338ca', '#a5b4fc'],
+    status: 'live',
+    section: 'admin',
+  },
+  {
+    id: 'n8n',
+    name: 'n8n',
+    description: 'Workflow automation',
+    url: `https://${BASE}/${N8N}/`,
+    icon: 'flow',
+    gradient: ['#ea4b71', '#ff8da1'],
+    status: N8N ? 'live' : 'soon',
+    section: 'admin',
+  },
+  {
+    id: 'bots',
+    name: 'Bots',
+    description: 'Members, codes & bot stats',
+    url: `https://${BASE}/${BOTS}/`,
+    icon: 'bot',
+    gradient: ['#229ed9', '#7dd3fc'],
+    status: BOTS ? 'live' : 'soon',
+    section: 'admin',
   },
 ]

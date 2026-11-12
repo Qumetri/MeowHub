@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { motion } from 'framer-motion'
+import { isIdle, onIdleChange } from './idle'
 
 const POLL_MS = 2000
+const IDLE_POLL_MS = 15000          // while the page is idle (idle.ts); nothing while the tab is hidden
 
 // GET ./api/stats, served by stats/server.py
 interface Usage { percent: number; used: number; total: number }
@@ -68,11 +70,19 @@ export default function Stats() {
         if (alive) setErr(true)
       }
     }
-    void tick()
-    timer.current = window.setInterval(tick, POLL_MS)
+    // every refresh animates the bars for ~1 s, so a 2 s poll kept the compositor busy half the time
+    const loop = async () => {
+      window.clearTimeout(timer.current)
+      if (document.hidden) return
+      await tick()
+      if (alive) timer.current = window.setTimeout(loop, isIdle() ? IDLE_POLL_MS : POLL_MS)
+    }
+    void loop()
+    const off = onIdleChange((idle) => { if (!idle) void loop() })
     return () => {
       alive = false
-      clearInterval(timer.current)
+      off()
+      window.clearTimeout(timer.current)
     }
   }, [])
 

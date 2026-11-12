@@ -17,7 +17,7 @@ One `docker compose up`. One `.env`. One reverse proxy.
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
 ![Languages](https://img.shields.io/badge/bot_%26_app-RU_%C2%B7_EN-229ED9?logo=telegram&logoColor=white)
 
-<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, live host metrics and fifteen service cards; the Video card is hovered, with a duck peeking over it" width="100%">
+<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, live host metrics and fifteen service cards in three sections (My projects, Self-hosted services, Admin panels); the Room Sensor card is hovered, with a duck peeking over it" width="100%">
 
 </div>
 
@@ -135,15 +135,19 @@ Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
 
 The dashboard is responsive, so the hub works from a phone as well as a desk.
-It is a night pond: the water ripples under the pointer, a cat-eared duck
-leads her ducklings round the edge of the window (tap the big duck to add
-one), and a duck peeks over whichever card you hover. All of it switches off
-under *reduce motion*, and the fonts are self-hosted, so the page makes no
-third-party requests.
+Cards are grouped into **My projects**, **Self-hosted services** and **Admin
+panels**; on a phone they become compact three-up tiles (icon, name and a green
+Live dot). It is a night pond: the water ripples under the pointer, a cat-eared
+duck leads her ducklings round the edge of the window (tap the big duck to add
+one; not on phones), and a duck peeks over whichever card you hover. After 30 s
+without input, or while the tab is in the background, every animation pauses and
+the metrics poll slower, so an open tab doesn't keep a laptop warm. All of it
+switches off under *reduce motion*, and the fonts are self-hosted, so the page
+makes no third-party requests.
 
 </td><td width="42%" valign="top">
 
-<img src="docs/img/hub-mobile.png" alt="The dashboard on a phone" width="100%">
+<img src="docs/img/hub-mobile.png" alt="The dashboard on a phone: three-column metrics and compact three-up service tiles" width="100%">
 
 </td></tr>
 </table>
