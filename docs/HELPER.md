@@ -499,6 +499,16 @@ The Russian texts are the originals; add a key with both languages whenever you 
   `Record<keyof typeof ru, string>`, so `tsc` fails on a key missing in either language; `npm run build`
   also runs `helper/webapp/scripts/check-i18n.mjs` first, which fails on a `{placeholder}` or plural-form mismatch.
 
+## Admin panels page
+
+The hub page does not show the admin panels (dashboard section `admin`, cards in
+`dashboard/src/admin.ts`). The owner and the helper-bot admins send `/admin` (or press «🛠 Админка») in the
+helper bot and get a button with a **signed link valid for one hour** (`links.sign('admin', …)`,
+`protect_content`) to a small script-free page (`webapp.admin_page`) listing those cards; every panel
+keeps its own login. The link is re-checked against the current owner/admin list when opened.
+`/links` leaves the admin cards out; health and certificate checks still cover them. The web server
+must not serve `dist/services.json` publicly (the bot reads it from the bind mount).
+
 ## Downloader
 
 Service `youtube` (an owner-switched, all-members service, off by default -- see

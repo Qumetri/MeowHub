@@ -70,7 +70,8 @@ PAGE = 8
 
 # Reply-keyboard buttons: B_* are the Russian labels; a pressed button is matched through btn_key(),
 # which knows the labels of BOTH languages (a user may still have the old keyboard on screen).
-BTN_KEYS = ("health", "links", "yt", "pass", "vpn", "mx", "sub", "help", "members", "code", "app", "svc", "lang")
+BTN_KEYS = ("health", "links", "yt", "pass", "vpn", "mx", "sub", "help", "members", "code", "app", "svc", "lang",
+            "admin")
 B_HEALTH, B_LINKS, B_YT, B_PASS = (tr("ru", "btn." + k) for k in ("health", "links", "yt", "pass"))
 B_VPN, B_MX, B_SUB, B_HELP = (tr("ru", "btn." + k) for k in ("vpn", "mx", "sub", "help"))
 B_MEMBERS, B_CODE, B_APP = (tr("ru", "btn." + k) for k in ("members", "code", "app"))
@@ -84,7 +85,8 @@ def btn_key(text):
 URL_RE = re.compile(r"https?://\S+")
 SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
-OWNER_CMDS = ("/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
+ADMIN_LINK_TTL = 3600         # the /admin page link
+OWNER_CMDS = ("/admin", "/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
               "/sshalerts", "/sshunban", "/notify", "/refund")
 SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
 
@@ -281,7 +283,7 @@ class Helper:
         # gives a Mini App opened from a *reply-keyboard* button no initData, so it can't log in.
         app = [[lb("app")]] if self.webapp_url else []
         if role == "owner":
-            rows = [[lb("health"), lb("links"), lb("pass")], [lb("yt")],
+            rows = [[lb("health"), lb("links"), lb("pass")], [lb("yt"), lb("admin")],
                     [lb("members"), lb("code"), lb("svc")]]
             rows += [app[0] + [lb("lang")]] if app else [[lb("lang")]]
         else:
@@ -498,7 +500,7 @@ class Helper:
         base = [d("start"), d("help"), d("vpn"), d("matrix"), d("sub"), d("lang"), d("paysupport")]
         if not owner:
             return base
-        return base + [d("health"), d("links"), d("yt"), d("code"), d("members"), d("services"), d("notify"),
+        return base + [d("health"), d("links"), d("admin"), d("yt"), d("code"), d("members"), d("services"), d("notify"),
                        d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban"), d("refund")]
 
     def _commands(self):
@@ -627,11 +629,13 @@ class Helper:
         if cmd == "/links" or btn == "links":
             return self.cmd_links(cid)
         if role != "owner":
-            if cmd in OWNER_CMDS or btn in ("pass", "members", "code", "svc"):
+            if cmd in OWNER_CMDS or btn in ("pass", "members", "code", "svc", "admin"):
                 return self.bot.send(cid, tr(L, "err.owner_only"))
             return self.member_start(cid, uid)
 
         # ----- owner only below -----
+        if cmd == "/admin" or btn == "admin":
+            return self.cmd_admin(cid, uid)
         if cmd == "/pass" or btn == "pass":
             return self.cmd_pass(cid, uid)
         if cmd == "/setpass":
@@ -681,10 +685,11 @@ class Helper:
     # ------------------------------------------------------------------ texts --
     def help_text(self, role, lang="ru"):
         L = lang
-        lb = {k: tr(L, "btn." + k) for k in ("health", "links", "yt", "pass", "members", "code", "svc", "app", "lang")}
+        lb = {k: tr(L, "btn." + k) for k in ("health", "links", "yt", "pass", "members", "code", "svc", "app", "lang",
+                                              "admin")}
         t = tr(L, "help.common", **{k: lb[k] for k in ("health", "links", "yt")})
         if role == "owner":
-            t += "\n" + tr(L, "help.owner", ttl=PASS_TTL, app=lb["app"],
+            t += "\n" + tr(L, "help.owner", ttl=PASS_TTL, app=lb["app"], admin=lb["admin"],
                            **{"pass": lb["pass"], "members": lb["members"], "code": lb["code"], "svc": lb["svc"]})
         return t + "\n" + tr(L, "help.lang_line", lang=lb["lang"])
 
@@ -1335,9 +1340,21 @@ class Helper:
         f, i = health.full(self.store)
         self.bot.edit(cid, msg["message_id"], health.render(f, i, L))
 
+    def cmd_admin(self, cid, uid):
+        """A signed link (1 h) to the admin-panels page (webapp kind `admin`), which is no longer on the hub."""
+        L = self.lang(cid)
+        if not self.webapp_url:
+            return self.bot.send(cid, tr(L, "admin.no_url"))
+        url = links.absolute(links.sign("admin", "panels", uid, ttl=ADMIN_LINK_TTL, store=self.store),
+                             self.webapp_url)
+        names = ", ".join(esc(s.get("name", s["id"])) for s in hub.admin_services()) or "—"
+        return self.bot.send(cid, tr(L, "admin.msg", names=names, min=ADMIN_LINK_TTL // 60),
+                             reply_markup={"inline_keyboard": [[{"text": tr(L, "admin.open"), "url": url}]]},
+                             protect_content=True)
+
     def cmd_links(self, cid):
         L = self.lang(cid)
-        svcs = hub.services()
+        svcs = hub.public_services()
         lines = []
         h = hub.hub_url()
         if h:

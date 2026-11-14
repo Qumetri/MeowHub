@@ -37,6 +37,21 @@ def services():
         return []
 
 
+def is_admin_card(s):
+    """Admin panels (dashboard section `admin`): no longer on the hub page since 2026-11-14; the owner
+    gets them on a signed page from the helper bot (/admin). They stay in services.json for the health
+    checks and the vault names."""
+    return s.get("section") == "admin"
+
+
+def public_services():
+    return [s for s in services() if not is_admin_card(s)]
+
+
+def admin_services():
+    return [s for s in services() if is_admin_card(s)]
+
+
 def service_name(sid):
     for s in services():
         if s.get("id") == sid:

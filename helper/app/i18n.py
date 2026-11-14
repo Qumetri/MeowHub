@@ -175,6 +175,7 @@ _("btn.code", "🎟 Код", "🎟 Code")
 _("btn.app", "📱 MeowHub", "📱 MeowHub")
 _("btn.svc", "⚙️ Сервисы", "⚙️ Services")
 _("btn.lang", "🌐 Язык", "🌐 Language")
+_("btn.admin", "🛠 Админка", "🛠 Admin")
 # inline buttons
 _("btn.ext30", "➕ 30 д", "➕ 30 d")
 _("btn.ext90", "➕ 90 д", "➕ 90 d")
@@ -244,6 +245,7 @@ _("help.owner",
   "{members} / <code>/members</code> — участники: продлить, приостановить, сервисы\n"
   "{code} — мастер кода приглашения\n"
   "{svc} / <code>/services</code> — включать и выключать сервисы для участников\n"
+  "{admin} / <code>/admin</code> — ссылка на страницу админ-панелей (3x-ui, n8n, Bots…), действует час\n"
   "\n<b>Участники</b>\n"
   "<code>/code [дней] [vpn,matrix,tools]</code> — код приглашения (по умолчанию 30 дней, VPN + Мессенджер)\n"
   "Участник присылает код боту (или открывает ссылку-приглашение) — и получает доступ. "
@@ -258,6 +260,7 @@ _("help.owner",
   "{members} / <code>/members</code> — members: extend, pause, services\n"
   "{code} — invitation code wizard\n"
   "{svc} / <code>/services</code> — turn services on and off for members\n"
+  "{admin} / <code>/admin</code> — link to the admin panels page (3x-ui, n8n, Bots…), valid for an hour\n"
   "\n<b>Members</b>\n"
   "<code>/code [days] [vpn,matrix,tools]</code> — invitation code (30 days, VPN + Messenger by default)\n"
   "A member sends the code to the bot (or opens the invitation link) and gets access. "
@@ -616,6 +619,15 @@ _("inb.t_shared", "Выдан", "Shared")
 # -- health, links, downloader, passwords ------------------------------------------------------------
 _("health.checking", "🩺 Проверяю…", "🩺 Checking…")
 _("links.hub", "Хаб", "Hub")
+_("admin.msg", "🛠 <b>Админ-панели</b>: {names}\nСсылка действует {min} мин.",
+  "🛠 <b>Admin panels</b>: {names}\nThe link works for {min} min.")
+_("admin.open", "Открыть админ-панели", "Open the admin panels")
+_("admin.no_url", "Адрес Mini App не настроен (BOT_APP_PATH), ссылку не сделать.",
+  "The Mini App address isn't configured (BOT_APP_PATH), so there is no link.")
+_("admin.title", "Админ-панели", "Admin panels")
+_("admin.hint", "Ссылка из бота, действует {min} мин. У каждой панели свой вход.",
+  "Link from the bot, valid for {min} min. Each panel has its own login.")
+_("admin.none", "Список панелей пуст — пересобери dashboard.", "No panels listed — rebuild the dashboard.")
 _("links.none", "Список сервисов недоступен — пересобери dashboard (npm run build).",
   "The service list is unavailable — rebuild the dashboard (npm run build).")
 _("dl.off", "Скачивание видео сейчас выключено.", "Video downloads are currently turned off.")
@@ -674,6 +686,7 @@ _("cmd.paysupport", "Вопросы по оплате", "Payment support")
 _("cmd.refund", "Вернуть оплату звёздами", "Refund a Stars payment")
 _("cmd.health", "Состояние сервера", "Server status")
 _("cmd.links", "Ссылки хаба", "Hub links")
+_("cmd.admin", "Ссылка на админ-панели", "Link to the admin panels")
 _("cmd.yt", "Скачать видео: /yt <ссылка>", "Download a video: /yt <link>")
 _("cmd.code", "/code [дней] [vpn,matrix,tools]", "/code [days] [vpn,matrix,tools]")
 _("cmd.members", "Участники", "Members")

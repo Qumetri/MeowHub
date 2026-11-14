@@ -31,6 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import books as bkm
 import downloads as dlm
+import hub
 import i18n
 import links as signed
 import members as mem
@@ -1664,6 +1665,8 @@ class App:
             return self.dl_awg_vpn(uid)
         if kind == "awg_open":
             return self.awg_open_page(uid, req)
+        if kind == "admin":
+            return self.admin_page(uid)
         if kind == "file":
             return self.dl_file(uid, _ident, req)
         if kind in ("book", "bookdl"):
@@ -1792,6 +1795,64 @@ a.l{{color:var(--ac)}} p{{margin:0;color:var(--mu);max-width:22rem}}
         return Resp(page.encode(), "text/html; charset=utf-8", headers={
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
             "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+    # ------------------------------------------------------ /admin page --
+    def admin_page(self, uid):
+        """The admin panels (dashboard section `admin`), taken off the hub page 2026-11-14. Reached only
+        through the helper bot's /admin link (signed, 1 h); the holder must still be the owner or an
+        admin now. The panels keep their own logins; this page only lists where they are."""
+        if not self.h.is_admin(uid):
+            raise ApiError(403, "forbidden")
+        L = i18n.lang_of(self.h.store, uid)
+        cards = []
+        for s in hub.admin_services():
+            g = s.get("gradient") or ["#22c7f5", "#ffd23f"]
+            c1 = g[0] if re.fullmatch(r"#[0-9a-fA-F]{3,8}", str(g[0])) else "#22c7f5"
+            c2 = g[-1] if re.fullmatch(r"#[0-9a-fA-F]{3,8}", str(g[-1])) else "#ffd23f"
+            soon = s.get("status", "live") != "live"
+            cards.append(
+                f'<a class="c{" off" if soon else ""}" href="{esc(s["url"])}" style="--a:{c1};--b:{c2}">'
+                f'<i></i><b>{esc(s.get("name", s["id"]))}</b><span>{esc(s.get("description", ""))}</span></a>')
+        body = "\n".join(cards) or f'<p class="m">{esc(i18n.tr(L, "admin.none"))}</p>'
+        h = hub.hub_url()
+        foot = f'<a class="h" href="{esc(h)}">← {esc(i18n.tr(L, "links.hub"))}</a>' if h else ""
+        page = f"""<!doctype html>
+<html lang="{L}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex, nofollow">
+<title>{esc(i18n.tr(L, "admin.title"))}</title>
+<style>
+:root{{color-scheme:dark;--bg:#0b1020;--card:#141a2e;--line:rgba(255,255,255,.08);--fg:#eef2ff;--mu:#9aa4c4;--duck:#ffd23f}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;padding:28px 16px 40px;background:radial-gradient(120% 60% at 50% 0,#17213f 0,var(--bg) 60%);
+color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;justify-content:center}}
+main{{width:100%;max-width:520px}}
+h1{{margin:0 0 4px;font-size:22px;font-weight:700}} h1 span{{color:var(--duck)}}
+.m{{margin:0 0 18px;color:var(--mu);font-size:13.5px}}
+.g{{display:grid;gap:10px}}
+.c{{position:relative;display:grid;grid-template-columns:12px 1fr;column-gap:12px;align-items:center;padding:14px 16px;
+border-radius:14px;background:var(--card);border:1px solid var(--line);color:inherit;text-decoration:none;
+transition:transform .15s ease,border-color .15s ease}}
+.c:hover,.c:focus-visible{{transform:translateY(-1px);border-color:var(--a)}}
+.c:focus-visible{{outline:2px solid var(--duck);outline-offset:2px}}
+.c i{{grid-row:span 2;width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg,var(--a),var(--b));
+box-shadow:0 0 12px var(--a)}}
+.c b{{font-size:16px}} .c span{{color:var(--mu);font-size:13px}}
+.off{{opacity:.5;pointer-events:none}}
+.h{{display:inline-block;margin-top:22px;color:var(--mu);text-decoration:none;font-size:13.5px}}
+.h:hover{{color:var(--fg)}}
+@media (prefers-reduced-motion:reduce){{.c{{transition:none}}}}
+</style></head><body><main>
+<h1><span>🛠</span> {esc(i18n.tr(L, "admin.title"))}</h1>
+<p class="m">{esc(i18n.tr(L, "admin.hint", min=3600 // 60))}</p>
+<div class="g">
+{body}
+</div>
+{foot}
+</main></body></html>"""
+        return Resp(page.encode(), "text/html; charset=utf-8", headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+            "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"})
 
     # ----------------------------------------------------------- /go page --
     def go_page(self, app_id, query):
