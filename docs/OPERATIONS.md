@@ -53,6 +53,13 @@ renders a dimmed placeholder.
 - **`section`** puts the card under `projects` (My projects), `services` (Self-hosted
   services) or `admin` (Admin panels); titles and order are in `sections` in the same
   file, and an empty section is not shown. Cards keep the array order inside a section.
+  **Admin cards live in `src/admin.ts`, not in `services.ts`:** the page never imports that file, so
+  the panels' secret URLs are not in the bundle and the `admin` section is `hidden`. The build still
+  writes them to `dist/services.json` for the helper bot, which hands the owner a signed link to a
+  small page with them (`/admin`, see [HELPER.md](HELPER.md#admin-panels-page)).
+- **`public/check.html`** is a small page that tests, from the visitor's browser, which TCP ports of
+  the server answer (443 and the Reality self-steal ports, which fall through to the real site).
+  Send it to a VPN user whose network blocks something; edit the `tests` list to match your ports.
 - **`short`** (optional) is a shorter name for the phone layout, where a card is a
   third of the screen wide.
 - **`landscape: true`** (optional) shows a small "turn your phone" icon on the card on phones,

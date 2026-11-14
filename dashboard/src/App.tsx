@@ -210,7 +210,7 @@ export default function App() {
 
         <Stats />
 
-        {sections.map((sec) => {
+        {sections.filter((sec) => !sec.hidden).map((sec) => {
           const cards = services.filter((s) => s.section === sec.id)
           return cards.length === 0 ? null : (
             <Fragment key={sec.id}>

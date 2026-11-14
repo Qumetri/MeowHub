@@ -21,8 +21,9 @@ function servicesJson(): Plugin {
       })
       try {
         const { services } = (await server.ssrLoadModule('/src/services.ts')) as { services: Service[] }
-        const data = services.map(({ id, name, description, url, status }) =>
-          ({ id, name, description, url, status }))
+        const { adminServices } = (await server.ssrLoadModule('/src/admin.ts')) as { adminServices: Service[] }
+        const data = [...services, ...adminServices].map(({ id, name, description, url, status, section, gradient }) =>
+          ({ id, name, description, url, status, section, gradient }))
         writeFileSync(resolve(outDir, 'services.json'), JSON.stringify(data, null, 2) + '\n')
       } finally {
         await server.close()

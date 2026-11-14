@@ -91,6 +91,9 @@
 	}
 
 	handle_path /{$DASHBOARD_PATH}/* {
+		# services.json is for the helper bot only (it reads the file from the bind mount): it lists
+		# the admin panels' URLs, which are not on the hub page.
+		respond /services.json 404
 		encode zstd gzip
 		root * /srv/dashboard
 		file_server

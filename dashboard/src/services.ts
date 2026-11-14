@@ -27,10 +27,11 @@ export interface Service {
 export type SectionId = 'projects' | 'services' | 'admin'
 
 /** Page order of the sections; each card says which one it belongs to. Empty sections are not shown. */
-export const sections: { id: SectionId; title: string; hint: string }[] = [
+export const sections: { id: SectionId; title: string; hint: string; hidden?: boolean }[] = [
   { id: 'projects', title: 'My projects', hint: 'Things I built, running here' },
   { id: 'services', title: 'Self-hosted services', hint: 'Everyday tools on the home server' },
-  { id: 'admin', title: 'Admin panels', hint: 'Keys, bots and automations' },
+  // Admin panels are not on the page: their cards live in admin.ts and the helper bot's /admin hands out a signed link.
+  { id: 'admin', title: 'Admin panels', hint: 'Keys, bots and automations', hidden: true },
 ]
 
 const E = import.meta.env
@@ -38,18 +39,13 @@ const BASE    = E.VITE_BASE_DOMAIN   || 'localhost'
 const CLOUD   = E.VITE_CLOUD_HOST    || `cloud.${BASE}`
 const PHOTOS  = E.VITE_PHOTOS_HOST   || `photos.${BASE}`
 const MATRIX  = E.VITE_MATRIX_HOST   || `matrix.${BASE}`
-const AWG     = E.VITE_AWG_ADMIN_PATH || ''
 const METUBE  = E.VITE_METUBE_PATH   || ''
 const CRYPTO  = E.VITE_CRYPTO_PATH   || ''
-const N8N     = E.VITE_N8N_PATH      || ''
 const SENSOR  = E.VITE_SENSOR_PATH   || ''
-const BOTS    = E.VITE_BOT_ADMIN_PATH || ''
 const UPSCALE = E.VITE_UPSCALE_PATH  || ''
 const PDF     = E.VITE_PDF_PATH      || ''
 const VIDEO   = E.VITE_VIDEO_PATH    || ''
 const HA      = E.VITE_HA_PATH       || ''
-const XUI_PORT = E.VITE_XUI_PANEL_PORT || '10358'
-const XUI_PATH = E.VITE_XUI_PANEL_PATH || ''
 
 export const services: Service[] = [
   {
@@ -164,45 +160,5 @@ export const services: Service[] = [
     gradient: ['#e4572e', '#3b82f6'],
     status: SENSOR ? 'live' : 'soon',
     section: 'projects',
-  },
-  {
-    id: '3xui',
-    name: '3x-ui',
-    description: 'Xray panel',
-    url: `https://${BASE}:${XUI_PORT}/${XUI_PATH}/`,
-    icon: 'shield',
-    gradient: ['#7928ca', '#ff0080'],
-    status: 'live',
-    section: 'admin',
-  },
-  {
-    id: 'amneziawg',
-    name: 'AmneziaWG',
-    description: 'VPN peer manager',
-    url: `https://${BASE}/${AWG}/`,
-    icon: 'key',
-    gradient: ['#4338ca', '#a5b4fc'],
-    status: 'live',
-    section: 'admin',
-  },
-  {
-    id: 'n8n',
-    name: 'n8n',
-    description: 'Workflow automation',
-    url: `https://${BASE}/${N8N}/`,
-    icon: 'flow',
-    gradient: ['#ea4b71', '#ff8da1'],
-    status: N8N ? 'live' : 'soon',
-    section: 'admin',
-  },
-  {
-    id: 'bots',
-    name: 'Bots',
-    description: 'Members, codes & bot stats',
-    url: `https://${BASE}/${BOTS}/`,
-    icon: 'bot',
-    gradient: ['#229ed9', '#7dd3fc'],
-    status: BOTS ? 'live' : 'soon',
-    section: 'admin',
   },
 ]

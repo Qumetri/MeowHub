@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Проверка связи</title>
+<style>
+body{margin:0;background:#0d1420;color:#e6edf5;font:16px/1.45 system-ui,sans-serif;padding:20px 16px}
+main{max-width:520px;margin:0 auto}h1{font-size:20px;margin:0 0 6px}p{color:#9fb0c3;margin:6px 0 16px}
+li{list-style:none;display:flex;justify-content:space-between;gap:12px;padding:10px 12px;margin:6px 0;background:#162031;border-radius:10px}
+ul{padding:0;margin:0}.ok{color:#5fd38d}.bad{color:#ff7b72}.wait{color:#9fb0c3}
+pre{background:#162031;border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-all;font-size:13px;user-select:all}
+button{background:#2f81f7;color:#fff;border:0;border-radius:10px;padding:10px 16px;font-size:16px}
+</style></head><body><main>
+<h1>Проверка связи с сервером</h1>
+<p>Выключи VPN, открой эту страницу в той сети, где он не работает, дождись конца проверки и пришли текст из серой рамки (или снимок экрана).<br><span lang="en">Turn the VPN off, wait for the check to finish and send the text in the grey box.</span></p>
+<ul id="list"></ul>
+<pre id="out">…</pre>
+<button id="copy" hidden>Скопировать / Copy</button>
+<script>
+const host = location.hostname, T = 8000
+const tests = [['443', 'этот сайт'], ['8443', 'TCP+Vision'], ['2053', 'gRPC'], ['20456', 'XHTTP Reality'], ['2096', 'подписка']]
+const list = document.getElementById('list'), out = document.getElementById('out')
+const rows = tests.map(([port, name]) => {
+  const li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('span')
+  a.textContent = 'порт ' + port + ' · ' + name; b.textContent = '…'; b.className = 'wait'
+  li.append(a, b); list.append(li); return b
+})
+async function probe(port) {
+  const c = new AbortController(), t0 = performance.now(), timer = setTimeout(() => c.abort(), T)
+  try {
+    await fetch('https://' + host + ':' + port + '/?c=' + Math.random().toString(36).slice(2), { mode: 'no-cors', cache: 'no-store', redirect: 'manual', signal: c.signal })
+    return 'ok ' + Math.round(performance.now() - t0) + 'ms'
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0)
+    return (ms >= T - 200 ? 'timeout' : 'fail ' + ms + 'ms')
+  } finally { clearTimeout(timer) }
+}
+;(async () => {
+  const res = []
+  for (let round = 0; round < 2; round++)
+    for (let i = 0; i < tests.length; i++) {
+      const r = await probe(tests[i][0])
+      res[i] = (res[i] ? res[i] + ', ' : '') + r
+      const ok = res[i].split(', ').every((x) => x.startsWith('ok'))
+      rows[i].textContent = res[i]; rows[i].className = ok ? 'ok' : res[i].includes('ok') ? 'wait' : 'bad'
+    }
+  const conn = navigator.connection ? (navigator.connection.type || '') + ' ' + (navigator.connection.effectiveType || '') : ''
+  out.textContent = 'meowcheck ' + new Date().toISOString().slice(0, 16) + ' ' + Intl.DateTimeFormat().resolvedOptions().timeZone + ' ' + conn.trim() + '\n' +
+    tests.map((t, i) => t[0] + ': ' + res[i]).join('\n')
+  const btn = document.getElementById('copy'); btn.hidden = false
+  btn.onclick = () => navigator.clipboard && navigator.clipboard.writeText(out.textContent).then(() => { btn.textContent = '✓' })
+})()
+</script></main></body></html>
