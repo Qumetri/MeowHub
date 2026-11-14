@@ -11,7 +11,7 @@ import { Title } from './shared'
 import type { ApiError } from '../api'
 import type { DlExtras, DlFile, DlJob, DlPreset, DlPresets, DlStatus, Tone } from '../types'
 
-const defaultSites = () => ['YouTube', 'RuTube', t('dl.site_vk')]
+const defaultSites = () => ['YouTube', 'RuTube', t('dl.site_vk'), 'X (Twitter)', 'Reddit', 'TikTok']
 const isActive = (j: DlJob): boolean => j.status === 'queued' || j.status === 'running'
 const ST_TONE: Record<DlStatus, Tone> = { queued: 'mute', running: 'accent', done: 'ok', error: 'bad', canceled: 'mute', expired: 'mute' }
 // An older server wrapped the list as {jobs} or {items}.
@@ -334,7 +334,7 @@ export function Downloader({ base, head, mine }: DownloaderProps) {
         {jobs == null && !jobsErr && <Skeleton rows={2} title={false} />}
         {jobs == null && jobsErr && <ErrorBox error={jobsErr} onRetry={refresh} what={t('err.load')} />}
         {jobs && jobs.length === 0 && (
-          <div className="group"><Empty icon="film" title={t('dl.empty', { sites: sites.join(', ') })} /></div>
+          <div className="group"><Empty icon="film" title={t('dl.empty', { sites: sites.length > 6 ? `${sites.slice(0, 6).join(', ')} ${t('dl.sites_more')}` : sites.join(', ') })} /></div>
         )}
         {jobs && jobs.length > 0 && (
           <div className="group">

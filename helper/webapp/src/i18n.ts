@@ -405,6 +405,7 @@ export const ru = {
   'dur.min': '{n} мин',
   'dur.hm': '{h} ч {m} мин',
   'dl.site_vk': 'VK Видео',
+  'dl.sites_more': 'и другие',
 
   // app shell (owner)
   'nav.sections': 'Разделы',
@@ -1058,6 +1059,7 @@ export const en: Record<TKey, string> = {
   'dur.min': '{n} min',
   'dur.hm': '{h} h {m} min',
   'dl.site_vk': 'VK Video',
+  'dl.sites_more': 'and more',
 
   // app shell (owner)
   'nav.sections': 'Sections',

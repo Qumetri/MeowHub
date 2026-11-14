@@ -9,11 +9,14 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 import downloads as dlm
+import i18n
+import sources
 import links
 import members as mm
 import test_bot as tb
@@ -219,7 +222,7 @@ class TestPresets(EngineBase):
         self.assertEqual([x["id"] for x in p["audio"]], ["mp3", "m4a", "opus"])
         self.assertEqual(p["extras"], {"subs": ["ru", "en"], "clip": True, "playlist_max": 10})
         self.assertEqual(p["limits"], {"active": 2, "per_hour": 10, "per_day": 30, "ttl_min": 30})
-        self.assertEqual(p["sites"], ["YouTube", "RuTube", "VK Видео"])
+        self.assertEqual(p["sites"][:5], ["YouTube", "RuTube", "VK Видео", "X (Twitter)", "Reddit"])
 
     def test_add_bodies_force_h264_and_user_folder(self):
         want = {"v360": ("360", "video", "mp4"), "v720": ("720", "video", "mp4"),
@@ -531,6 +534,175 @@ class TestCanonicalUrl(unittest.TestCase):
                     "https://www.youtube.com/watch?v=", "not a url"):
             self.check(src, src)
         self.assertIsNone(dlm.canonical_url(None))
+
+class TestBareHosts(unittest.TestCase):
+    def test_share_tokens_are_dropped(self):
+        c = dlm.canonical_url
+        self.assertEqual(c("https://x.com/a/status/123?s=20&t=abc"), "https://x.com/a/status/123")
+        self.assertEqual(c("https://twitter.com/a/status/123#m"), "https://twitter.com/a/status/123")
+        self.assertEqual(c("https://www.tiktok.com/@u/video/1?is_from_webapp=1&sender_device=pc"),
+                         "https://www.tiktok.com/@u/video/1")
+        self.assertEqual(c("https://www.reddit.com/r/v/comments/abc/t/?share_id=x&utm_source=share"),
+                         "https://www.reddit.com/r/v/comments/abc/t/")
+        self.assertEqual(c("https://x.com/a/status/123"), "https://x.com/a/status/123")
+        self.assertEqual(c("https://x.com/a/status/123/photo/1"), "https://x.com/a/status/123")
+        self.assertEqual(c("https://twitter.com/a/status/123/photo/2?s=20"), "https://twitter.com/a/status/123")
+        self.assertEqual(c("https://x.com/a/status/123/video/2"), "https://x.com/a/status/123/video/2")
+
+
+FEED = """<?xml version="1.0"?><feed><title>T : videos</title><entry><author><name>/u/a</name></author>
+<content type="html">{content}</content><title>{title}</title></entry><entry><title>a comment</title>
+<content type="html">&lt;a href=&quot;https://v.redd.it/commentvid1&quot;&gt;x&lt;/a&gt;</content></entry></feed>"""
+
+
+def feed(content, title="Cat &amp;amp; dog"):
+    import html as h
+    return FEED.format(content=h.escape(content), title=title)
+
+
+class TestRedditSource(unittest.TestCase):
+    def setUp(self):
+        sources._cache.clear()
+        self.addCleanup(sources._cache.clear)
+        self.fetched = []
+
+    def fetch(self, body):
+        def f(url):
+            self.fetched.append(url)
+            if isinstance(body, Exception):
+                raise body
+            return body
+        return f
+
+    def test_video_post(self):
+        f = self.fetch(feed('<a href="https://v.redd.it/zv89llsvexdz">[link]</a> <a href="x">[comments]</a>'))
+        src = sources.resolve("https://www.reddit.com/r/videos/comments/6rrwyj/that_small/", f)
+        self.assertEqual(src.url, "https://v.redd.it/zv89llsvexdz/DASHPlaylist.mpd")
+        self.assertEqual((src.title, src.prefix), ("Cat & dog", "reddit-6rrwyj"))
+        self.assertEqual(self.fetched, ["https://www.reddit.com/comments/6rrwyj/.rss"])
+        sources.resolve("https://www.reddit.com/r/videos/comments/6rrwyj/that_small/", f)
+        self.assertEqual(len(self.fetched), 1)                 # cached: Reddit's budget is ~1 feed a minute
+
+    def test_link_post_goes_to_the_linked_page(self):
+        f = self.fetch(feed('<a href="https://www.youtube.com/watch?v=abc&amp;t=1">[link]</a>'))
+        src = sources.resolve("https://redd.it/6rrwyj", f)
+        self.assertEqual((src.url, src.prefix), ("https://www.youtube.com/watch?v=abc&t=1", ""))
+
+    def test_image_or_text_post_has_no_video(self):
+        for content in ('<a href="https://i.redd.it/x.jpg">[link]</a>', 'just text',
+                        '<a href="https://www.reddit.com/r/v/comments/6rrwyj/">[link]</a>'):
+            sources._cache.clear()
+            with self.assertRaises(sources.SourceError) as cm:
+                sources.resolve("https://old.reddit.com/r/v/comments/6rrwyj/", self.fetch(feed(content)))
+            self.assertEqual((cm.exception.key, cm.exception.retry_in), ("dl.job.reddit_novideo", None))
+
+    def test_rate_limit_is_retryable_and_not_cached(self):
+        err = urllib.error.HTTPError("u", 429, "Too Many", {"x-ratelimit-reset": "40"}, None)
+        with self.assertRaises(sources.SourceError) as cm:
+            sources.resolve("https://www.reddit.com/comments/6rrwyj/", self.fetch(err))
+        self.assertEqual((cm.exception.key, cm.exception.retry_in), ("dl.job.reddit_down", 40))
+        self.assertEqual(sources._cache, {})
+
+    def test_share_link_follows_one_redirect(self):
+        loc = lambda u: "https://www.reddit.com/r/videos/comments/6rrwyj/x/?share_id=1"  # noqa: E731
+        self.assertEqual(sources.reddit_post_id("https://www.reddit.com/r/videos/s/AbC123", loc), "6rrwyj")
+        self.assertIsNone(sources.reddit_post_id("https://www.reddit.com/r/videos/s/AbC123", lambda u: None))
+        self.assertIsNone(sources.reddit_post_id("https://www.reddit.com/r/videos/", loc))
+
+    def test_bare_v_redd_it_and_other_sites(self):
+        src = sources.resolve("https://v.redd.it/zv89llsvexdz", self.fetch(AssertionError("no fetch")))
+        self.assertEqual(src.url, "https://v.redd.it/zv89llsvexdz/DASHPlaylist.mpd")
+        self.assertIsNone(sources.resolve("https://x.com/a/status/1"))
+        self.assertIsNone(sources.resolve("https://notreddit.com/comments/abc/"))
+
+
+class TestRedditJobs(EngineBase):
+    POST = "https://www.reddit.com/r/videos/comments/6rrwyj/that_small/"
+    MEDIA = "https://v.redd.it/zv89llsvexdz/DASHPlaylist.mpd"
+
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+        self.answer = sources.Source(self.MEDIA, "Cat: dog?", self.POST, "reddit-6rrwyj")
+        p = mock.patch.object(sources, "resolve", self.resolve)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def resolve(self, url):
+        self.calls.append(url)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+    def test_resolved_in_the_worker_and_shown_as_the_post(self):
+        jid = self.sub(10, url=self.POST + "?utm_source=share")
+        self.assertEqual(self.calls, [])                       # nothing slow in the request itself
+        self.tick()
+        self.assertEqual(self.calls, [self.POST])
+        body = self.fake.adds[-1]
+        self.assertEqual((body["url"], body["custom_name_prefix"]), (self.MEDIA, "reddit-6rrwyj"))
+        self.fake.finish(self.MEDIA, name="reddit-6rrwyj.DASHPlaylist.mp4")
+        self.tick()
+        j = self.dl.job_json(self.job(jid))
+        self.assertEqual((j["status"], j["url"], j["title"]), ("done", self.POST, "Cat: dog?"))
+        self.assertEqual(j["files"][0]["name"], "Cat dog.mp4")
+
+    def test_rate_limit_keeps_the_job_queued_then_fails(self):
+        self.answer = sources.SourceError("dl.job.reddit_down", retry_in=30)
+        jid = self.sub(10, url=self.POST)
+        self.tick()
+        self.assertEqual(self.job(jid)["status"], "queued")
+        self.tick()
+        self.assertEqual(len(self.calls), 1)                   # waits out Reddit's reset
+        self.dl._resolve_after = 0
+        with mock.patch.object(self.dl, "clock", lambda: time.time() + dlm.RESOLVE_WAIT_S + 5):
+            self.tick()
+        j = self.job(jid)
+        self.assertEqual((j["status"], j["error"]), ("error", i18n.tr("ru", "dl.job.reddit_down")))
+
+    def test_post_without_video(self):
+        self.answer = sources.SourceError("dl.job.reddit_novideo")
+        jid = self.sub(10, url=self.POST)
+        self.tick()
+        self.assertEqual(self.dl.job_json(self.job(jid), lang="en")["error"], "this Reddit post has no video")
+
+    def test_vertical_clip_retries_once_without_the_height_cap(self):
+        u = "https://www.tiktok.com/@u/video/1"
+        jid = self.sub(10, url=u, preset="v720")
+        self.tick()
+        self.fake.fail(u, "ERROR: [TikTok] 1: Requested format is not available")
+        self.tick()
+        self.assertEqual([b["quality"] for b in self.fake.adds], ["720", "best"])
+        self.assertEqual(self.job(jid)["status"], "running")
+        self.fake.fail(u, "ERROR: Requested format is not available")
+        self.tick()
+        self.assertEqual(len(self.fake.adds), 2)                # only once
+        self.assertEqual(self.job(jid)["status"], "error")
+
+    def test_twitter_gif(self):
+        u = "https://x.com/a/status/1"
+        jid = self.sub(10, url=u + "/photo/1?s=20", preset="v720")
+        self.tick()
+        self.fake.fail(u, "ERROR: [twitter] 1: Requested format is not available")
+        self.tick()
+        self.assertEqual(self.fake.adds[-1]["quality"], "best")
+        self.fake.finish(u)
+        self.tick()
+        self.assertEqual(self.job(jid)["status"], "done")
+        jid = self.sub(10, url=u, preset="mp3")
+        self.tick()
+        self.fake.fail(u, "Postprocessing: WARNING: unable to obtain file audio codec with ffprobe")
+        self.tick()
+        self.assertEqual(self.dl.job_json(self.job(jid), lang="en")["error"],
+                         "this clip has no sound (a GIF, say) — pick a video preset")
+
+    def test_login_wall_gets_a_plain_message(self):
+        jid = self.sub(10, url="https://www.instagram.com/reel/abc/")
+        self.tick()
+        self.fake.fail("https://www.instagram.com/reel/abc/", "ERROR: [Instagram] abc: use --cookies-from-browser or --cookies")
+        self.tick()
+        self.assertEqual(self.job(jid)["error"], i18n.tr("ru", "dl.job.login"))
+
 
 class TestMatching(EngineBase):
     SHARE = "https://youtu.be/AAAAAAAAAAA?is=ExX5atY71NIVN6rj"
@@ -1034,7 +1206,7 @@ class TestChatFlow(ChatBase):
 
     def test_button_and_command_variants(self):
         self.h.on_message(tb.msg(tb.OWNER, tb.botmod.B_YT))
-        self.assertEqual(self.b.sent(tb.OWNER)[-1][2], "Пришли ссылку — открою загрузчик (YouTube, RuTube, VK Видео).")
+        self.assertEqual(self.b.sent(tb.OWNER)[-1][2], i18n.tr("ru", "dl.paste"))
         self.h.on_message(tb.msg(tb.OWNER, "/yt"))
         self.assertIn("/yt https://", self.b.sent(tb.OWNER)[-1][2])
         self.h.on_message(tb.msg(tb.OWNER, f"смотри {URL} круто"))

@@ -506,6 +506,17 @@ Service `youtube` (an owner-switched, all-members service, off by default -- see
 Downloads happen in the Mini App page "Скачать" (`?p=downloads&url=…`). The bots do
 **not** download or upload anything: a link sent to a bot is handed off to the app.
 
+- **Sites**: anything yt-dlp downloads without an account. The app lists YouTube, RuTube, VK Видео,
+  X (Twitter), Reddit, TikTok, Twitch, Bluesky, Facebook, OK, Dailymotion, Pinterest and SoundCloud
+  (`SITES` in `app/downloads.py`); any other http(s) link is tried as well. Tracking parameters are
+  dropped from X, TikTok, Bluesky and Reddit links, and an X `/photo/N` suffix is removed (that is how
+  GIF tweets are shared). A format that does not exist at the chosen height (vertical clips, X GIFs)
+  is retried once at the best available quality. **Reddit** needs `app/sources.py`: its JSON API and
+  yt-dlp's extractor want an account from a server address, so the post's official RSS feed is read
+  with our own User-Agent to find the `v.redd.it` video (fetched through its DASH playlist) or the
+  external link. Reddit allows about one feed request a minute, so this happens in the worker with a
+  cache and a retry, never in the request. Sites that demand a login (Instagram, Vimeo) end with a
+  "needs an account" message.
 - **Engine**: MeTube at the internal `METUBE_URL` (default `http://metube:8081`) plus
   `/{METUBE_PATH}/`, pinned in compose (`METUBE_IMAGE`), with `DOWNLOAD_DIRS_INDEXABLE`
   off, 2 concurrent downloads and yt-dlp upgraded nightly. The public MeTube route is

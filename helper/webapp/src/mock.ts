@@ -264,7 +264,7 @@ const dlPresets = (): Required<Pick<DlPresets, 'video' | 'audio' | 'extras' | 'l
   audio: [{ id: 'mp3', label: 'MP3' }, { id: 'm4a', label: 'M4A' }, { id: 'opus', label: 'Opus' }],
   extras: { subs: ['ru', 'en'], clip: true, playlist_max: 10 },
   limits: { active: 2, per_hour: 10, per_day: 30, ttl_min: 30 },
-  sites: ['YouTube', 'RuTube', tr('VK Видео', 'VK Video')],
+  sites: ['YouTube', 'RuTube', tr('VK Видео', 'VK Video'), 'X (Twitter)', 'Reddit', 'TikTok', 'Twitch', 'Bluesky', 'Facebook', 'OK', 'Dailymotion', 'Pinterest', 'SoundCloud'],
 })
 const presetLabel = (id: string): string => { const p = dlPresets(); return [...p.video, ...p.audio].find((x) => x.id === id)?.label || id }
 const MB = 1024 * 1024

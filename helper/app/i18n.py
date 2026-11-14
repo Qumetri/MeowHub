@@ -619,8 +619,8 @@ _("links.hub", "Хаб", "Hub")
 _("links.none", "Список сервисов недоступен — пересобери dashboard (npm run build).",
   "The service list is unavailable — rebuild the dashboard (npm run build).")
 _("dl.off", "Скачивание видео сейчас выключено.", "Video downloads are currently turned off.")
-_("dl.paste", "Пришли ссылку — открою загрузчик (YouTube, RuTube, VK Видео).",
-  "Send me a link and I'll open the downloader (YouTube, RuTube, VK Video).")
+_("dl.paste", "Пришли ссылку — открою загрузчик (YouTube, RuTube, VK Видео, X/Twitter, Reddit, TikTok и др.).",
+  "Send me a link and I'll open the downloader (YouTube, RuTube, VK Video, X/Twitter, Reddit, TikTok and more).")
 _("dl.usage", "Формат: <code>/yt https://youtu.be/…</code>", "Usage: <code>/yt https://youtu.be/…</code>")
 _("dl.moved",
   "🎬 Загрузчик теперь работает в мини-приложении MeowHub — "
@@ -855,6 +855,21 @@ _("books.owner_queued",
   "Voice: {voice} · chapters: {chapters} · ≈ {listen} of audio\n"
   "Ahead of it in line: {ahead}; ready in about {ready}.\n"
   "Member's limit: {used} of {total}.")
+_("dl.announce_sites",
+  "🎬 <b>Загрузчик видео: новые сайты</b>\n\n"
+  "Теперь можно скачивать не только с YouTube, RuTube и VK, но и с <b>X (Twitter), Reddit, TikTok</b>, "
+  "Twitch, Bluesky, Facebook, OK, Dailymotion, Pinterest и SoundCloud. Гифки из X тоже качаются "
+  "(сохраняются как MP4).\n\n"
+  "Проще всего: нажмите «Поделиться» под постом и отправьте ссылку этому боту, она сама подставится "
+  "в загрузчик. Или откройте MeowHub (синяя кнопка слева от поля ввода) → «Видео».\n\n"
+  "Instagram и Vimeo пока не работают: без входа в аккаунт они видео не отдают.",
+  "🎬 <b>Video downloader: new sites</b>\n\n"
+  "Besides YouTube, RuTube and VK, you can now download from <b>X (Twitter), Reddit, TikTok</b>, "
+  "Twitch, Bluesky, Facebook, OK, Dailymotion, Pinterest and SoundCloud. GIFs from X work too "
+  "(saved as MP4).\n\n"
+  "Easiest way: tap “Share” under a post and send the link to this bot; it lands in the downloader "
+  "ready to go. Or open MeowHub (the blue button left of the message field) → “Video”.\n\n"
+  "Instagram and Vimeo don't work yet: they only show videos to logged-in users.")
 _("books.announce",
   "📚 <b>Новое в MeowHub: аудиокниги (бета)</b>\n\n"
   "Загрузи книгу в EPUB или PDF, выбери голос — сервер прочитает её вслух и соберёт аудиокнигу "
@@ -1043,5 +1058,11 @@ _("dl.job.queue", "ошибка очереди, повтори", "queue error, t
 _("dl.job.unavail", "загрузчик недоступен, попробуй позже", "the downloader is unavailable, try again later")
 _("dl.job.default", "ошибка загрузки", "download failed")
 _("dl.job.rejected", "MeTube отклонил ссылку", "The link was rejected")
+_("dl.job.login", "сайт отдаёт это видео только после входа в аккаунт — с сервера не скачать",
+  "the site shows this video only to logged-in users, so the server can't download it")
+_("dl.job.noaudio", "в этом ролике нет звука (например, GIF) — выбери видео", "this clip has no sound (a GIF, say) — pick a video preset")
+_("dl.job.reddit_novideo", "в этом посте Reddit нет видео", "this Reddit post has no video")
+_("dl.job.reddit_down", "Reddit сейчас не отвечает — попробуй через пару минут",
+  "Reddit isn't answering right now — try again in a couple of minutes")
 
 _JOB_REV = {v["ru"]: k for k, v in T.items() if k.startswith("dl.job.")}

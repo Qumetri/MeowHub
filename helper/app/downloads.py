@@ -16,7 +16,11 @@ MeTube from it:
     item in MeTube;
   * every URL goes through canonical_url() before it is stored or sent to
     MeTube: MeTube rewrites youtu.be/shorts/... to youtube.com/watch?v=..., and
-    jobs are matched to MeTube items by URL.
+    jobs are matched to MeTube items by URL;
+  * a link MeTube cannot take as it is (Reddit, see sources.py) is resolved by
+    the worker before the job starts: the job's `url` becomes the media URL and
+    opts keep `src` (what the user sent, shown and reported), `title` and the
+    MeTube file-name `prefix`.
 
 Presets are defined once here (presets_payload) and used by the Mini App API
 and by both bots (which only hand the link over to the Mini App). MeTube URLs
@@ -42,6 +46,7 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
 import i18n
 import links
+import sources
 
 log = logging.getLogger("downloads")
 
@@ -54,11 +59,15 @@ PRESETS = {p[0]: {"type": "video", "label": p[1], "quality": p[2]} for p in VIDE
 PRESETS.update({p[0]: {"type": "audio", "label": p[1], "format": p[2], "quality": p[3]} for p in AUDIO})
 SUBS = ("ru", "en")
 PLAYLIST_MAX = 10
-SITES = ["YouTube", "RuTube", "VK Видео"]
+# shown to users; yt-dlp knows ~1800 sites, these were checked to work from this server (2026-11-14).
+# Instagram and Vimeo need an account here, so they are not promised.
+SITES = ["YouTube", "RuTube", "VK Видео", "X (Twitter)", "Reddit", "TikTok", "Twitch", "Bluesky",
+         "Facebook", "OK", "Dailymotion", "Pinterest", "SoundCloud"]
 TERMINAL = ("finished", "error", "canceled")
 ACTIVE = ("queued", "running")
 STALE_START_S = 90           # MeTube showed no item for a job we submitted
 QUEUE_RETRY_S = 120          # MeTube unreachable: keep a job queued this long
+RESOLVE_WAIT_S = 300         # Reddit rate-limiting us: keep a job queued this long
 HK_EVERY = 15.0
 DAY = 86400
 
@@ -185,6 +194,11 @@ YT_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.co
 YT_ID = re.compile(r"[A-Za-z0-9_-]{6,32}\Z")
 YT_ID_PATHS = ("shorts", "live", "embed", "v")           # /<kind>/<id>
 TRACKING = ("si", "is", "feature", "pp", "ab_channel", "t", "utm_")
+# every query parameter on these is a share/tracking token (x.com ?s=20&t=..., tiktok ?is_from_webapp=1...)
+X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"}
+BARE_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com",
+              "tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com",
+              "bsky.app"} | sources.REDDIT
 
 
 def _tracking(key):
@@ -208,6 +222,16 @@ def canonical_url(u, keep_list=False):
         p = urlsplit(u)
         host = (p.hostname or "").lower()
     except ValueError:
+        return u
+    if host in BARE_HOSTS:
+        path = p.path
+        if host in X_HOSTS:
+            # ".../status/<id>/photo/1" (X's link to a GIF or the first picture) makes yt-dlp take media #1
+            # and fail with "Media #1 is not a video" when that is a picture; the bare tweet works.
+            # /video/<n> stays: it picks one of several videos.
+            path = re.sub(r"(/status/\d+)/photo/\d+/?$", r"\1", path)
+        if p.query or p.fragment or path != p.path:
+            return p._replace(path=path, query="", fragment="").geturl()
         return u
     if host not in YT_HOSTS:
         if not p.query:
@@ -234,6 +258,17 @@ def canonical_url(u, keep_list=False):
     if segs == ["playlist"] and lst:
         return "https://www.youtube.com/playlist?" + urlencode({"list": lst})
     return u
+
+
+# yt-dlp's ways of saying "this site wants an account" (Instagram, Vimeo, private posts...)
+LOGIN_RE = re.compile(r"--cookies|authentication is required|logged-in|login required|sign in to", re.I)
+# an audio preset on a clip without sound: X/Twitter GIFs are silent mp4s (ffprobe finds no audio stream)
+NOAUDIO_RE = re.compile(r"unable to obtain file audio codec|does not contain any (audio|stream)|no audio", re.I)
+
+
+def _file_title(title):
+    t = re.sub(r'[\x00-\x1f/\\:*?"<>|]+', " ", title or "").strip(" .")
+    return re.sub(r"\s+", " ", t)[:120]
 
 
 def _secs(v, field):
@@ -310,6 +345,7 @@ class Downloads:
         self._mine = set()                  # leads submitted by this process
         self._stable = {}                   # job id -> consecutive all-terminal ticks (playlists)
         self._hk = 0.0
+        self._resolve_after = 0.0           # Reddit asked us to wait until then
         self._thread = None
         if "ip" not in {r[1] for r in store.q("PRAGMA table_info(downloads)")}:
             store.q("ALTER TABLE downloads ADD COLUMN ip TEXT NOT NULL DEFAULT ''")    # guests' limits
@@ -434,12 +470,15 @@ class Downloads:
         p, o = PRESETS[j["preset"]], j["opts"]
         body = {"url": j["url"], "folder": f"u{j['uid']}", "auto_start": True,
                 "playlist_item_limit": PLAYLIST_MAX if o.get("playlist") else 1}
+        if o.get("prefix"):                     # resolved Reddit media are all called DASHPlaylist
+            body["custom_name_prefix"] = o["prefix"]
         if phase == "subs":
             body.update(download_type="captions", format="srt", quality="best",
                         subtitle_language=o["subs"], subtitle_mode="prefer_manual")
             return body
         if p["type"] == "video":
-            body.update(download_type="video", format="mp4", codec="h264", quality=p["quality"])
+            body.update(download_type="video", format="mp4", codec="h264",
+                        quality="best" if o.get("best") else p["quality"])
         else:
             body.update(download_type="audio", format=p["format"], quality=p["quality"])
         if o.get("subs"):
@@ -533,7 +572,7 @@ class Downloads:
         n = len(items)
         pcts = [100.0 if i.get("status") == "finished" else float(i.get("percent") or 0) for i in items]
         etas = [i.get("eta") for i in items if i.get("status") not in TERMINAL and i.get("eta") is not None]
-        first = items[0].get("title") or lead["title"]
+        first = lead["opts"].get("title") or items[0].get("title") or lead["title"]
         upd = {"percent": round(sum(pcts) / n, 1), "eta": int(max(etas)) if etas else None,
                "size": sum(int(i.get("size") or 0) for i in items) if lead["phase"] != "subs" else lead["size"],
                "title": first if n == 1 else f"{first} (+{n - 1})",
@@ -554,6 +593,12 @@ class Downloads:
             return self._subs_done(lead, fin)
         if not fin:
             msg = next((i.get("msg") or i.get("error") for i in items if i.get("msg") or i.get("error")), "")
+            if LOGIN_RE.search(str(msg)):
+                return self._fail(lead, i18n.tr("ru", "dl.job.login"))
+            if PRESETS[lead["preset"]]["type"] == "audio" and NOAUDIO_RE.search(str(msg)):
+                return self._fail(lead, i18n.tr("ru", "dl.job.noaudio"))
+            if self._retry_best(lead, msg):
+                return None
             return self._fail(lead, clean_error(msg))
         return self._finish(lead, fin)
 
@@ -614,6 +659,11 @@ class Downloads:
                     files.append(e)
         if not any(f["kind"] != "subs" for f in files):
             return self._fail(lead, i18n.tr("ru", "dl.job.nofile"))
+        nice = _file_title(lead["opts"].get("title")) if lead["opts"].get("prefix") else ""
+        if nice:                                # "reddit-abc.DASHPlaylist.mp4" -> "<post title>.mp4"
+            for f in files:
+                if f["kind"] != "subs":
+                    f["name"] = nice + os.path.splitext(f["name"])[1]
         total = sum(f["size"] for f in files if f["kind"] != "subs")
         self._upd_group(lead["id"], status="done", files=files, size=total, percent=100.0, eta=None,
                         error="", finished_ts=int(self.clock()))
@@ -626,13 +676,36 @@ class Downloads:
             return
         title = html.escape(lead.get("title") or lead["url"])
         preset = PRESETS.get(lead["preset"], {}).get("label", lead["preset"])
-        url = html.escape(lead["url"])
+        url = html.escape(lead["opts"].get("src") or lead["url"])
         guest = is_guest(lead["uid"])
         ip = html.escape(lead.get("ip") or "?")
         u.report("ytpub" if guest else "youtube", lead["uid"], lambda lang, who: i18n.tr(
             lang, "usage.youtube", who=i18n.tr(lang, "usage.guest", ip=ip) if guest else who,
             kind=i18n.tr(lang, "usage.kind_" + kind), title=title,
             preset=html.escape(preset), size=f"{size / 1048576:.0f} MB", url=url))
+
+    def _retry_best(self, lead, msg):
+        """A vertical clip (TikTok 576x1024, some Shorts) has no format with height <= 720, and an X/Twitter
+        GIF (one silent mp4, no size in its metadata) fails any height filter, so MeTube's 720p/360p
+        filter finds nothing: try once more without the height cap. -> True when resubmitted."""
+        p = PRESETS[lead["preset"]]
+        if (lead["phase"] != "main" or p["type"] != "video" or p["quality"] == "best"
+                or lead["opts"].get("best") or lead["opts"].get("playlist")
+                or "requested format is not available" not in str(msg).lower()):
+            return False
+        try:
+            self.mt.delete([lead["url"]], "done")
+        except MeTubeError:
+            pass
+        lead = dict(lead, opts=dict(lead["opts"], best=True))
+        ns = self.ns()
+        try:
+            self.mt.add(self._add_body(lead, "main"))
+        except MeTubeError:
+            return False
+        log.info("job %s: no %sp format, retrying at best quality", lead["id"], p["quality"])
+        self._upd_group(lead["id"], opts=lead["opts"], submit_ns=ns - 10**9, percent=0.0)
+        return True
 
     def _fail(self, lead, msg):
         self._upd_group(lead["id"], status="error", error=msg, eta=None, finished_ts=int(self.clock()))
@@ -648,6 +721,10 @@ class Downloads:
             if fresh is None or fresh["status"] != "queued":
                 continue                                    # canceled meanwhile
             j = fresh
+            if not j["opts"].get("src") and sources.is_reddit(j["url"]):
+                j = self._resolve(j, now)
+                if j is None:
+                    continue
             key = optkey(j["opts"])
             follow = next((L for L in leads if L["url"] == j["url"] and L["preset"] == j["preset"]
                            and optkey(L["opts"]) == key), None)
@@ -674,6 +751,28 @@ class Downloads:
                       submit_ns=ns - 10**9, murls=[j["url"]], folder=f"u{j['uid']}")
             self._mine.add(j["id"])
             leads.append(self._get(j["id"]))
+
+    def _resolve(self, j, now):
+        """Turn a Reddit link into its media URL (sources.py). -> the updated job, or None when it
+        failed or has to wait (Reddit answers about one feed a minute from this IP)."""
+        if now < self._resolve_after:
+            return None
+        try:
+            src = sources.resolve(j["url"])
+        except sources.SourceError as e:
+            if e.retry_in is not None and now - j["created_ts"] < RESOLVE_WAIT_S:
+                self._resolve_after = now + e.retry_in
+                log.info("reddit: waiting %ss for job %s", e.retry_in, j["id"])
+                return None
+            self._upd(j["id"], status="error", error=i18n.tr("ru", e.key), finished_ts=int(now))
+            return None
+        if src is None:                          # not a post link we understand: let yt-dlp try
+            opts = dict(j["opts"], src=j["url"])
+            self._upd(j["id"], opts=opts)
+            return self._get(j["id"])
+        opts = dict(j["opts"], src=src.src, title=src.title or "", prefix=src.prefix)
+        self._upd(j["id"], url=canonical_url(src.url), opts=opts, title=src.title or j["title"])
+        return self._get(j["id"])
 
     @staticmethod
     def _conflict(j, o):
@@ -805,7 +904,7 @@ class Downloads:
                 d["url"] = self.file_url(j, idx)
             files.append(d)
         done = j["status"] == "done"
-        return {"id": j["id"], "url": j["url"], "preset": j["preset"],
+        return {"id": j["id"], "url": j["opts"].get("src") or j["url"], "preset": j["preset"],
                 "preset_label": PRESETS[j["preset"]]["label"] if j["preset"] in PRESETS else j["preset"],
                 "title": j["title"], "status": j["status"], "percent": int(j["percent"] or 0),
                 "size": j["size"], "eta": j["eta"], "error": i18n.localize_job_error(lang, j["error"]),
