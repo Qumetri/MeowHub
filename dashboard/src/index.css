@@ -416,6 +416,47 @@ header {
   min-height: 1.6em;
 }
 
+/* ---------- search (draft 2026-11-16) ---------- */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: min(100%, 30rem);
+  margin: 1.4rem auto 0;
+  padding: 0 0.9rem;
+  height: 2.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--text) 5%, transparent);
+  color: var(--muted);
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.search:focus-within {
+  border-color: var(--duck);
+  background: color-mix(in oklch, var(--text) 8%, transparent);
+}
+.search svg { flex: none; }
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+}
+.search input::placeholder { color: var(--muted); }
+.search input::-webkit-search-cancel-button { filter: invert(0.7); }
+.search kbd {
+  flex: none;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 600 0.75rem/1.4 var(--body, inherit);
+  color: var(--muted);
+}
+
 /* ---------- live stats ---------- */
 .stats {
   display: grid;
@@ -994,3 +1035,5 @@ html[data-idle] *::before,
 html[data-idle] *::after {
   animation-play-state: paused !important;
 }
+
+.search + .group { margin-top: 1.2rem; }

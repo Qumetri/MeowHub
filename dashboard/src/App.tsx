@@ -6,6 +6,7 @@ import Parade from './Parade'
 import Pond from './Pond'
 import Stats from './Stats'
 import { sections, services, type Service } from './services'
+import { searchServices } from './search'
 
 // Optional local-only blocks (gitignored ./*.local.tsx, e.g. the owner's support block): a fresh clone
 // has none and renders nothing extra. A block may export `after = '<section id>'` to sit under that
@@ -198,7 +199,42 @@ function Hero() {
   )
 }
 
+// Draft search (how it matches: src/search.ts). The field filters the cards in place; with a query the
+// sections give way to one list of results, so nothing has to be scrolled past.
+function Search({ query, setQuery, first }: { query: string; setQuery: (q: string) => void; first?: Service }) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
+      if ((e.key === '/' && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault()
+        ref.current?.focus()
+        ref.current?.select()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  return (
+    <form className="search" role="search" onSubmit={(e) => {
+      e.preventDefault()
+      if (first?.status === 'live') window.location.href = first.url
+    }}>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+      </svg>
+      <input ref={ref} type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); e.currentTarget.blur() } }}
+        placeholder="Find a service: video, pdf, photos, torrent…" aria-label="Search the hub"
+        autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="go" />
+      {fine && !query && <kbd>/</kbd>}
+    </form>
+  )
+}
+
 export default function App() {
+  const [query, setQuery] = useState('')
+  const found = query.trim() ? searchServices(query) : null
   return (
     <>
       <DuckDefs />
@@ -208,9 +244,26 @@ export default function App() {
       <main>
         <Hero />
 
-        <Stats />
+        <Search query={query} setQuery={setQuery} first={found?.[0]} />
 
-        {sections.filter((sec) => !sec.hidden).map((sec) => {
+        {!found && <Stats />}
+
+        {found && (
+          <section className="group" aria-live="polite" aria-label="Search results">
+            <div className="group__head">
+              <h2>{found.length ? 'Found' : 'Nothing found'}</h2>
+              <span className="group__hint">
+                {found.length ? 'Enter opens the first one' : 'Try another word: “video”, “files”, “фото”'}
+              </span>
+              <span className="group__count">{found.length}</span>
+            </div>
+            <div className="grid">
+              {found.map((s) => <Card key={s.id} service={s} />)}
+            </div>
+          </section>
+        )}
+
+        {!found && sections.filter((sec) => !sec.hidden).map((sec) => {
           const cards = services.filter((s) => s.section === sec.id)
           return cards.length === 0 ? null : (
             <Fragment key={sec.id}>
@@ -236,7 +289,7 @@ export default function App() {
           )
         })}
 
-        {blocksAfter()}
+        {!found && blocksAfter()}
 
         <footer>Served by Caddy from {DOMAIN}</footer>
       </main>
