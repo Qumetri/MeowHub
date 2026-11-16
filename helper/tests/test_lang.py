@@ -433,7 +433,7 @@ class BotCase(unittest.TestCase):
 
     @staticmethod
     def labels(kb):
-        return [b["text"] for r in kb["keyboard"] for b in r]
+        return [b["text"] for r in kb.get("keyboard") or kb["inline_keyboard"] for b in r]
 
 
 class TestLangCommand(BotCase):
@@ -465,12 +465,12 @@ class TestLangCommand(BotCase):
         self.assertEqual(i18n.get_pref(self.h.store, uid), "en")
         out = self.b.sent(uid)[-1]
         self.assertEqual(out[2], "Language: English")
-        self.assertEqual(self.labels(out[3]["reply_markup"]), ["🌐 Language"])
+        self.assertEqual(self.labels(out[3]["reply_markup"])[-1], "🌐 Language")
         self.assertEqual(self.b.answers()[-1][2], "Language: English")
         self.h.on_callback(self.cbq(uid, "lang:ru"))
         out = self.b.sent(uid)[-1]
         self.assertEqual(out[2], "Язык: русский")
-        self.assertEqual(self.labels(out[3]["reply_markup"]), ["🌐 Язык"])
+        self.assertEqual(self.labels(out[3]["reply_markup"])[-1], "🌐 Язык")
 
     def test_auto_follows_telegram_again(self):
         uid = self.member(50, "en")
@@ -478,7 +478,7 @@ class TestLangCommand(BotCase):
         self.h.on_callback(self.cbq(uid, "lang:auto", "en"))
         self.assertEqual(i18n.get_pref(self.h.store, uid), "auto")
         self.assertEqual(self.b.sent(uid)[-1][2], "Language: auto (as in Telegram), now English")
-        self.assertEqual(self.labels(self.b.sent(uid)[-1][3]["reply_markup"]), ["🌐 Language"])
+        self.assertEqual(self.labels(self.b.sent(uid)[-1][3]["reply_markup"])[-1], "🌐 Language")
 
     def test_bad_callback_value(self):
         uid = self.member(50)
@@ -492,16 +492,18 @@ class TestLangCommand(BotCase):
         self.h.on_callback(self.cbq(77, "lang:ru", "en"))
         self.assertEqual(i18n.get_pref(self.h.store, 77), "ru")
         self.assertEqual(self.b.sent(77)[-1][2], "Язык: русский")
-        self.assertEqual(self.labels(self.b.sent(77)[-1][3]["reply_markup"]), ["🌐 Язык"])  # strangers: language only
+        self.assertEqual(self.labels(self.b.sent(77)[-1][3]["reply_markup"])[-1], "🌐 Язык")
         self.h.on_message(self.msg(77, "hello", "en"))
         self.assertIn("закрытый сервис", self.b.sent(77)[-1][2])           # and the pref applies to the lock text
 
     def test_owner_keyboard_has_the_button_and_help_mentions_it(self):
+        # 2026-11-16: the owner's language switch moved into "Control" (ctl_view)
         labels = self.labels(self.h.keyboard(tb.OWNER))
-        self.assertIn("🌐 Язык", labels)
+        self.assertIn("⚙️ Управление", labels)
+        self.assertIn("ctl:lang", str(self.h.ctl_view(tb.OWNER)[1]))
         i18n.set_pref(self.h.store, tb.OWNER, "en")
         labels = self.labels(self.h.keyboard(tb.OWNER))
-        self.assertIn("🌐 Language", labels)
+        self.assertIn("⚙️ Control", labels)
         self.assertIn("🩺 Health", labels)
         self.assertIn("/lang", self.h.help_text("owner", "en"))
         self.assertIn("/lang", self.h.help_text("owner", "ru"))
@@ -770,7 +772,7 @@ class TestTwoBots(unittest.TestCase):
         self.front.on_callback(BotCase.cbq(50, "lang:en"))
         out = self.mb.sent(50)[-1]
         self.assertEqual(out[2], "Language: English")
-        self.assertEqual([b["text"] for r in out[3]["reply_markup"]["keyboard"] for b in r], ["🌐 Language"])
+        self.assertEqual([b["text"] for r in out[3]["reply_markup"]["inline_keyboard"] for b in r][-1], "🌐 Language")
         sets = [e for e in self.mb.log if e[0] == "setMyCommands" and e[3].get("scope")]
         self.assertEqual(sets[-1][3]["scope"]["chat_id"], 50)
         self.assertEqual(self.hb.sent(50), [])                              # nothing leaked to the ops bot

@@ -41,7 +41,7 @@ class TrialTest(unittest.TestCase):
         welcome = self.b.sent(91)[-1]
         self.assertIn("Добро пожаловать", welcome[2])
         self.assertIn("Пробный доступ до", welcome[2])
-        self.assertIn("keyboard", welcome[3]["reply_markup"])          # the member keyboard is back
+        self.assertEqual(welcome[3]["reply_markup"]["inline_keyboard"][0][-1]["callback_data"], "lang:pick")
         self.assertTrue(any(e[0] == "editMessageReplyMarkup" for e in self.b.log))  # button removed
         notes = self.wait_owner(2)                                      # stranger notice + trial notice
         self.assertIn("пробный доступ на 1 день", notes[-1][2])
@@ -62,7 +62,7 @@ class TrialTest(unittest.TestCase):
         self.mm.delete(93)
         self.h.on_message(msg(93, "/start"))
         out = self.b.sent(93)[0]
-        self.assertNotIn("inline_keyboard", out[3]["reply_markup"])
+        self.assertNotIn("trial:go", str(out[3]["reply_markup"]))
         self.assertNotIn("Попробуй бесплатно", out[2])
 
     def test_switch_off_and_daily_cap(self):

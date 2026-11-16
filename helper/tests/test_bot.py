@@ -111,7 +111,7 @@ class BotTest(unittest.TestCase):
         self.assertEqual(data, ["g:77:30", "g:77:x"])
         # no inline app button: the text points at the blue menu button; the keyboard is language only
         self.assertIn("синяя кнопка «MeowHub»", out[0][2])
-        self.assertEqual(out[0][3]["reply_markup"]["keyboard"], [[{"text": botmod.B_LANG}]])
+        self.assertEqual([b["text"] for b in out[0][3]["reply_markup"]["inline_keyboard"][0]], ["📱 Открыть MeowHub", botmod.B_LANG])
 
     def test_stranger_start_gets_welcome_and_owner_sees_what_they_wrote(self):
         self.h.on_message(msg(78, "/start", first="Zed"))
@@ -138,7 +138,7 @@ class BotTest(unittest.TestCase):
         self.h.webapp_url = ""
         self.h.on_message(msg(77, "hi"))
         out = self.b.sent(77)[0]
-        self.assertNotIn("inline_keyboard", out[3]["reply_markup"])
+        self.assertEqual([b["text"] for b in out[3]["reply_markup"]["inline_keyboard"][0]], [botmod.B_LANG])   # language only, no app button
         self.assertNotIn("MeowHub»", out[2])                      # no pointer at a button that isn't there
         uid = self.make_member(58)
         self.h.on_message(msg(uid, "/start"))
@@ -185,8 +185,8 @@ class BotTest(unittest.TestCase):
         out = self.texts(uid)
         self.assertIn("Доступ приостановлен", out)
         self.assertIn("подписка закончилась", out)
-        kb = self.b.sent(uid)[-1][3]["reply_markup"]["keyboard"]
-        self.assertEqual(kb, [[{"text": botmod.B_LANG}]])
+        kb = [b["text"] for b in self.b.sent(uid)[-1][3]["reply_markup"]["inline_keyboard"][0]]
+        self.assertEqual(kb, ["📱 Открыть MeowHub", botmod.B_LANG])
         code = self.mm.new_code(30)
         self.h.on_message(msg(uid, code))
         self.assertIn("Подписка продлена", self.texts(uid))
@@ -226,14 +226,17 @@ class BotTest(unittest.TestCase):
             health.assert_called_once()
 
     def test_member_keyboard_is_language_only(self):
-        # extra buttons were mistaken for the app; everything lives behind the blue menu button
+        # 2026-11-16: no reply keyboard for members; two inline buttons (open the app, language) instead
         uid = self.make_member(54, services=["vpn", "matrix", "tools"])
-        self.assertEqual(self.h.keyboard(uid)["keyboard"], [[{"text": botmod.B_LANG}]])
+        self.assertEqual([b["text"] for b in self.h.keyboard(uid)["inline_keyboard"][0]], ["📱 Открыть MeowHub", botmod.B_LANG])
+        self.assertEqual(self.h.keyboard(uid)["inline_keyboard"][0][1]["callback_data"], "lang:pick")
         self.h.on_message(msg(uid, "/start"))
         e = self.b.sent(uid)
-        self.assertEqual(len(e), 1)                                # one message, no inline app button
+        self.assertEqual(len(e), 1)                                # one message
         self.assertIn("синюю кнопку «MeowHub»", e[0][2])
-        self.assertEqual(e[0][3]["reply_markup"]["keyboard"], [[{"text": botmod.B_LANG}]])
+        self.assertIn("web_app", e[0][3]["reply_markup"]["inline_keyboard"][0][0])
+        self.assertTrue(any(c[0] == "sendMessage" and c[3].get("reply_markup") == {"remove_keyboard": True}
+                            for c in self.b.log))                 # the old reply keyboard is taken away once
 
     def test_start_explains_the_private_matrix_server(self):
         uid = self.make_member(59, services=["vpn", "matrix"])
@@ -251,7 +254,7 @@ class BotTest(unittest.TestCase):
         self.h.on_message(msg(uid, botmod.B_APP))
         e = self.b.sent(uid)[-1]
         self.assertIn("синюю кнопку «MeowHub»", e[2])
-        self.assertEqual(e[3]["reply_markup"]["keyboard"], [[{"text": botmod.B_LANG}]])  # swaps the old keyboard
+        self.assertEqual([b["text"] for b in e[3]["reply_markup"]["inline_keyboard"][0]], ["📱 Открыть MeowHub", botmod.B_LANG])
         self.h.on_message(msg(OWNER, botmod.B_APP))                  # the owner keeps the inline button
         self.assertEqual(self.b.sent(OWNER)[-1][3]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"],
                          "https://example.org/app/")

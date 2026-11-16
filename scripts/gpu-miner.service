@@ -1,0 +1,13 @@
+[Unit]
+Description=GPU miner switch + guard: runs prl-miner only while the bot's switch is on and nothing else needs the GPU (docs/MINER.md)
+After=docker.service nvidia-persistenced.service
+
+[Service]
+Type=simple
+Environment=MINER_DATA=__HELPER_DATA__
+ExecStart=/usr/bin/python3 -u /usr/local/sbin/gpu-miner
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

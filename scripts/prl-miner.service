@@ -1,0 +1,28 @@
+[Unit]
+Description=PRL (Pearl) miner on Kryptex - SRBMiner-MULTI; started and stopped only by gpu-miner.service (docs/MINER.md)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/prl-miner/srbminer
+# Overclock (needs root): memory 810 MHz (pearlhash is core-bound), core +150 MHz, 160 W.
+# Tuned for an RTX 3060 (about 55 TH/s at 160 W); retune for another card.
+# Put your own Kryptex wallet id and a worker name below before installing.
+ExecStart=/opt/prl-miner/srbminer/SRBMiner-MULTI --algorithm pearlhash \
+  --pool prl-eu.kryptex.network:8048 --tls true --wallet YOUR_KRYPTEX_WALLET --worker myserver \
+  --disable-cpu --gpu-mclock0 810 --gpu-coffset0 150 --gpu-plimit0 160 \
+  --gpu-off-temperature 86 --log-file /opt/prl-miner/miner.log
+# SRBMiner keeps its overclock after exit: always put the card back to stock
+ExecStopPost=/usr/local/sbin/gpu-miner --reset
+StandardOutput=null
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=15
+Nice=10
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/prl-miner
+PrivateTmp=yes
+NoNewPrivileges=yes
+# no [Install]: never enabled on its own

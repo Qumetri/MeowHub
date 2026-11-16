@@ -44,6 +44,7 @@ import health
 import hub
 import i18n
 import links
+import miner
 import payments
 import tokens
 import upscale
@@ -71,7 +72,7 @@ PAGE = 8
 # Reply-keyboard buttons: B_* are the Russian labels; a pressed button is matched through btn_key(),
 # which knows the labels of BOTH languages (a user may still have the old keyboard on screen).
 BTN_KEYS = ("health", "links", "yt", "pass", "vpn", "mx", "sub", "help", "members", "code", "app", "svc", "lang",
-            "admin")
+            "admin", "ctl")
 B_HEALTH, B_LINKS, B_YT, B_PASS = (tr("ru", "btn." + k) for k in ("health", "links", "yt", "pass"))
 B_VPN, B_MX, B_SUB, B_HELP = (tr("ru", "btn." + k) for k in ("vpn", "mx", "sub", "help"))
 B_MEMBERS, B_CODE, B_APP = (tr("ru", "btn." + k) for k in ("members", "code", "app"))
@@ -87,7 +88,7 @@ SERVICE_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
 CODE_RE = re.compile(r"(?i)^\s*meow[\s-]*[a-z0-9]{4}[\s-]*[a-z0-9]{4}\s*$")
 ADMIN_LINK_TTL = 3600         # the /admin page link
 OWNER_CMDS = ("/admin", "/pass", "/setpass", "/delpass", "/users", "/members", "/code", "/allow", "/deny", "/services",
-              "/sshalerts", "/sshunban", "/notify", "/refund")
+              "/sshalerts", "/sshunban", "/notify", "/refund", "/miner", "/menu")
 SHORT = {s: tr("ru", "short." + s) for s in ("vpn", "matrix", "tools")}
 
 
@@ -281,17 +282,34 @@ class Helper:
         lb = lambda k: {"text": tr(L, "btn." + k)}               # noqa: E731
         # A plain text button, answered with an inline web_app button (open_app): Telegram
         # gives a Mini App opened from a *reply-keyboard* button no initData, so it can't log in.
-        app = [[lb("app")]] if self.webapp_url else []
         if role == "owner":
-            rows = [[lb("health"), lb("links"), lb("pass")], [lb("yt"), lb("admin")],
-                    [lb("members"), lb("code"), lb("svc")]]
-            rows += [app[0] + [lb("lang")]] if app else [[lb("lang")]]
-        else:
-            # Members and strangers get only the language switch: everything else lives in
-            # the Mini App behind the blue menu button, and extra buttons here were taken
-            # for the app itself. The old buttons' commands still answer (/vpn, /sub, ...).
-            rows = [[lb("lang")]]
-        return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
+            # Three rows by task (2026-11-16): look, people, tools. Rarely used things (service switches,
+            # notifications, miner, SSH alerts, links, language) live behind "Control" (ctl_view).
+            first = ([lb("app")] if self.webapp_url else []) + [lb("health"), lb("admin")]
+            rows = [first, [lb("members"), lb("code"), lb("pass")], [lb("yt"), lb("ctl")]]
+            return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
+        # Members and strangers: no reply keyboard at all (a lone "Language" button was taken for the app).
+        # Their messages carry two inline buttons instead: open the Mini App, change the language.
+        row = [{"text": tr(L, "btn.lang"), "callback_data": "lang:pick"}]
+        if self.webapp_url:
+            row.insert(0, {"text": tr(L, "menu.open_app"), "web_app": {"url": self.app_url()}})
+        return {"inline_keyboard": [row]}
+
+    def drop_old_keyboard(self, cid, uid):
+        """Once per person: take the old persistent reply keyboard (the lone language button) off their
+        screen. Telegram removes it on receipt, so the carrier message is deleted straight away."""
+        key = f"kb_gone_{uid}"
+        if self.store.get(key):
+            return
+        try:
+            msg = self.bot.call("sendMessage", chat_id=cid, text="⌨️", reply_markup={"remove_keyboard": True},
+                                disable_notification=True)
+            mid = (msg or {}).get("message_id") if isinstance(msg, dict) else None
+            if mid is not None:
+                self.bot.delete(cid, mid)
+            self.store.set(key, "1")
+        except TelegramError as e:
+            log.info("drop keyboard %s: %s", uid, e)
 
     # ------------------------------------------------------------- messaging --
     def bot_for_chat(self, chat_id):
@@ -500,8 +518,10 @@ class Helper:
         base = [d("start"), d("help"), d("vpn"), d("matrix"), d("sub"), d("lang"), d("paysupport")]
         if not owner:
             return base
-        return base + [d("health"), d("links"), d("admin"), d("yt"), d("code"), d("members"), d("services"), d("notify"),
-                       d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban"), d("refund")]
+        return base + [d("health"), d("links"), d("admin"), d("menu"), d("yt"), d("code"), d("members"), d("services"),
+                       d("notify"), d("miner"), d("pass"), d("setpass"), d("delpass"), d("sshalerts"), d("sshunban"),
+                       d("refund")]
+
 
     def _commands(self):
         """Default-scope commands: English text, plus Russian for the Russian-speaking
@@ -574,6 +594,8 @@ class Helper:
             self.members.touch(uid, frm, "message")
         elif role == "owner" and self.kind == "helper":
             self.admin_chat_setup(uid)
+        if role != "owner" and uid is not None:
+            self.drop_old_keyboard(cid, uid)
 
         cmd, _, arg = text.partition(" ")
         cmd = cmd.split("@")[0].lower()
@@ -646,6 +668,11 @@ class Helper:
             return self.cmd_members(cid)
         if cmd == "/services" or btn == "svc":
             return self.cmd_services(cid)
+        if cmd == "/menu" or btn == "ctl":
+            return self.cmd_ctl(cid)
+        if cmd == "/miner":
+            text, kb = self.miner_view(self.lang(cid))
+            return self.bot.send(cid, text, reply_markup=kb)
         if cmd == "/notify":
             return self.cmd_notify(cid)
         if cmd == "/code":
@@ -673,6 +700,9 @@ class Helper:
     def cb_lang(self, q, frm, cid, rest):
         """lang:ru|en|auto -> save, confirm in the new language and re-send the reply keyboard."""
         uid = frm.get("id")
+        if rest == "pick":
+            self.bot.answer(q["id"])
+            return self.cmd_lang(cid, uid)
         if rest not in i18n.PREFS or uid is None:
             return self.bot.answer(q["id"], tr(self.lang(uid, frm), "cb.bad_data"), alert=True)
         i18n.set_pref(self.store, uid, rest)
@@ -685,12 +715,12 @@ class Helper:
     # ------------------------------------------------------------------ texts --
     def help_text(self, role, lang="ru"):
         L = lang
-        lb = {k: tr(L, "btn." + k) for k in ("health", "links", "yt", "pass", "members", "code", "svc", "app", "lang",
+        lb = {k: tr(L, "btn." + k) for k in ("health", "links", "yt", "pass", "members", "code", "ctl", "app", "lang",
                                               "admin")}
-        t = tr(L, "help.common", **{k: lb[k] for k in ("health", "links", "yt")})
+        t = tr(L, "help.common", **{k: lb[k] for k in ("health", "yt")})
         if role == "owner":
             t += "\n" + tr(L, "help.owner", ttl=PASS_TTL, app=lb["app"], admin=lb["admin"],
-                           **{"pass": lb["pass"], "members": lb["members"], "code": lb["code"], "svc": lb["svc"]})
+                           **{"pass": lb["pass"], "members": lb["members"], "code": lb["code"], "ctl": lb["ctl"]})
         return t + "\n" + tr(L, "help.lang_line", lang=lb["lang"])
 
     def status_line(self, m, lang=None):
@@ -996,7 +1026,7 @@ class Helper:
                  + (f"\n{esc(self.video_url)}" if self.video_url else ""))
         kb.append([{"text": tr(L, "svc.dlpub_btn", mark=mark), "callback_data": "svc:dlpub"}])
         t += ["", tr(L, "svc.foot1"), tr(L, "svc.foot2")]
-        kb.append([{"text": tr(L, "ntf.open"), "callback_data": "ntf:v"}])
+        kb.append([{"text": tr(L, "ctl.back"), "callback_data": "ctl:home"}])
         return "\n".join(t), {"inline_keyboard": kb}
 
     def cmd_services(self, cid):
@@ -1024,6 +1054,88 @@ class Helper:
         self._edit(cid, mid, *self.services_view(L))
         return tr(L, "svc.toast", name=SERVICES[svc]["name_" + L], state=tr(L, "svc.on" if on else "svc.off"))
 
+    # ------------------------------------------------ owner/admins: control menu --
+    def cmd_ctl(self, cid):
+        text, kb = self.ctl_view(cid)
+        self.bot.send(cid, text, reply_markup=kb)
+
+    def ctl_view(self, uid):
+        """One message that leads to everything that is not needed daily: service switches, usage notices,
+        the miner, SSH alerts, links, language. Its sub-screens edit the same message and lead back here."""
+        L = self.lang(uid)
+        st = miner.status()
+        mn = tr(L, "ctl.on" if miner.wanted() else "ctl.off") if st.get("installed") else tr(L, "ctl.absent")
+        ssh = tr(L, "ctl.on" if self.ssh_alerts_on() else "ctl.off")
+        on = sum(1 for x in self.members.services_state(L) if x["enabled"])
+        t = [tr(L, "ctl.head"), "", tr(L, "ctl.line_svc", n=on), tr(L, "ctl.line_mnr", state=mn), tr(L, "ctl.line_ssh", state=ssh)]
+        b = lambda key, data, **kw: {"text": tr(L, key, **kw), "callback_data": data}      # noqa: E731
+        kb = [[b("ctl.b_svc", "ctl:svc"), b("ctl.b_ntf", "ctl:ntf")],
+              [b("ctl.b_mnr", "ctl:mnr"), b("ctl.b_ssh", "ctl:ssh", state=ssh)],
+              [b("ctl.b_links", "ctl:links"), b("ctl.b_lang", "ctl:lang")]]
+        return "\n".join(t), {"inline_keyboard": kb}
+
+    def cb_ctl(self, cid, mid, rest):
+        L = self.lang(cid)
+        if rest == "svc":
+            self._edit(cid, mid, *self.services_view(L))
+        elif rest == "ntf":
+            self._edit(cid, mid, *self.notify_view(cid))
+        elif rest == "mnr":
+            self._edit(cid, mid, *self.miner_view(L))
+        elif rest == "ssh":
+            on = not self.ssh_alerts_on()
+            self.store.set("ssh_alerts", "1" if on else "0")
+            self._edit(cid, mid, *self.ctl_view(cid))
+            return tr(L, "ssh.state_on" if on else "ssh.state_off")
+        elif rest == "links":
+            self.cmd_links(cid)
+        elif rest == "lang":
+            self.cmd_lang(cid, cid)
+        else:
+            self._edit(cid, mid, *self.ctl_view(cid))
+        return None
+
+    def miner_view(self, lang="ru"):
+        """The GPU miner (miner.md): the switch and what the guard on the host is doing right now."""
+        L = lang
+        st = miner.status()
+        want = miner.wanted()
+        t = [tr(L, "mnr.head"), ""]
+        if not st.get("installed"):
+            t.append(tr(L, "mnr.absent"))
+            return "\n".join(t), {"inline_keyboard": [[{"text": tr(L, "ctl.back"), "callback_data": "ctl:home"}]]}
+        if not st.get("alive"):
+            t.append(tr(L, "mnr.dead"))
+        else:
+            state = st.get("state", "off") if want or st.get("state") == "off" else "stopping"
+            key = "mnr.st_" + state
+            t.append(tr(L, key, reason=esc(st.get("reason", ""))) if i18n.has(key) else esc(state))
+            if state == "mining" and st.get("hashrate"):
+                t.append(tr(L, "mnr.rate", rate=esc(st["hashrate"]), ok=st.get("accepted", 0), bad=st.get("rejected", 0)))
+            if st.get("temp") is not None:
+                t.append(tr(L, "mnr.gpu", temp=st["temp"], power=st.get("power") or 0, free=st.get("free_mb") or 0))
+        t += ["", tr(L, "mnr.foot")]
+        kb = [[{"text": tr(L, "mnr.b_off" if want else "mnr.b_on"), "callback_data": "mnr:off" if want else "mnr:on"},
+               {"text": tr(L, "mnr.b_refresh"), "callback_data": "mnr:r"}],
+              [{"text": tr(L, "ctl.back"), "callback_data": "ctl:home"}]]
+        return "\n".join(t), {"inline_keyboard": kb}
+
+    def cb_miner(self, cid, mid, rest):
+        L = self.lang(cid)
+        toast = None
+        if rest in ("on", "off"):
+            if not miner.status().get("installed"):
+                return tr(L, "mnr.absent_short"), True
+            on = rest == "on"
+            miner.set_wanted(on, cid)
+            self.members.log(cid, "miner_toggle", "on" if on else "off")
+            toast = tr(L, "mnr.t_on" if on else "mnr.t_off")
+            if cid != self.owner_id():                      # an admin flipped it: the owner should know
+                self.notify_owner(tr(self.olang(), "mnr.owner_note", who=cid, state=tr(self.olang(), "ctl.on" if on else "ctl.off")))
+            time.sleep(2.5)                                 # let the guard react, so the card shows the new state
+        self._edit(cid, mid, *self.miner_view(L))
+        return toast
+
     # ------------------------------------------------- owner/admins: usage notices --
     def notify_view(self, uid):
         """This person's usage-notice switches, one per service (usage.py)."""
@@ -1037,6 +1149,7 @@ class Helper:
             t.append(f"{mark} {esc(name)}")
             kb.append([{"text": f"{mark} {name}", "callback_data": f"ntf:t:{svc}"}])
         t += ["", tr(L, "ntf.foot")]
+        kb.append([{"text": tr(L, "ctl.back"), "callback_data": "ctl:home"}])
         return "\n".join(t), {"inline_keyboard": kb}
 
     def cmd_notify(self, cid):
@@ -1528,7 +1641,8 @@ class Helper:
             self.bot.answer(q["id"])
             return self.show_password(cid, rest, uid)
         handler = {"m": self.cb_member, "c": self.cb_code, "g": self.cb_grant, "inb": self.cb_inbound,
-                   "svc": self.cb_services, "ssh": self.cb_ssh, "ntf": self.cb_notify}.get(kind)
+                   "svc": self.cb_services, "ssh": self.cb_ssh, "ntf": self.cb_notify, "ctl": self.cb_ctl,
+                   "mnr": self.cb_miner}.get(kind)
         if handler is None:
             return self.bot.answer(q["id"], tr(L, "cb.stale"), alert=True)
         try:

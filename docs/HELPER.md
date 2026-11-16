@@ -35,6 +35,20 @@ token in `helper/data/helper.db` instead; `.env` wins when both are set.
 
 For a separate bot for members, see [Two bots](#two-bots) below.
 
+## Menus (2026-11-16)
+
+**Owner and admins** get a three-row reply keyboard, grouped by task: MeowHub (the Mini App), Health, Admin /
+Members, Code, Passwords / Download video, **⚙️ Control**. Control (`/menu`) is one inline menu for everything
+that is not needed daily: member services, usage notifications, the GPU miner ([MINER.md](MINER.md)), SSH alerts,
+links, language. Its screens edit the same message and each ends with "‹ Control", so the chat does not fill up
+with menus. `/services`, `/notify`, `/links`, `/lang`, `/sshalerts` and `/miner` still work as commands.
+
+**Members and strangers** have no reply keyboard. Every menu message carries two inline buttons: open the Mini
+App, and language. (A persistent keyboard with a lone "Language" button was taken for the app itself; a Mini App
+opened from a reply-keyboard button also gets no login data from Telegram, while an inline button does.) People
+who still have the old keyboard on screen lose it on their next message: the bot sends a carrier message with
+`remove_keyboard` and deletes it at once (`drop_old_keyboard`, once per person).
+
 ## Who can do what
 
 | | Owner | Member (active) | Stranger |

@@ -176,6 +176,7 @@ _("btn.app", "📱 MeowHub", "📱 MeowHub")
 _("btn.svc", "⚙️ Сервисы", "⚙️ Services")
 _("btn.lang", "🌐 Язык", "🌐 Language")
 _("btn.admin", "🛠 Админка", "🛠 Admin")
+_("btn.ctl", "⚙️ Управление", "⚙️ Control")
 # inline buttons
 _("btn.ext30", "➕ 30 д", "➕ 30 d")
 _("btn.ext90", "➕ 90 д", "➕ 90 d")
@@ -204,8 +205,8 @@ _("short.tools", "Инструменты", "Tools")
 _("menu.open_app", "📱 Открыть MeowHub", "📱 Open MeowHub")
 _("menu.open_app_in", "📱 Открыть в MeowHub", "📱 Open in MeowHub")
 _("menu.blue",
-  "👉 <b>Чтобы начать, нажми синюю кнопку «MeowHub» слева от поля ввода</b> — там VPN, мессенджер, "
-  "подписка и всё остальное. Кнопка внизу только переключает язык.",
+  "👉 <b>Чтобы начать, нажми «Открыть MeowHub» под этим сообщением</b> (или синюю кнопку «MeowHub» слева от поля "
+  "ввода) — там VPN, мессенджер, подписка и всё остальное.",
   "👉 <b>To start, tap the blue “MeowHub” button left of the message field</b> — VPN, messenger, "
   "subscription and everything else are there. The button below only switches the language.")
 _("stranger.blue",
@@ -237,14 +238,16 @@ _("cb.bad_data", "Неверные данные", "Invalid data")
 # -- help ------------------------------------------------------------------------
 _("help.common",
   "🐱 <b>MeowHub помощник</b>\n\n{health} — состояние сервера: диски, контейнеры, сайты, сертификаты, DNS\n"
-  "{links} — хаб и все сервисы\n{yt} — пришли ссылку на видео, и я его скачаю",
+  "{yt} — пришли ссылку на видео, и я его скачаю",
   "🐱 <b>MeowHub helper</b>\n\n{health} — server status: disks, containers, sites, certificates, DNS\n"
-  "{links} — the hub and all services\n{yt} — send a video link and I'll download it")
+  "{yt} — send a video link and I'll download it")
 _("help.owner",
   "{pass} — логины к сервисам (только тебе, сообщение исчезает через {ttl} с)\n"
   "{members} / <code>/members</code> — участники: продлить, приостановить, сервисы\n"
   "{code} — мастер кода приглашения\n"
-  "{svc} / <code>/services</code> — включать и выключать сервисы для участников\n"
+  "{ctl} / <code>/menu</code> — всё остальное в одном меню: сервисы для участников, уведомления, майнер, "
+  "SSH-оповещения, ссылки, язык\n"
+
   "{admin} / <code>/admin</code> — ссылка на страницу админ-панелей (3x-ui, n8n, Bots…), действует час\n"
   "\n<b>Участники</b>\n"
   "<code>/code [дней] [vpn,matrix,tools]</code> — код приглашения (по умолчанию 30 дней, VPN + Мессенджер)\n"
@@ -259,7 +262,9 @@ _("help.owner",
   "{pass} — logins for the services (visible to you only; the message disappears after {ttl} s)\n"
   "{members} / <code>/members</code> — members: extend, pause, services\n"
   "{code} — invitation code wizard\n"
-  "{svc} / <code>/services</code> — turn services on and off for members\n"
+  "{ctl} / <code>/menu</code> — everything else in one menu: member services, notifications, the miner, "
+  "SSH alerts, links, language\n"
+
   "{admin} / <code>/admin</code> — link to the admin panels page (3x-ui, n8n, Bots…), valid for an hour\n"
   "\n<b>Members</b>\n"
   "<code>/code [days] [vpn,matrix,tools]</code> — invitation code (30 days, VPN + Messenger by default)\n"
@@ -1079,3 +1084,48 @@ _("dl.job.reddit_down", "Reddit сейчас не отвечает — попр�
   "Reddit isn't answering right now — try again in a couple of minutes")
 
 _JOB_REV = {v["ru"]: k for k, v in T.items() if k.startswith("dl.job.")}
+
+
+# ---- control menu and the GPU miner (2026-11-16) ----
+_("cmd.menu", "Управление: сервисы, уведомления, майнер, SSH, ссылки, язык", "Control: services, notifications, miner, SSH, links, language")
+_("cmd.miner", "Майнер на видеокарте: включить, выключить, состояние", "GPU miner: turn on, turn off, status")
+_("ctl.head", "⚙️ <b>Управление</b>", "⚙️ <b>Control</b>")
+_("ctl.line_svc", "Сервисы для участников: включено {n}", "Member services: {n} on")
+_("ctl.line_mnr", "Майнер: {state}", "Miner: {state}")
+_("ctl.line_ssh", "SSH-оповещения: {state}", "SSH alerts: {state}")
+_("ctl.on", "вкл", "on")
+_("ctl.off", "выкл", "off")
+_("ctl.absent", "не установлен", "not installed")
+_("ctl.b_svc", "⚙️ Сервисы", "⚙️ Services")
+_("ctl.b_ntf", "🔔 Уведомления", "🔔 Notifications")
+_("ctl.b_mnr", "⛏ Майнер", "⛏ Miner")
+_("ctl.b_ssh", "🛡 SSH: {state}", "🛡 SSH: {state}")
+_("ctl.b_links", "🔗 Ссылки", "🔗 Links")
+_("ctl.b_lang", "🌐 Язык", "🌐 Language")
+_("ctl.back", "‹ Управление", "‹ Control")
+_("mnr.head", "⛏ <b>Майнер на видеокарте</b> (Pearl, Kryptex)", "⛏ <b>GPU miner</b> (Pearl, Kryptex)")
+_("mnr.absent", "Майнер на сервере не установлен. Установка: <code>sudo scripts/gpu-miner-install.sh</code>",
+  "The miner is not installed on the server. Install: <code>sudo scripts/gpu-miner-install.sh</code>")
+_("mnr.absent_short", "Майнер не установлен на сервере.", "The miner is not installed on the server.")
+_("mnr.dead", "⚠️ Сторож GPU на сервере не отвечает, майнер не запущен. Проверь: <code>systemctl status gpu-miner</code>",
+  "⚠️ The GPU guard on the server is not answering; the miner is not running. Check: <code>systemctl status gpu-miner</code>")
+_("mnr.st_off", "⬜ Выключен.", "⬜ Off.")
+_("mnr.st_stopping", "⏳ Выключается…", "⏳ Turning off…")
+_("mnr.st_mining", "✅ Майнит.", "✅ Mining.")
+_("mnr.st_paused", "⏸ Включён, но на паузе: видеокарта занята ({reason}). Продолжит сам, когда она освободится.",
+  "⏸ On, but paused: the GPU is busy ({reason}). It resumes by itself once the GPU is free.")
+_("mnr.st_waiting", "⏳ Включён, запустится через {reason} с (ждёт, что видеокарта точно свободна).",
+  "⏳ On, starting in {reason} s (waiting to be sure the GPU is free).")
+_("mnr.st_no_vram", "⚠️ Включён, но не запущен: свободно только {reason} МБ видеопамяти (её держит языковая модель).",
+  "⚠️ On, but not started: only {reason} MB of video memory is free (the language model holds it).")
+_("mnr.st_error", "⚠️ Не удалось запустить: {reason}", "⚠️ Could not start: {reason}")
+_("mnr.rate", "Скорость: <b>{rate}</b>, принято {ok}, отклонено {bad}", "Rate: <b>{rate}</b>, accepted {ok}, rejected {bad}")
+_("mnr.gpu", "Видеокарта: {temp} °C, {power} Вт, свободно {free} МБ", "GPU: {temp} °C, {power} W, {free} MB free")
+_("mnr.foot", "Пока включён, майнер сам встаёт на паузу, когда видеокарта нужна другим (чат, Immich, улучшение фото, аудиокниги), и сам продолжает.",
+  "While on, the miner pauses by itself whenever something else needs the GPU (chat, Immich, photo upscaling, audiobooks) and resumes by itself.")
+_("mnr.b_on", "▶️ Включить", "▶️ Turn on")
+_("mnr.b_off", "⏹ Выключить", "⏹ Turn off")
+_("mnr.b_refresh", "🔄 Обновить", "🔄 Refresh")
+_("mnr.t_on", "Майнер включён", "Miner turned on")
+_("mnr.t_off", "Майнер выключен", "Miner turned off")
+_("mnr.owner_note", "⛏ Админ <code>{who}</code> переключил майнер: {state}", "⛏ Admin <code>{who}</code> switched the miner: {state}")

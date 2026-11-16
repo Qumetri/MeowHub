@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import tempfile
+import time
 import unittest
 import urllib.parse
 from unittest import mock
@@ -562,14 +563,19 @@ class TestServicesBot(Bot3):
         btns = {b["callback_data"]: b["text"] for b in self.buttons(out)}
         self.assertEqual(btns["svc:t:youtube"], "⬜ YouTube и видео — для всех участников")
         self.assertTrue(btns["svc:t:vpn"].startswith("✅ VPN"))
-        self.assertEqual(list(btns), ["svc:t:vpn", "svc:t:matrix", "svc:t:tools", "svc:t:youtube", "svc:t:books", "svc:t:upscale", "svc:trial", "svc:dlpub", "ntf:v"])
+        self.assertEqual(list(btns), ["svc:t:vpn", "svc:t:matrix", "svc:t:tools", "svc:t:youtube", "svc:t:books", "svc:t:upscale", "svc:trial", "svc:dlpub", "ctl:home"])
         self.assertIn("Вкл = доступно всем активным участникам", out[2])
         self.assertIn("Главный выключатель: выключишь — пропадёт у всех", out[2])
 
     def test_button_and_keyboard(self):
         self.assertEqual(tb.botmod.B_SVC, "⚙️ Сервисы")
         kb = self.h.keyboard(OWNER_BOT)["keyboard"]
-        self.assertTrue(any(b["text"] == tb.botmod.B_SVC for r in kb for b in r))
+        # 2026-11-16: the keyboard carries "Control"; Services is one tap inside it (and still answers by label)
+        self.assertTrue(any(b["text"] == "⚙️ Управление" for r in kb for b in r))
+        self.h.on_message(tb.msg(OWNER_BOT, "⚙️ Управление"))
+        menu = self.b.sent(OWNER_BOT)[-1]
+        self.assertEqual([b["callback_data"] for r in menu[3]["reply_markup"]["inline_keyboard"] for b in r],
+                         ["ctl:svc", "ctl:ntf", "ctl:mnr", "ctl:ssh", "ctl:links", "ctl:lang"])
         self.h.on_message(tb.msg(OWNER_BOT, tb.botmod.B_SVC))
         self.assertIn("Сервисы", self.b.sent(OWNER_BOT)[-1][2])
 
@@ -615,8 +621,8 @@ class TestServicesBot(Bot3):
         self.assertNotIn("services", [c["command"] for c in calls[0][3]["commands"]])
 
     def test_help_mentions_it_for_owner_only(self):
-        self.assertIn("/services", self.h.help_text("owner"))
-        self.assertNotIn("/services", self.h.help_text("member"))
+        self.assertIn("/menu", self.h.help_text("owner"))
+        self.assertNotIn("/menu", self.h.help_text("member"))
 
     def test_code_command_rejects_youtube(self):
         self.h.on_message(tb.msg(OWNER_BOT, "/code 30 youtube"))
@@ -642,11 +648,11 @@ class TestServicesBot(Bot3):
 class TestMemberChatUsesHas(Bot3):
     @staticmethod
     def labels(kb):
-        return [b["text"] for r in kb["keyboard"] for b in r]
+        return [b["text"] for r in kb.get("keyboard") or kb["inline_keyboard"] for b in r]
 
     def test_master_off_gates_the_commands(self):
         uid = self.make_member(50, ["vpn", "matrix", "tools"])
-        self.assertEqual(self.labels(self.h.keyboard(uid)), [tb.botmod.B_LANG])   # language only, always
+        self.assertEqual(self.labels(self.h.keyboard(uid))[-1], tb.botmod.B_LANG)   # language only, always
         self.mm.set_service_enabled("tools", False)
         with mock.patch.object(self.h, "cmd_health") as health:
             self.h.on_message(tb.msg(uid, "/health"))
@@ -673,3 +679,47 @@ class TestMemberChatUsesHas(Bot3):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestControlMenuAndMiner(Bot3):
+    """2026-11-16: "Control" gathers the rarely used owner screens; the miner switch only writes a wish file."""
+
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        import miner
+        self.miner = miner
+        d = tempfile.mkdtemp()
+        self._old = (miner.WANT, miner.STATUS)
+        miner.WANT, miner.STATUS = d + "/want.json", d + "/status.json"
+        self.addCleanup(lambda: setattr(miner, "WANT", self._old[0]) or setattr(miner, "STATUS", self._old[1]))
+
+    def test_sub_screens_lead_back(self):
+        for view in (self.h.services_view("ru"), self.h.notify_view(OWNER_BOT), self.h.miner_view("ru")):
+            self.assertEqual(view[1]["inline_keyboard"][-1][0]["callback_data"], "ctl:home")
+
+    def test_miner_not_installed(self):
+        text, kb = self.h.miner_view("ru")
+        self.assertIn("не установлен", text)
+        self.assertEqual(self.h.cb_miner(OWNER_BOT, 1, "on")[1], True)        # an alert, nothing written
+        self.assertFalse(self.miner.wanted())
+
+    def test_miner_switch_writes_the_wish_and_shows_the_guard_state(self):
+        import json
+        with open(self.miner.STATUS, "w") as f:
+            json.dump({"ts": time.time(), "state": "paused", "reason": "python3", "temp": 50, "power": 20, "free_mb": 500}, f)
+        with mock.patch("time.sleep"):
+            self.assertEqual(self.h.cb_miner(OWNER_BOT, 1, "on"), "Майнер включён")
+        self.assertTrue(self.miner.wanted())
+        text, kb = self.h.miner_view("ru")
+        self.assertIn("на паузе", text)
+        self.assertIn("python3", text)
+        self.assertEqual(kb["inline_keyboard"][0][0]["callback_data"], "mnr:off")
+        with mock.patch("time.sleep"):
+            self.h.cb_miner(OWNER_BOT, 1, "off")
+        self.assertFalse(self.miner.wanted())
+
+    def test_guard_silent_is_reported(self):
+        import json
+        with open(self.miner.STATUS, "w") as f:
+            json.dump({"ts": time.time() - 600, "state": "mining"}, f)
+        self.assertIn("не отвечает", self.h.miner_view("ru")[0])
