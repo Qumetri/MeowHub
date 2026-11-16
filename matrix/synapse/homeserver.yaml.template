@@ -59,7 +59,14 @@ experimental_features:
   msc3266_enabled: true       # room summary — Element Call requires it
   msc4222_enabled: true       # sync v2 state-after
   msc4140_enabled: true       # delayed events (call membership expiry)
+  msc4143_enabled: true       # serves /rtc/transports (MSC4519); Element X 26.x asks it before the well-known
 max_event_delay_duration: 24h
+# MatrixRTC transport list for /_matrix/client/unstable/org.matrix.msc4143/rtc/transports.
+# Must equal rtc_foci in the root-domain .well-known/matrix/client (caddy/Caddyfile.l4.template).
+matrix_rtc:
+  transports:
+    - type: livekit
+      livekit_service_url: https://${MATRIX_HOST}/${MATRIXRTC_PATH}/jwt
 rc_message:
   per_second: 0.5
   burst_count: 30

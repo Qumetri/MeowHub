@@ -1,0 +1,18 @@
+const { chromium } = await import(process.env.PLAYWRIGHT_MJS || 'playwright');
+import http from 'http'; import fs from 'fs';
+const S=process.argv[2], policy=process.argv[3]||'all';
+const T=JSON.parse(fs.readFileSync(S+'/tokens.json'));
+const srv=http.createServer((q,r)=>{ if(q.url=='/lk.js'){r.setHeader('content-type','text/javascript');r.end(fs.readFileSync(S+'/node_modules/livekit-client/dist/livekit-client.umd.js'))} else {r.setHeader('content-type','text/html');r.end('<!doctype html><script src="/lk.js"></script>')}}).listen(18999,'127.0.0.1');
+const b=await chromium.launch({executablePath:process.env.CHROME||undefined,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--no-sandbox']});
+const p=await (await b.newContext()).newPage(); await p.goto('http://127.0.0.1:18999/');
+await p.evaluate(({policy})=>{ window.log=[]; const O=window.RTCPeerConnection;
+  window.RTCPeerConnection=function(cfg,...a){ window.log.push('cfg ice='+JSON.stringify((cfg.iceServers||[]).map(s=>[].concat(s.urls).join(',')))+' policy='+cfg.iceTransportPolicy); const pc=new O(cfg,...a); const id=window.log.length;
+    pc.addEventListener('icecandidate',e=>{ if(e.candidate&&e.candidate.candidate) { const c=e.candidate; window.log.push(`pc${id} local ${c.type} ${c.protocol} ${c.relayProtocol||''} port=${c.port}`)} });
+    pc.addEventListener('icecandidateerror',e=>window.log.push(`pc${id} candErr ${e.errorCode} ${e.errorText} ${String(e.url).replace(/\?.*/,'')}`));
+    pc.addEventListener('iceconnectionstatechange',()=>window.log.push(`pc${id} ice=${pc.iceConnectionState}`));
+    const ar=pc.addIceCandidate.bind(pc); pc.addIceCandidate=(c)=>{ if(c&&c.candidate){const m=c.candidate.split(' '); window.log.push(`pc${id} remote ${m[7]} ${m[2]} port=${m[5]} ${m.includes('tcptype')?'tcp':''}`)} return ar(c)};
+    return pc }; window.RTCPeerConnection.prototype=O.prototype; },{policy});
+const r=await p.evaluate(async ({url,jwt,policy})=>{ const L=window.LivekitClient; const room=new L.Room(); window.room=room;
+  try{ await Promise.race([ (async()=>{await room.connect(url,jwt,{rtcConfig:{iceTransportPolicy:policy}}); await room.localParticipant.setMicrophoneEnabled(true);})(), new Promise((_,j)=>setTimeout(()=>j('timeout25'),25000))]); return 'published ok'}catch(e){return 'FAIL '+String(e).slice(0,120)} },{url:T.calltest_a.url,jwt:T.calltest_a.jwt,policy});
+console.log(policy,'=>',r); console.log((await p.evaluate(()=>window.log)).join('\n'));
+await b.close(); srv.close();

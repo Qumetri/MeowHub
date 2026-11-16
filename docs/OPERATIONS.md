@@ -249,3 +249,27 @@ curl -sI https://cloud.example.com | head -1
 That last point costs more debugging time than anything else here: a test run
 *on* the server goes out to the router and back, so it can succeed while the
 service is unreachable from the internet. Always confirm externally.
+
+## Testing calls for real
+
+`scripts/matrix-call-test/run.sh` makes an actual Element-Call-style call against the running server: it registers
+two temporary Matrix accounts, gets LiveKit tokens through the public route (well-known → JWT service), joins the
+SFU from a headless Chromium with fake camera and microphone, once with normal ICE and once **relay-only** (TURN
+over TLS on `turn.<domain>:443`, the path that works on networks allowing only HTTPS), prints the ICE candidates
+and the bytes the second participant received, and deactivates the accounts.
+
+```bash
+NODE_BIN=/path/to/node22/bin PLAYWRIGHT_MJS=/path/to/node_modules/playwright/index.mjs \
+CHROME=/path/to/chromium SYNAPSE=<synapse container> scripts/matrix-call-test/run.sh
+```
+
+Run it after every LiveKit, Synapse, lk-jwt-service or Caddy layer4 change. LiveKit 1.12+ reworked TURN
+authentication (credentials expire, default 300 s; the template sets `ttl_seconds: 3600`) and relay rules, which
+is why the image tag is only bumped after this test passes. It runs from the server itself, so it proves the
+server side, not reachability from a particular country.
+
+Synapse also serves the MatrixRTC transport list (`msc4143_enabled` + `matrix_rtc.transports` in
+`homeserver.yaml.template`): Element X 26.x asks `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
+before it falls back to the well-known. After pulling this change, re-render the template
+(`./bootstrap.sh`; delete `matrix/synapse/homeserver.yaml` first if you never edited it, or add the two blocks by
+hand) and restart Synapse.

@@ -504,7 +504,7 @@ services:
   # TURN relays to its own media port, so unpublishing them breaks TURN too.
   matrix-livekit:
     container_name: ${STACK_NAME:-meowstack}_livekit
-    image: ${LIVEKIT_IMAGE:-livekit/livekit-server:v1.8.4}   # held: 1.12/1.13 rework TURN auth and relay rules; test a call over TURN/443 before bumping
+    image: ${LIVEKIT_IMAGE:-livekit/livekit-server:v1.13.11}   # after every bump run scripts/matrix-call-test/run.sh (direct + TURN/443)
     profiles: [matrix]
     <<: [*restart, *logging]
     command: --config /etc/livekit.yaml
