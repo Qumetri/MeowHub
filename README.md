@@ -17,7 +17,7 @@ One `docker compose up`. One `.env`. One reverse proxy.
 ![Config](https://img.shields.io/badge/settings-one_.env-FF0080)
 ![Languages](https://img.shields.io/badge/bot_%26_app-RU_%C2%B7_EN-229ED9?logo=telegram&logoColor=white)
 
-<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, live host metrics and fifteen service cards in three sections (My projects, Self-hosted services, Admin panels); the Room Sensor card is hovered, with a duck peeking over it" width="100%">
+<img src="docs/img/hub.png" alt="The MeowHub dashboard: a night pond with a cat-eared duck, a search field, live host metrics and service cards in two sections (My projects, Self-hosted services)" width="100%">
 
 </div>
 
@@ -47,6 +47,7 @@ on hardware you control.
 | 🚀 | **3x-ui** — VLESS/Reality, Hysteria2, Shadowsocks | optional |
 | 🏠 | **Home Assistant** — devices in another place, on a secret path, webhooks for ESP32s | optional |
 | 🔒 | **SSH guard** — fail2ban for the host's SSH, new-login alerts and a daily summary in Telegram | optional, host |
+| ⛏ | **GPU miner switch** — turn a miner on and off from the bot; a guard pauses it whenever anything else computes on the GPU | optional, host |
 
 ## Quick start
 
@@ -135,9 +136,14 @@ Caddy's routes are **generated to match**, so a service you turned off leaves
 no dead route behind — no 502s, no half-configured vhosts.
 
 The dashboard is responsive, so the hub works from a phone as well as a desk.
-Cards are grouped into **My projects**, **Self-hosted services** and **Admin
-panels**; on a phone they become compact three-up tiles (icon, name and a green
-Live dot). It is a night pond: the water ripples under the pointer, a cat-eared
+Cards are grouped into **My projects** and **Self-hosted services** (the admin
+panels are not on the page: the bot hands their owner a signed one-hour link);
+on a phone they become compact three-up tiles (icon, name and a green Live dot).
+A **search field** under the title filters every card as you type: it matches
+the name, the description and per-card everyday words in English and Russian
+("video", "скачать", "pdf"), `/` puts the cursor there and Enter opens the first
+hit (`dashboard/src/search.ts`). The mascot comes in two drawings, picked in
+`dashboard/src/logo.ts`. It is a night pond: the water ripples under the pointer, a cat-eared
 duck leads her ducklings round the edge of the window (tap the big duck to add
 one; not on phones), and a duck peeks over whichever card you hover. After 30 s
 without input, or while the tab is in the background, every animation pauses and
@@ -147,7 +153,7 @@ makes no third-party requests.
 
 </td><td width="42%" valign="top">
 
-<img src="docs/img/hub-mobile.png" alt="The dashboard on a phone: three-column metrics and compact three-up service tiles" width="100%">
+<img src="docs/img/hub-mobile.png" alt="The dashboard on a phone: the search field, three-column metrics and compact three-up service tiles" width="100%">
 
 </td></tr>
 </table>
@@ -299,7 +305,9 @@ you when something breaks** — a full disk, a crash-looping container, an
 expiring certificate, a GPU lost to a driver upgrade, or DNS no longer pointing
 at your IP — and again when it's fixed. It also lists the hub's links and hands
 **you, and only you**, the logins for your services, in a message that deletes
-itself after a minute.
+itself after a minute. Everything you rarely touch (member services, usage
+notifications, SSH alerts, language, and an optional **GPU miner switch** that
+pauses itself whenever the GPU is needed) sits behind one **⚙️ Control** menu.
 
 <img src="docs/img/miniapp.png" alt="The Telegram Mini App: a member's home card with the Support block under it, the Extend screen with prices in Telegram Stars and dollars, and photo upscaling with a picture in progress" width="100%">
 
@@ -471,7 +479,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | | |
 |---|---|
 | 🚀 **[DEPLOY.md](docs/DEPLOY.md)** | First deployment — host prep, DNS, router ports, permissions, migrating an existing install |
-| 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, host safety (reboot on a kernel crash, Docker waits for the data disk), and the failure modes worth knowing in advance |
+| 🔧 **[OPERATIONS.md](docs/OPERATIONS.md)** | Daily commands, backups, upgrade rules, a real call test for Matrix (direct and TURN over 443), host safety (reboot on a kernel crash, Docker waits for the data disk), and the failure modes worth knowing in advance |
 | 🛡️ **[VPN.md](docs/VPN.md)** | Both VPN paths, obfuscation, handing out configs |
 | 📈 **[CRYPTO.md](docs/CRYPTO.md)** | Price and volatility alerts, news digest, "why did it move", Telegram setup |
 | 🔍 **[UPSCALER.md](docs/UPSCALER.md)** | The GPU photo upscaler — setup, models, Vulkan in Docker, limits |
@@ -481,6 +489,7 @@ the main directory cannot recreate or destroy them, and vice versa.
 | 🤖 **[HELPER.md](docs/HELPER.md)** | The Telegram bots and Mini App — health alerts, memberships and codes, free trial, payments in Stars and crypto, admins, VPN by app, downloader and the public video page, audiobooks, photo upscaling, Russian/English |
 | 🏠 **[HOMEASSISTANT.md](docs/HOMEASSISTANT.md)** | Optional: Home Assistant for devices in another place, on a secret path (no subdomain), webhooks for ESP32s |
 | 🔒 **[SSH-GUARD.md](docs/SSH-GUARD.md)** | Optional: fail2ban for the host's SSH (root and made-up users banned at once), new-login alerts and a daily summary in Telegram |
+| ⛏ **[MINER.md](docs/MINER.md)** | Optional: a GPU miner with an on/off switch in the bot and a guard that yields the GPU to real work |
 | 🎬 **[PLEX.md](docs/PLEX.md)** | Movies, series and anime through Nextcloud into Plex — naming, metadata, anime caveats |
 | 🔬 **[research/](docs/research/README.md)** | Dated research reports — censorship-resistant VPN transports, the multi-user downloader, fast crypto news sources, AmneziaVPN deep links — and the decisions taken from them |
 | 🟦 **[TYPESCRIPT.md](docs/TYPESCRIPT.md)** | The typed front ends — strict setup, the API/i18n/form contracts, the two build shapes, contributor conventions, migration pitfalls |

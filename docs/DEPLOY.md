@@ -57,8 +57,8 @@ A wildcard `*.example.com` covers all of them.
 certificates on first boot, and Let's Encrypt rate-limits failures. Check with
 `dig +short cloud.example.com` from somewhere other than the server.
 
-On a dynamic IP, you need a dynamic-DNS updater — the stack does not ship one,
-and a stale record means expired certificates a few weeks later.
+On a dynamic IP, run the bundled updater from cron: `scripts/ddns-update.py` keeps FreeDNS records on the
+current address (setup in [OPERATIONS.md](OPERATIONS.md)); with another DNS provider use its own client.
 
 ## 3. Router / firewall
 
