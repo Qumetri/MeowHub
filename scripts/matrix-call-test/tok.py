@@ -1,12 +1,17 @@
 import json,os,urllib.request,sys,re
 PW=open(sys.argv[1]).read().strip(); SFX=sys.argv[3] if len(sys.argv)>3 else ''; HS='https://'+os.environ.get('MATRIX_HOST','matrix.'+os.environ['BASE_DOMAIN'])
-def req(url,data=None,tok=None,method=None):
+def req(url,data=None,tok=None,method=None,_try=0):
     h={'Content-Type':'application/json','User-Agent':'calltest'}
     if tok: h['Authorization']='Bearer '+tok
     r=urllib.request.Request(url,json.dumps(data).encode() if data is not None else None,h,method=method)
     try:
         with urllib.request.urlopen(r,timeout=20) as f: return f.status,json.loads(f.read() or b'{}')
-    except urllib.error.HTTPError as e: return e.code,e.read()[:300]
+    except urllib.error.HTTPError as e:
+        body=e.read()
+        if e.code==429 and _try<4:           # Synapse rate-limits logins: wait as long as it asks, then retry
+            import time; time.sleep(min(30,json.loads(body).get('retry_after_ms',3000)/1000+0.5))
+            return req(url,data,tok,method,_try+1)
+        return e.code,body[:300]
 wk=req('https://'+os.environ['BASE_DOMAIN']+'/.well-known/matrix/client')[1]
 jwt=wk['org.matrix.msc4143.rtc_foci'][0]['livekit_service_url']
 out={}
